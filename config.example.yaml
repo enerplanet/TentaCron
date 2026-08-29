@@ -1,0 +1,85 @@
+# Tentacron configuration reference.
+# $${VAR} references are interpolated from the environment at startup;
+# referencing an unset variable aborts startup. Use $$$$ for a literal $$.
+# (Interpolation runs over the whole file, comments included.)
+
+server:
+  addr: ":8080"
+  read_timeout: 10s
+  write_timeout: 30s
+  shutdown_grace: 20s
+  max_body_bytes: 10485760 # 10 MiB, also caps upstream response bodies
+
+auth:
+  api_keys: # named per-client keys, individually revocable
+    - name: frontend
+      key: "${TENTACRON_KEY_FRONTEND}"
+    - name: batch-runner
+      key: "${TENTACRON_KEY_BATCH}"
+
+storage:
+  path: ./data/tentacron.db
+  results_dir: ./data/results # large/binary target results land here
+  retention: 720h # completed/failed jobs pruned after 30 days
+
+worker:
+  count: 4 # concurrent jobs
+  resolvent_concurrency: 4 # per-job fan-out bound to resource APIs
+  poll_interval: 2s # queue poll cadence (also picks up scheduled retries)
+  max_attempts: 5
+  backoff_base: 2s
+  backoff_max: 60s
+  job_timeout: 5m # per processing attempt (resolution + forwarding)
+
+cache:
+  default_ttl: 6h # resolved-series reuse window
+  cleanup_interval: 15m
+
+targets:
+  meme:
+    url: "https://meme.example.com/simulate?target=all"
+    method: POST
+    api_key: "${MEME_API_KEY}"
+    api_key_inject: body_field # meme expects a top-level api_key in the body
+    api_key_field: api_key
+    timeout: 60s
+    timeseries_path: "model.timeseries" # meme spells it without the dash
+    response:
+      mode: poll # meme /simulate is async: 202 + job id
+      poll:
+        id_json_path: "job_id" # where the job id sits in the 202 body
+        url_template: "https://meme.example.com/jobs/{id}"
+        status_json_path: "status"
+        done_values: [done, completed]
+        failed_values: [failed, error]
+        # result_url_template defaults to url_template
+        interval: 10s
+        timeout: 30m
+
+  buem:
+    url: "https://buem.example.com/v1/run"
+    method: POST
+    api_key: "${BUEM_API_KEY}"
+    api_key_inject: header
+    api_key_header: X-API-Key
+    timeout: 30s
+    timeseries_path: "time-series"
+    response:
+      mode: direct # buem answers in the same call
+
+resolvents:
+  resolvent-pv1:
+    url: "https://pvsim.example.com/v1/generate"
+    method: POST
+    api_key: "${PV1_API_KEY}"
+    api_key_header: X-API-Key
+    timeout: 30s
+    cache_ttl: 24h
+
+  resolvent-wind:
+    url: "https://windsim.example.com/v1/series"
+    method: POST
+    api_key: "${WIND_API_KEY}"
+    api_key_header: X-API-Key
+    timeout: 30s
+    cache_ttl: 24h
