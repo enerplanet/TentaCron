@@ -6,3 +6,9 @@ site/
 __pycache__/
 venv/
 .vscode/
+
+# Go build and runtime artifacts
+bin/
+data/
+*.db
+coverage.out
