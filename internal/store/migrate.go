@@ -49,7 +49,8 @@ func (s *Store) migrate(ctx context.Context) error {
 	sort.Strings(names)
 
 	for _, name := range names {
-		version, err := strconv.Atoi(strings.SplitN(name, "_", 2)[0])
+		prefix, _, _ := strings.Cut(name, "_")
+		version, err := strconv.Atoi(prefix)
 		if err != nil {
 			return fmt.Errorf("migration %s: name must start with a numeric version", name)
 		}

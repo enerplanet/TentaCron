@@ -10,7 +10,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"log/slog"
 	"net/http"
 	"strings"
 	"time"
@@ -53,33 +52,29 @@ const errBodyExcerpt = 512
 type Client struct {
 	http    *http.Client
 	maxBody int64
-	logger  *slog.Logger
 }
 
 // New builds a Client. maxBody caps every upstream response body.
-func New(maxBody int64, logger *slog.Logger) *Client {
+func New(maxBody int64) *Client {
 	return &Client{
 		// Per-call deadlines come from contexts; the transport-level timeout
 		// is a safety net against connections that hang forever.
 		http:    &http.Client{Timeout: 10 * time.Minute},
 		maxBody: maxBody,
-		logger:  logger,
 	}
 }
 
-// do performs one HTTP call and classifies the outcome. 2xx returns the
-// (size-capped) body; anything else returns an *Error.
-func (c *Client) do(ctx context.Context, op, method, url string, body []byte, headers map[string]string, timeout time.Duration) (int, []byte, error) {
-	callCtx, cancel := context.WithTimeout(ctx, timeout)
-	defer cancel()
-
+// send builds and performs one HTTP request, classifying transport-level
+// failures (request build = permanent, network = transient). The caller owns
+// the response body.
+func (c *Client) send(ctx context.Context, op, method, url string, body []byte, headers map[string]string) (*http.Response, error) {
 	var reader io.Reader
 	if body != nil {
 		reader = bytes.NewReader(body)
 	}
-	req, err := http.NewRequestWithContext(callCtx, method, url, reader)
+	req, err := http.NewRequestWithContext(ctx, method, url, reader)
 	if err != nil {
-		return 0, nil, &Error{Op: op, Transient: false, Err: err}
+		return nil, &Error{Op: op, Transient: false, Err: err}
 	}
 	if body != nil {
 		req.Header.Set("Content-Type", "application/json")
@@ -92,7 +87,20 @@ func (c *Client) do(ctx context.Context, op, method, url string, body []byte, he
 	resp, err := c.http.Do(req)
 	if err != nil {
 		// Timeouts, refused connections, DNS failures: all retryable.
-		return 0, nil, &Error{Op: op, Transient: true, Err: err}
+		return nil, &Error{Op: op, Transient: true, Err: err}
+	}
+	return resp, nil
+}
+
+// do performs one HTTP call and classifies the outcome. 2xx returns the
+// (size-capped) body; anything else returns an *Error.
+func (c *Client) do(ctx context.Context, op, method, url string, body []byte, headers map[string]string, timeout time.Duration) (int, []byte, error) {
+	callCtx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+
+	resp, err := c.send(callCtx, op, method, url, body, headers)
+	if err != nil {
+		return 0, nil, err
 	}
 	defer resp.Body.Close()
 
@@ -113,18 +121,6 @@ func (c *Client) do(ctx context.Context, op, method, url string, body []byte, he
 	default:
 		return resp.StatusCode, nil, &Error{Op: op, Status: resp.StatusCode, Transient: false, Body: excerpt(respBody)}
 	}
-}
-
-func newGetRequest(ctx context.Context, url string, headers map[string]string) (*http.Request, error) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
-	if err != nil {
-		return nil, err
-	}
-	req.Header.Set("Accept", "application/json")
-	for k, v := range headers {
-		req.Header.Set(k, v)
-	}
-	return req, nil
 }
 
 func readCapped(r io.Reader, maxBody int64) ([]byte, error) {

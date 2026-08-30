@@ -85,7 +85,9 @@ func (p *Pool) drain(ctx context.Context) {
 }
 
 // pollInterval supplies the per-target poll cadence used by the store when it
-// claims a poll tick (pushing next_attempt_at forward).
+// claims a poll tick (pushing next_attempt_at forward). The Worker.PollInterval
+// fallback only applies when an awaiting_target job's target lost its poll
+// config; it keeps the job claimable so processPoll can fail it promptly.
 func (p *Pool) pollInterval(target string) time.Duration {
 	if t, ok := p.cfg.Targets[target]; ok && t.Response.Mode == config.ModePoll && t.Response.Poll != nil {
 		return t.Response.Poll.Interval.Std()

@@ -17,7 +17,7 @@ func paramHash(resolventType string, obj map[string]any) (string, error) {
 	}
 	h := sha256.New()
 	h.Write([]byte(resolventType))
-	h.Write([]byte{0})
+	h.Write([]byte{0}) // separator: keeps (type, params) pairs from colliding across the boundary
 	h.Write(canonical)
 	return hex.EncodeToString(h.Sum(nil)), nil
 }

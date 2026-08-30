@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net/http"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -16,18 +18,24 @@ type ForwardResult struct {
 	Body   []byte
 }
 
+// authHeaders returns the outbound header map for a target call, carrying the
+// API key when the target uses header injection.
+func authHeaders(tcfg config.Target) map[string]string {
+	headers := map[string]string{}
+	if tcfg.APIKeyInject == config.InjectHeader {
+		headers[tcfg.APIKeyHeader] = tcfg.APIKey
+	}
+	return headers
+}
+
 // ForwardToTarget sends the resolved payload to the target API. The target's
 // API key is injected into the outbound bytes only — stored payloads stay
 // credential-free.
 func (c *Client) ForwardToTarget(ctx context.Context, name string, tcfg config.Target, payload []byte) (*ForwardResult, error) {
 	op := "target " + name
-	headers := map[string]string{}
+	headers := authHeaders(tcfg)
 	outbound := payload
-
-	switch tcfg.APIKeyInject {
-	case config.InjectHeader:
-		headers[tcfg.APIKeyHeader] = tcfg.APIKey
-	case config.InjectBodyField:
+	if tcfg.APIKeyInject == config.InjectBodyField {
 		var doc map[string]any
 		if err := json.Unmarshal(payload, &doc); err != nil {
 			return nil, &Error{Op: op, Transient: false, Err: fmt.Errorf("payload not an object for key injection: %w", err)}
@@ -78,11 +86,7 @@ func ExtractJobID(acceptBody []byte, poll *config.Poll) (string, error) {
 func (c *Client) PollTarget(ctx context.Context, name string, tcfg config.Target, targetJobID string) (*PollStatus, error) {
 	poll := tcfg.Response.Poll
 	url := strings.ReplaceAll(poll.URLTemplate, "{id}", targetJobID)
-	headers := map[string]string{}
-	if tcfg.APIKeyInject == config.InjectHeader {
-		headers[tcfg.APIKeyHeader] = tcfg.APIKey
-	}
-	_, body, err := c.do(ctx, "poll "+name, "GET", url, nil, headers, tcfg.Timeout.Std())
+	_, body, err := c.do(ctx, "poll "+name, http.MethodGet, url, nil, authHeaders(tcfg), tcfg.Timeout.Std())
 	if err != nil {
 		return nil, err
 	}
@@ -93,42 +97,30 @@ func (c *Client) PollTarget(ctx context.Context, name string, tcfg config.Target
 			Err: fmt.Errorf("extract status at %q: %w", poll.StatusJSONPath, err)}
 	}
 	raw := fmt.Sprintf("%v", v)
-	st := &PollStatus{Raw: raw, Body: body}
-	for _, d := range poll.DoneValues {
-		if raw == d {
-			st.Done = true
-		}
-	}
-	for _, f := range poll.FailedValues {
-		if raw == f {
-			st.Failed = true
-		}
-	}
-	return st, nil
+	return &PollStatus{
+		Raw:    raw,
+		Body:   body,
+		Done:   slices.Contains(poll.DoneValues, raw),
+		Failed: slices.Contains(poll.FailedValues, raw),
+	}, nil
 }
 
-// FetchResult retrieves the finished target job's result.
+// FetchResult retrieves the finished target job's result. It bypasses c.do
+// because the response's Content-Type header must be captured for storage
+// alongside the body.
 func (c *Client) FetchResult(ctx context.Context, name string, tcfg config.Target, targetJobID string) (contentType string, body []byte, err error) {
 	poll := tcfg.Response.Poll
 	url := strings.ReplaceAll(poll.ResultURLTemplate, "{id}", targetJobID)
-	headers := map[string]string{}
-	if tcfg.APIKeyInject == config.InjectHeader {
-		headers[tcfg.APIKeyHeader] = tcfg.APIKey
-	}
 
 	callCtx, cancel := context.WithTimeout(ctx, tcfg.Timeout.Std())
 	defer cancel()
-	req, err := newGetRequest(callCtx, url, headers)
+	resp, err := c.send(callCtx, "result "+name, http.MethodGet, url, nil, authHeaders(tcfg))
 	if err != nil {
-		return "", nil, &Error{Op: "result " + name, Transient: false, Err: err}
-	}
-	resp, err := c.http.Do(req)
-	if err != nil {
-		return "", nil, &Error{Op: "result " + name, Transient: true, Err: err}
+		return "", nil, err
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		transient := resp.StatusCode == 429 || resp.StatusCode >= 500
+		transient := resp.StatusCode == http.StatusTooManyRequests || resp.StatusCode >= 500
 		return "", nil, &Error{Op: "result " + name, Status: resp.StatusCode, Transient: transient}
 	}
 	body, err = readCapped(resp.Body, c.maxBody)

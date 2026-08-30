@@ -5,10 +5,14 @@ import (
 	"fmt"
 	"net/url"
 	"strings"
+
+	"github.com/enerplanet/tentacron/internal/resolver"
 )
 
 // ResolventTypePrefix is the required prefix of resolvent type identifiers.
-const ResolventTypePrefix = "resolvent-"
+// It aliases resolver.TypePrefix so config validation and payload resolution
+// can never disagree on what marks a resolvent object.
+const ResolventTypePrefix = resolver.TypePrefix
 
 // Validate checks the configuration for consistency. All problems are
 // reported at once so the operator can fix a config file in one pass.
@@ -40,7 +44,9 @@ func (c *Config) Validate() error {
 	}
 	for name, t := range c.Targets {
 		p := "targets." + name
-		checkURL(&errs, p+".url", t.URL)
+		if err := checkURL(p+".url", t.URL); err != nil {
+			errs = append(errs, err)
+		}
 		if !validMethod(t.Method) {
 			fail("%s.method: %q is not a supported HTTP method", p, t.Method)
 		}
@@ -66,7 +72,9 @@ func (c *Config) Validate() error {
 			if !strings.Contains(pl.URLTemplate, "{id}") {
 				fail("%s.response.poll.url_template: must contain the {id} placeholder", p)
 			}
-			checkURL(&errs, p+".response.poll.url_template", strings.ReplaceAll(pl.URLTemplate, "{id}", "x"))
+			if err := checkURL(p+".response.poll.url_template", strings.ReplaceAll(pl.URLTemplate, "{id}", "x")); err != nil {
+				errs = append(errs, err)
+			}
 			if pl.StatusJSONPath == "" {
 				fail("%s.response.poll.status_json_path: required", p)
 			}
@@ -83,7 +91,9 @@ func (c *Config) Validate() error {
 		if !strings.HasPrefix(name, ResolventTypePrefix) {
 			fail("%s: resolvent type must start with %q", p, ResolventTypePrefix)
 		}
-		checkURL(&errs, p+".url", r.URL)
+		if err := checkURL(p+".url", r.URL); err != nil {
+			errs = append(errs, err)
+		}
 		if !validMethod(r.Method) {
 			fail("%s.method: %q is not a supported HTTP method", p, r.Method)
 		}
@@ -92,15 +102,15 @@ func (c *Config) Validate() error {
 	return errors.Join(errs...)
 }
 
-func checkURL(errs *[]error, field, raw string) {
+func checkURL(field, raw string) error {
 	if raw == "" {
-		*errs = append(*errs, fmt.Errorf("%s: required", field))
-		return
+		return fmt.Errorf("%s: required", field)
 	}
 	u, err := url.Parse(raw)
 	if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
-		*errs = append(*errs, fmt.Errorf("%s: %q is not a valid http(s) URL", field, raw))
+		return fmt.Errorf("%s: %q is not a valid http(s) URL", field, raw)
 	}
+	return nil
 }
 
 func validMethod(m string) bool {

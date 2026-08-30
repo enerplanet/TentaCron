@@ -1,4 +1,3 @@
-// Package api implements tentacron's public HTTP interface.
 package api
 
 import (

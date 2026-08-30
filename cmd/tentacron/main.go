@@ -48,7 +48,7 @@ func run() error {
 	}
 
 	nudge := make(chan struct{}, 1)
-	client := upstream.New(cfg.Server.MaxBodyBytes, logger)
+	client := upstream.New(cfg.Server.MaxBodyBytes)
 	pool := worker.New(cfg, st, client, logger, nudge)
 	server := api.New(cfg, st, logger, nudge)
 
@@ -56,12 +56,16 @@ func run() error {
 		Addr:              cfg.Server.Addr,
 		Handler:           server.Handler(),
 		ReadTimeout:       cfg.Server.ReadTimeout.Std(),
-		ReadHeaderTimeout: cfg.Server.ReadTimeout.Std(),
+		ReadHeaderTimeout: cfg.Server.ReadTimeout.Std(), // deliberately the same knob; no separate header timeout in the config
 		WriteTimeout:      cfg.Server.WriteTimeout.Std(),
 	}
 
 	rootCtx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
+	// workerCtx is deliberately not derived from rootCtx: on shutdown the
+	// workers must keep finishing in-flight jobs while the HTTP server
+	// drains, and are only cancelled explicitly afterwards (or immediately
+	// on a fatal server error; see the shutdown sequence below).
 	workerCtx, cancelWorkers := context.WithCancel(context.Background())
 	defer cancelWorkers()
 

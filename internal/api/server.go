@@ -1,3 +1,6 @@
+// Package api implements tentacron's public HTTP interface: job submission
+// and retrieval under /v1/requests, health endpoints, API-key authentication
+// and the shared JSON error envelope.
 package api
 
 import (

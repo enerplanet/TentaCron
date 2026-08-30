@@ -26,44 +26,53 @@ type createResponse struct {
 	Links map[string]string `json:"links"`
 }
 
-func (s *Server) handleCreate(w http.ResponseWriter, r *http.Request) {
+// decodeCreateRequest parses and validates the create-request body, writing
+// the client error response itself when the request is unusable.
+func (s *Server) decodeCreateRequest(w http.ResponseWriter, r *http.Request) (createRequest, bool) {
+	var req createRequest
 	if ct := r.Header.Get("Content-Type"); ct != "" {
 		if mt, _, err := mime.ParseMediaType(ct); err != nil || mt != "application/json" {
 			writeError(w, http.StatusUnsupportedMediaType, CodeUnsupportedMediaType,
 				"Content-Type must be application/json")
-			return
+			return req, false
 		}
 	}
 
 	r.Body = http.MaxBytesReader(w, r.Body, s.cfg.Server.MaxBodyBytes)
-	var req createRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		var maxErr *http.MaxBytesError
 		if errors.As(err, &maxErr) {
 			writeError(w, http.StatusRequestEntityTooLarge, CodePayloadTooLarge,
 				"request body exceeds the configured limit")
-			return
+			return req, false
 		}
 		writeError(w, http.StatusBadRequest, CodeInvalidJSON, "request body is not valid JSON")
-		return
+		return req, false
 	}
 
 	switch {
 	case req.APIKey == "":
 		writeError(w, http.StatusBadRequest, CodeMissingField, "api_key is required")
-		return
+		return req, false
 	case req.Target == "":
 		writeError(w, http.StatusBadRequest, CodeMissingField, "target is required")
-		return
+		return req, false
 	case len(req.Payload) == 0 || string(req.Payload) == "null":
 		writeError(w, http.StatusBadRequest, CodeMissingField, "payload is required")
-		return
+		return req, false
 	}
 	if trimmed := strings.TrimSpace(string(req.Payload)); !strings.HasPrefix(trimmed, "{") {
 		writeError(w, http.StatusBadRequest, CodeInvalidJSON, "payload must be a JSON object")
+		return req, false
+	}
+	return req, true
+}
+
+func (s *Server) handleCreate(w http.ResponseWriter, r *http.Request) {
+	req, ok := s.decodeCreateRequest(w, r)
+	if !ok {
 		return
 	}
-
 	client, ok := s.authenticate(req.APIKey)
 	if !ok {
 		writeError(w, http.StatusUnauthorized, CodeUnauthorized, "invalid api_key")
@@ -77,8 +86,7 @@ func (s *Server) handleCreate(w http.ResponseWriter, r *http.Request) {
 
 	id, err := store.NewID()
 	if err != nil {
-		s.logger.Error("id generation failed", "error", err)
-		writeError(w, http.StatusInternalServerError, CodeInternal, "internal server error")
+		s.internalError(w, "id generation failed", err)
 		return
 	}
 	job := &store.Job{
@@ -90,8 +98,7 @@ func (s *Server) handleCreate(w http.ResponseWriter, r *http.Request) {
 	}
 	created, stored, err := s.store.CreateJob(r.Context(), job)
 	if err != nil {
-		s.logger.Error("create job failed", "error", err)
-		writeError(w, http.StatusInternalServerError, CodeInternal, "internal server error")
+		s.internalError(w, "create job failed", err)
 		return
 	}
 	if created {
@@ -133,26 +140,33 @@ type errorInfo struct {
 	Message string `json:"message"`
 }
 
-func (s *Server) authFromHeader(w http.ResponseWriter, r *http.Request) bool {
-	if _, ok := s.authenticate(r.Header.Get("X-API-Key")); !ok {
-		writeError(w, http.StatusUnauthorized, CodeUnauthorized, "missing or invalid X-API-Key header")
-		return false
+// jobFromPath loads the job addressed by the {id} path segment, writing the
+// 404/500 response itself when it cannot.
+func (s *Server) jobFromPath(w http.ResponseWriter, r *http.Request) (*store.Job, bool) {
+	job, err := s.store.GetJob(r.Context(), r.PathValue("id"))
+	if errors.Is(err, store.ErrNotFound) {
+		writeError(w, http.StatusNotFound, CodeNotFound, "no such request")
+		return nil, false
 	}
-	return true
+	if err != nil {
+		s.internalError(w, "get job failed", err)
+		return nil, false
+	}
+	return job, true
+}
+
+// internalError logs the cause and answers with the opaque 500 error body.
+func (s *Server) internalError(w http.ResponseWriter, logMsg string, err error) {
+	s.logger.Error(logMsg, "error", err)
+	writeError(w, http.StatusInternalServerError, CodeInternal, "internal server error")
 }
 
 func (s *Server) handleGet(w http.ResponseWriter, r *http.Request) {
 	if !s.authFromHeader(w, r) {
 		return
 	}
-	job, err := s.store.GetJob(r.Context(), r.PathValue("id"))
-	if errors.Is(err, store.ErrNotFound) {
-		writeError(w, http.StatusNotFound, CodeNotFound, "no such request")
-		return
-	}
-	if err != nil {
-		s.logger.Error("get job failed", "error", err)
-		writeError(w, http.StatusInternalServerError, CodeInternal, "internal server error")
+	job, ok := s.jobFromPath(w, r)
+	if !ok {
 		return
 	}
 	writeJSON(w, http.StatusOK, toJobResponse(job))
@@ -181,8 +195,7 @@ func (s *Server) handleList(w http.ResponseWriter, r *http.Request) {
 	}
 	jobs, err := s.store.ListJobs(r.Context(), state, limit)
 	if err != nil {
-		s.logger.Error("list jobs failed", "error", err)
-		writeError(w, http.StatusInternalServerError, CodeInternal, "internal server error")
+		s.internalError(w, "list jobs failed", err)
 		return
 	}
 	items := make([]jobResponse, 0, len(jobs))
@@ -196,14 +209,8 @@ func (s *Server) handleResult(w http.ResponseWriter, r *http.Request) {
 	if !s.authFromHeader(w, r) {
 		return
 	}
-	job, err := s.store.GetJob(r.Context(), r.PathValue("id"))
-	if errors.Is(err, store.ErrNotFound) {
-		writeError(w, http.StatusNotFound, CodeNotFound, "no such request")
-		return
-	}
-	if err != nil {
-		s.logger.Error("get job failed", "error", err)
-		writeError(w, http.StatusInternalServerError, CodeInternal, "internal server error")
+	job, ok := s.jobFromPath(w, r)
+	if !ok {
 		return
 	}
 	if job.State != store.StateCompleted {

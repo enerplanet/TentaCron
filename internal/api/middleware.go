@@ -39,7 +39,8 @@ func (s *Server) withRequestLog(next http.Handler) http.Handler {
 	})
 }
 
-// withRecovery turns panics into a clean 500 without killing the server.
+// withRecovery turns handler panics into a JSON 500 and a structured log
+// entry; without it net/http logs the stack and just drops the connection.
 func (s *Server) withRecovery(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		defer func() {

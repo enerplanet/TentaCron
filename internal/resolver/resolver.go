@@ -69,12 +69,12 @@ func Find(root map[string]any, path string) ([]*Found, error) {
 	}
 	var found []*Found
 	var err error
-	walk(container, func(obj map[string]any, replace func(map[string]any)) {
-		typ := obj[typeKey].(string) // walk only reports objects with a string type
-		var hash string
-		if err == nil {
-			hash, err = paramHash(typ, obj)
+	walk(container, func(typ string, obj map[string]any, replace func(map[string]any)) {
+		if err != nil {
+			return // a hash already failed; Find returns the error and discards found
 		}
+		var hash string
+		hash, err = paramHash(typ, obj)
 		found = append(found, &Found{Type: typ, Hash: hash, Object: obj, replace: replace})
 	})
 	if err != nil {
@@ -84,16 +84,18 @@ func Find(root map[string]any, path string) ([]*Found, error) {
 }
 
 // walk visits arrays and objects below node, reporting each resolvent object
-// together with a closure that overwrites its slot in the parent container.
-// It does not descend into resolvent objects (their properties are opaque
-// resource-API parameters) nor into genuine time-series objects (data).
-func walk(node any, report func(obj map[string]any, replace func(map[string]any))) {
+// together with its type and a closure that overwrites its slot in the parent
+// container. It does not descend into resolvent objects (their properties are
+// opaque resource-API parameters) nor into genuine time-series objects (data).
+func walk(node any, report func(typ string, obj map[string]any, replace func(map[string]any))) {
 	switch v := node.(type) {
 	case []any:
 		for i, elem := range v {
-			if obj, ok := elem.(map[string]any); ok && isResolvent(obj) {
-				report(obj, func(series map[string]any) { v[i] = series })
-				continue
+			if obj, ok := elem.(map[string]any); ok {
+				if typ, ok := resolventType(obj); ok {
+					report(typ, obj, func(series map[string]any) { v[i] = series })
+					continue
+				}
 			}
 			walk(elem, report)
 		}
@@ -102,24 +104,32 @@ func walk(node any, report func(obj map[string]any, replace func(map[string]any)
 			return
 		}
 		for k, elem := range v {
-			if obj, ok := elem.(map[string]any); ok && isResolvent(obj) {
-				report(obj, func(series map[string]any) { v[k] = series })
-				continue
+			if obj, ok := elem.(map[string]any); ok {
+				if typ, ok := resolventType(obj); ok {
+					report(typ, obj, func(series map[string]any) { v[k] = series })
+					continue
+				}
 			}
 			walk(elem, report)
 		}
 	}
 }
 
-func isResolvent(obj map[string]any) bool {
+// resolventType reports obj's resolvent type, if obj is a resolvent object.
+func resolventType(obj map[string]any) (string, bool) {
 	typ, ok := obj[typeKey].(string)
-	return ok && strings.HasPrefix(typ, TypePrefix)
+	if !ok || !strings.HasPrefix(typ, TypePrefix) {
+		return "", false
+	}
+	return typ, true
 }
 
 // Substitute replaces the found resolvent with the resource API's response.
 // The response must be a JSON object; it gets the original resolvent object
 // attached under "resolvent" and overwrites the resolvent's slot in the
 // payload. Non-fatal oddities are returned as warnings.
+// Each call decodes seriesBody afresh, so duplicate resolvents fed the same
+// cached body never share the substituted map.
 func (f *Found) Substitute(seriesBody []byte) (warnings []string, err error) {
 	var series map[string]any
 	if err := json.Unmarshal(seriesBody, &series); err != nil {

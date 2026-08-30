@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"io"
-	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -15,7 +14,7 @@ import (
 )
 
 func testClient(maxBody int64) *Client {
-	return New(maxBody, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	return New(maxBody)
 }
 
 func dur(d time.Duration) config.Duration { return config.Duration(d) }

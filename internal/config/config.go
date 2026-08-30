@@ -2,10 +2,9 @@
 package config
 
 import (
-	"bytes"
 	"fmt"
 	"os"
-	"sort"
+	"slices"
 	"strings"
 	"time"
 
@@ -154,7 +153,7 @@ func Load(path string) (*Config, error) {
 		return nil, err
 	}
 
-	dec := yaml.NewDecoder(bytes.NewReader([]byte(expanded)))
+	dec := yaml.NewDecoder(strings.NewReader(expanded))
 	dec.KnownFields(true)
 	var cfg Config
 	if err := dec.Decode(&cfg); err != nil {
@@ -184,20 +183,11 @@ func expandEnv(s string) (string, error) {
 		return v
 	})
 	if len(missing) > 0 {
-		sort.Strings(missing)
-		return "", fmt.Errorf("config references unset environment variables: %s", strings.Join(dedupe(missing), ", "))
+		slices.Sort(missing)
+		missing = slices.Compact(missing)
+		return "", fmt.Errorf("config references unset environment variables: %s", strings.Join(missing, ", "))
 	}
 	return out, nil
-}
-
-func dedupe(in []string) []string {
-	out := in[:0]
-	for i, v := range in {
-		if i == 0 || in[i-1] != v {
-			out = append(out, v)
-		}
-	}
-	return out
 }
 
 func (c *Config) applyDefaults() {
@@ -237,52 +227,59 @@ func (c *Config) applyDefaults() {
 	setDur(&c.Cache.CleanupInterval, 15*time.Minute)
 
 	for name, t := range c.Targets {
-		if t.Method == "" {
-			t.Method = "POST"
-		}
-		if t.TimeseriesPath == "" {
-			t.TimeseriesPath = "time-series"
-		}
-		setDur(&t.Timeout, 60*time.Second)
-		if t.APIKeyInject == "" {
-			if t.APIKey == "" {
-				t.APIKeyInject = InjectNone
-			} else {
-				t.APIKeyInject = InjectHeader
-			}
-		}
-		if t.APIKeyInject == InjectBodyField && t.APIKeyField == "" {
-			t.APIKeyField = "api_key"
-		}
-		if t.APIKeyInject == InjectHeader && t.APIKeyHeader == "" {
-			t.APIKeyHeader = "X-API-Key"
-		}
-		if t.Response.Mode == "" {
-			t.Response.Mode = ModeDirect
-		}
-		if t.Response.Mode == ModePoll && t.Response.Poll != nil {
-			p := t.Response.Poll
-			setDur(&p.Interval, 10*time.Second)
-			setDur(&p.Timeout, 30*time.Minute)
-			if p.ResultURLTemplate == "" {
-				p.ResultURLTemplate = p.URLTemplate
-			}
-		}
+		t.applyDefaults()
 		c.Targets[name] = t
 	}
-
 	for name, r := range c.Resolvents {
-		if r.Method == "" {
-			r.Method = "POST"
-		}
-		if r.APIKeyHeader == "" {
-			r.APIKeyHeader = "X-API-Key"
-		}
-		setDur(&r.Timeout, 30*time.Second)
-		if r.CacheTTL == 0 {
-			r.CacheTTL = c.Cache.DefaultTTL
-		}
+		r.applyDefaults(c.Cache.DefaultTTL)
 		c.Resolvents[name] = r
+	}
+}
+
+func (t *Target) applyDefaults() {
+	if t.Method == "" {
+		t.Method = "POST"
+	}
+	if t.TimeseriesPath == "" {
+		t.TimeseriesPath = "time-series"
+	}
+	setDur(&t.Timeout, 60*time.Second)
+	if t.APIKeyInject == "" {
+		if t.APIKey == "" {
+			t.APIKeyInject = InjectNone
+		} else {
+			t.APIKeyInject = InjectHeader
+		}
+	}
+	if t.APIKeyInject == InjectBodyField && t.APIKeyField == "" {
+		t.APIKeyField = "api_key"
+	}
+	if t.APIKeyInject == InjectHeader && t.APIKeyHeader == "" {
+		t.APIKeyHeader = "X-API-Key"
+	}
+	if t.Response.Mode == "" {
+		t.Response.Mode = ModeDirect
+	}
+	if t.Response.Mode == ModePoll && t.Response.Poll != nil {
+		p := t.Response.Poll
+		setDur(&p.Interval, 10*time.Second)
+		setDur(&p.Timeout, 30*time.Minute)
+		if p.ResultURLTemplate == "" {
+			p.ResultURLTemplate = p.URLTemplate
+		}
+	}
+}
+
+func (r *Resolvent) applyDefaults(defaultTTL Duration) {
+	if r.Method == "" {
+		r.Method = "POST"
+	}
+	if r.APIKeyHeader == "" {
+		r.APIKeyHeader = "X-API-Key"
+	}
+	setDur(&r.Timeout, 30*time.Second)
+	if r.CacheTTL == 0 {
+		r.CacheTTL = defaultTTL
 	}
 }
 
