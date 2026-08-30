@@ -33,7 +33,13 @@ func Open(path string) (*Store, error) {
 	if err := os.MkdirAll(filepath.Dir(path), 0o750); err != nil {
 		return nil, fmt.Errorf("create db directory: %w", err)
 	}
+	// _txlock=immediate makes every transaction take the write lock at BEGIN.
+	// All transactions here write, and the default deferred mode upgrades a
+	// read snapshot to a write lock mid-transaction — which fails immediately
+	// with SQLITE_BUSY (no busy_timeout retry) when another writer committed
+	// in between, stranding jobs mid-transition under concurrent workers.
 	dsn := "file:" + path + "?" + url.Values{
+		"_txlock": []string{"immediate"},
 		"_pragma": []string{
 			"busy_timeout(5000)",
 			"journal_mode(WAL)",
@@ -45,6 +51,8 @@ func Open(path string) (*Store, error) {
 	if err != nil {
 		return nil, fmt.Errorf("open sqlite: %w", err)
 	}
+	// SQLite permits one writer at a time; a small pool lets reads run
+	// concurrently under WAL while busy_timeout absorbs write contention.
 	db.SetMaxOpenConns(4)
 	s := &Store{db: db}
 	if err := s.migrate(context.Background()); err != nil {
