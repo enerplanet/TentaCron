@@ -288,3 +288,22 @@ func setDur(d *Duration, def time.Duration) {
 		*d = Duration(def)
 	}
 }
+
+// UpstreamSecrets returns every configured downstream credential (target and
+// resolvent API keys). The upstream client redacts these from error excerpts
+// so a service echoing a request back can never leak a key into logs, the
+// audit store, or API responses.
+func (c *Config) UpstreamSecrets() []string {
+	var secrets []string
+	for _, t := range c.Targets {
+		if t.APIKey != "" {
+			secrets = append(secrets, t.APIKey)
+		}
+	}
+	for _, r := range c.Resolvents {
+		if r.APIKey != "" {
+			secrets = append(secrets, r.APIKey)
+		}
+	}
+	return secrets
+}

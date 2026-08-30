@@ -81,6 +81,11 @@ func (c *Config) Validate() error {
 			if len(pl.DoneValues) == 0 {
 				fail("%s.response.poll.done_values: at least one value is required", p)
 			}
+			// A status in both sets would fail every successful job: the
+			// worker checks Failed before Done.
+			if overlap := intersect(pl.DoneValues, pl.FailedValues); len(overlap) > 0 {
+				fail("%s.response.poll: done_values and failed_values overlap on %q", p, overlap)
+			}
 		default:
 			fail("%s.response.mode: must be \"direct\" or \"poll\" (got %q)", p, t.Response.Mode)
 		}
@@ -100,6 +105,20 @@ func (c *Config) Validate() error {
 	}
 
 	return errors.Join(errs...)
+}
+
+func intersect(a, b []string) []string {
+	inA := make(map[string]bool, len(a))
+	for _, v := range a {
+		inA[v] = true
+	}
+	var out []string
+	for _, v := range b {
+		if inA[v] {
+			out = append(out, v)
+		}
+	}
+	return out
 }
 
 func checkURL(field, raw string) error {

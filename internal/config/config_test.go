@@ -222,6 +222,25 @@ targets:
 			wantErr: "{id} placeholder",
 		},
 		{
+			name: "poll done and failed values overlap",
+			yaml: `
+auth:
+  api_keys: [{name: t, key: k}]
+targets:
+  meme:
+    url: "https://meme.example.com/simulate"
+    response:
+      mode: poll
+      poll:
+        id_json_path: job_id
+        url_template: "https://meme.example.com/jobs/{id}"
+        status_json_path: status
+        done_values: [finished, done]
+        failed_values: [error, finished]
+`,
+			wantErr: `overlap on ["finished"]`,
+		},
+		{
 			name: "resolvent bad prefix",
 			yaml: `
 auth:
