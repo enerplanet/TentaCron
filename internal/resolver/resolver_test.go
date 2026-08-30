@@ -3,6 +3,7 @@ package resolver
 import (
 	"encoding/json"
 	"reflect"
+	"strings"
 	"testing"
 )
 
@@ -266,7 +267,43 @@ func TestDuplicateResolventsShareHash(t *testing.T) {
 }
 
 func TestParseRejectsNonObjectPayload(t *testing.T) {
-	if _, err := Parse([]byte(`[1,2]`)); err == nil {
-		t.Error("array payload must be rejected")
+	for _, body := range []string{`[1,2]`, `null`} {
+		if _, err := Parse([]byte(body)); err == nil {
+			t.Errorf("Parse(%s): want error, got nil", body)
+		}
+	}
+}
+
+// Payload numbers must survive the decode -> substitute -> encode round trip
+// verbatim: float64 semantics would silently round integers above 2^53 in
+// the payload forwarded to the target.
+func TestNumberFidelityThroughRoundTrip(t *testing.T) {
+	root := parse(t, `{
+		"meter_id": 1234567890123456789,
+		"time-series": [{"type": "resolvent-pv1", "site_ref": 9007199254740993}]
+	}`)
+	found := find(t, root, "time-series")
+	// Resource responses land in the payload too and get the same fidelity.
+	if _, err := found[0].Substitute([]byte(`{"type":"time-series","reading":10000000000000000001}`)); err != nil {
+		t.Fatal(err)
+	}
+	out, err := Marshal(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, digits := range []string{"1234567890123456789", "9007199254740993", "10000000000000000001"} {
+		if !strings.Contains(string(out), digits) {
+			t.Errorf("number %s corrupted in round trip: %s", digits, out)
+		}
+	}
+}
+
+// "null" decodes into a nil map without error; Substitute must reject it
+// instead of panicking on the resolvent-key assignment.
+func TestSubstituteRejectsNull(t *testing.T) {
+	root := parse(t, `{"time-series":[{"type":"resolvent-pv1"}]}`)
+	found := find(t, root, "time-series")
+	if _, err := found[0].Substitute([]byte(`null`)); err == nil {
+		t.Fatal("Substitute(null) must error, not panic")
 	}
 }

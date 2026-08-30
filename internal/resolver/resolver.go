@@ -4,6 +4,7 @@
 package resolver
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"strings"
@@ -35,13 +36,29 @@ type Found struct {
 	replace func(series map[string]any)
 }
 
-// Parse decodes a payload into a mutable document root.
+// Parse decodes a payload into a mutable document root. Numbers are decoded
+// as json.Number so Marshal re-emits them verbatim — a float64 round-trip
+// would silently corrupt integers above 2^53 in the forwarded payload.
 func Parse(payload []byte) (map[string]any, error) {
-	var root map[string]any
-	if err := json.Unmarshal(payload, &root); err != nil {
+	root, err := decodeObject(payload)
+	if err != nil {
 		return nil, fmt.Errorf("payload is not a JSON object: %w", err)
 	}
 	return root, nil
+}
+
+// decodeObject decodes b into a non-nil object with number fidelity.
+func decodeObject(b []byte) (map[string]any, error) {
+	dec := json.NewDecoder(bytes.NewReader(b))
+	dec.UseNumber()
+	var obj map[string]any
+	if err := dec.Decode(&obj); err != nil {
+		return nil, err
+	}
+	if obj == nil {
+		return nil, fmt.Errorf("got null instead of an object")
+	}
+	return obj, nil
 }
 
 // Marshal re-encodes the (possibly mutated) document root.
@@ -131,8 +148,11 @@ func resolventType(obj map[string]any) (string, bool) {
 // Each call decodes seriesBody afresh, so duplicate resolvents fed the same
 // cached body never share the substituted map.
 func (f *Found) Substitute(seriesBody []byte) (warnings []string, err error) {
-	var series map[string]any
-	if err := json.Unmarshal(seriesBody, &series); err != nil {
+	// decodeObject keeps number fidelity (the series lands in the forwarded
+	// payload) and rejects "null", which would otherwise decode into a nil
+	// map and panic on the resolvent-key assignment below.
+	series, err := decodeObject(seriesBody)
+	if err != nil {
 		return nil, fmt.Errorf("resource response for %s is not a JSON object: %w", f.Type, err)
 	}
 	if typ, _ := series[typeKey].(string); typ != TimeSeriesType {
