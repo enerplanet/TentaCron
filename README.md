@@ -1,70 +1,113 @@
+# Tentacron
 
-# THD-Spatial-AI Repository Template
+Tentacron is an orchestration and *resolvent* API for renewable-energy modelling
+workflows. It accepts a model payload that still contains **resolvent objects**
+(placeholders such as `"type": "resolvent-pv1"` describing a PV plant or wind
+turbine), resolves each of them into a real time series by calling the
+configured resource APIs, and forwards the completed payload to a target
+service such as [MEME](https://github.com/enerplanet/meme) or buem — polling
+async targets until their job finishes and storing the final result.
 
-[![MkDocs](https://github.com/THD-Spatial-AI/github-template/actions/workflows/docs.yml/badge.svg)](https://thd-spatial-ai.github.io/github-template)
+```
+Client ──POST /v1/requests──▶ tentacron ──▶ resource APIs (PV, wind, …)
+        ◀──202 {id}──────────    │  ▲              resolvent → time series
+Client ──GET /v1/requests/id─    ▼  │
+        ◀──state / result────  target API (meme, buem, …) ── poll until done
+```
 
-This repository is a template for projects under the `THD-Spatial-AI` GitHub group. It provides a basic structure, documentation, and guidance to help you prepare repositories for internal collaboration and open-source release.
+## How it works
 
-## What this template includes
+1. `POST /v1/requests` with `{ "api_key": …, "target": "meme", "payload": … }`
+   returns `202 Accepted` and a request id; the request is persisted (SQLite).
+2. A worker finds every object with a `type` starting `resolvent-` inside the
+   payload's time-series container (location configurable per target, e.g.
+   `model.timeseries` for MEME, `time-series` for buem).
+3. Each resolvent object is sent to its resource API (from `config.yaml`); the
+   returned time series **replaces the resolvent in place**, with the original
+   object preserved under the new series' `resolvent` key. Identical resolvents
+   are served from a TTL cache instead of re-hitting the resource API.
+4. The resolved payload is forwarded to the target. For async targets
+   tentacron extracts the target's job id, polls until it reports done or
+   failed, and stores the final result.
+5. `GET /v1/requests/{id}` reports the state machine
+   (`received → resolving → forwarding → awaiting_target → completed|failed`),
+   the result (inline JSON or a downloadable file), and any error. Every
+   transition is kept as an audit event.
 
-- `README.md` (project overview and usage guidance)
-- `CONTRIBUTING.md` (contribution workflow and expectations)
-- `LICENSE` (required before making a repository public)
-- `docs/` (documentation pages for naming conventions and open-source readiness)
-- `mkdocs.yml` (MkDocs configuration for documentation site generation)
-- `ATTRIBUTIONS.md` (third-party attribution, if applicable)
-- `CITATION.cff` (citation metadata for research projects)
+Failed upstream calls retry with exponential backoff; interrupted jobs are
+recovered on restart; polling resumes without re-submitting the target job.
 
-## Before making a repository public
+## Quickstart
 
-Use the open-source readiness checklist before publishing a repository under `THD-Spatial-AI`.
+```bash
+# 1. Build (Go >= 1.25)
+make build
 
-- **Checklist:** [Open Source Checklist](docs/getting-started/open-source-checklist.md)
+# 2. Configure — copy the reference config and export the referenced secrets
+cp config.example.yaml config.yaml
+export TENTACRON_KEY_FRONTEND=dev-key TENTACRON_KEY_BATCH=dev-key2 \
+       MEME_API_KEY=… BUEM_API_KEY=… PV1_API_KEY=… WIND_API_KEY=…
 
-The checklist covers:
+# 3. Run
+./bin/tentacron -config config.yaml
+```
 
-- essential repository files (license, README, contributing, code of conduct)
-- Git LFS setup for large files
-- optional but recommended files
-- final review steps before publication
+Submit a request:
 
-## Repository naming
+```bash
+curl -s -X POST localhost:8080/v1/requests \
+  -H 'Content-Type: application/json' \
+  -d '{
+    "api_key": "dev-key",
+    "target": "buem",
+    "payload": {
+      "scenario": "rooftop-expansion-2030",
+      "time-series": [
+        { "name": "pv_south_roof", "type": "resolvent-pv1",
+          "location": {"lat": 48.831, "lon": 12.957},
+          "capacity_kw": 12.5, "azimuth": 180, "tilt": 35 },
+        { "name": "household_load", "type": "time-series",
+          "unit": "kW", "values": [0.42, 0.38, 0.35] }
+      ]
+    }
+  }'
+# → {"id":"6f1c9be2…","state":"received","links":{"self":"/v1/requests/6f1c9be2…"}}
 
-All repositories under `THD-Spatial-AI` should follow a consistent naming convention.
+curl -s localhost:8080/v1/requests/6f1c9be2… -H 'X-API-Key: dev-key'
+```
 
-- **Guidelines:** [Repository Naming Guidelines](docs/getting-started/repository-naming.md)
+Or with Docker:
 
-## Required files for public repositories
+```bash
+docker compose up --build   # secrets via .env
+```
 
-> [!IMPORTANT]
-> Repositories under `THD-Spatial-AI` must include the following files before being made public. See the [Open Source Checklist](docs/getting-started/open-source-checklist.md) for the full list.
+## API
 
-| File | Requirement | Purpose |
-|------|-------------|---------|
-| `LICENSE` | Required | Legal permission for use, modification, and distribution ([Choose a License](https://choosealicense.com/)) |
-| `README.md` | Required | Project overview, setup, and usage instructions |
-| `CONTRIBUTING.md` | Required for community repos | Issue reporting, PR process, coding standards |
-| `CODE_OF_CONDUCT.md` | Required for community repos | Community expectations ([Contributor Covenant](https://www.contributor-covenant.org/)) |
-| `ATTRIBUTIONS.md` | Required if applicable | Third-party credits when using assets that require attribution |
-| `CITATION.cff` | Recommended for research | Machine-readable citation metadata ([Citation File Format](https://citation-file-format.github.io/)) |
-| `.gitattributes` | Required if using LFS | Git LFS tracking for large files ([Git LFS docs](https://git-lfs.com/)) |
+| Endpoint | Description |
+|---|---|
+| `POST /v1/requests` | Submit `{api_key, target, payload}`; returns `202` + id. Supports an `Idempotency-Key` header. |
+| `GET /v1/requests/{id}` | State, attempts, result (inline JSON or `result.href`), error. Auth: `X-API-Key`. |
+| `GET /v1/requests/{id}/result` | Streams a stored result file (e.g. a MEME bundle). |
+| `GET /v1/requests?state=failed&limit=50` | List recent requests. |
+| `GET /healthz`, `GET /readyz` | Liveness / readiness. |
 
-### Optional but useful files
+See [docs/api.md](docs/api.md) for the full reference,
+[docs/configuration.md](docs/configuration.md) for every config key, and
+[docs/architecture.md](docs/architecture.md) for the design.
 
-- `CHANGELOG.md` — track notable changes
-- `CODEOWNERS` — define review ownership
-- `.github/ISSUE_TEMPLATE/` — issue templates
-- `.github/pull_request_template.md` — PR template
-- `SECURITY.md` — vulnerability reporting policy
-- `SUPPORT.md` — support and contact guidance
+## Development
 
-## Documentation (MkDocs)
+```bash
+make test        # unit + integration tests
+make test-race   # with race detector (CI mode)
+make lint        # go vet + golangci-lint
+make run         # build and run with config.example.yaml
+```
 
-This template uses [MkDocs](https://www.mkdocs.org/) with [Material for MkDocs](https://squidfunk.github.io/mkdocs-material/) for project documentation. Source files are in `docs/`.
+The test suite spins up fake resource/target services in-process — no network
+or external services required.
 
-For setup instructions (local development, GitHub Pages deployment, and workflow configuration), see the [Documentation Setup Guide](docs/getting-started/documentation-setup.md).
+## License
 
-> [!CAUTION]
-> **TO ALL MAINTAINERS:** Please review the [open-source readiness checklist](docs/getting-started/open-source-checklist.md) and ensure all required files are included before making a repository public.
->
-> This template is intended to be practical and easy to adapt. Keep it lightweight, take some time to remove sections you do not need **(Including this one)**, and update links/paths if you rename files in `docs/`.
+See [LICENSE](LICENSE).

@@ -1,52 +1,56 @@
-# THD-Spatial-AI GitHub Template
+# Tentacron
 
-Welcome to the THD-Spatial-AI GitHub Template documentation! This template helps group members create standardized, open-source ready repositories.
+Tentacron is an orchestration and *resolvent* API for renewable-energy
+modelling workflows. It accepts model payloads that still contain **resolvent
+objects** — placeholders such as `"type": "resolvent-pv1"` describing a PV
+plant or wind turbine — resolves each into a real time series via configured
+resource APIs, and forwards the completed payload to a target service such as
+[MEME](https://github.com/enerplanet/meme) or buem, polling async targets
+until their job finishes.
 
-## Quick Overview
+## The core idea
 
-This template repository provides a complete starting point for open-sourcing projects under the THD-Spatial-AI organization. It includes essential files, guidelines, and a comprehensive checklist to ensure your project meets all requirements.
+A client shouldn't need to gather PV and wind generation profiles before
+submitting an energy-model run. Instead it submits the model with placeholders:
 
-## What's Included
+```json
+{
+  "api_key": "…",
+  "target": "meme",
+  "payload": {
+    "model": {
+      "timeseries": {
+        "pv_cf":  { "type": "resolvent-pv1", "lat": 48.83, "lon": 12.95, "capacity_kw": 12.5 },
+        "demand": { "type": "time-series", "values": [5.1, 4.8, 4.4] }
+      }
+    }
+  }
+}
+```
 
-- **Essential Documentation Templates**: LICENSE, README, CONTRIBUTING
-- **Open Source Checklist**: Step-by-step verification of requirements
-- **Git LFS Configuration**: For managing large data files
-- **MkDocs Setup**: For creating project documentation sites
-- **Repository Naming Guidelines**: Best practices for consistent naming
-- **Additional Document list**: Optional but useful files for project maintenance and community engagement
+Tentacron resolves `pv_cf` by calling the PV resource API with the resolvent's
+own properties, replaces the placeholder with the returned series (keeping the
+original object under its `resolvent` key for traceability), leaves genuine
+`time-series` entries untouched, and forwards the completed model to MEME.
 
-## Getting Started
+## Highlights
 
-1. **Use this template**: Click `Use this template -> Create a new repository` button on GitHub
+- **Async job API** — `POST /v1/requests` returns `202` + id immediately;
+  poll `GET /v1/requests/{id}` for state and result.
+- **Durable & auditable** — every request, state transition and result is
+  persisted in SQLite; interrupted work resumes after a restart.
+- **Series cache** — identical resolvents within a TTL are served from cache
+  instead of re-hitting resource APIs.
+- **Config-driven** — targets, resolvent types, credentials, poll behaviour
+  and search paths all live in one YAML file with `${ENV}` interpolation.
+- **Retries done right** — capped exponential backoff with jitter for
+  transient faults; fast, explicit failures for permanent ones.
 
-    ![Use this template button](assets/getting-started/creating-repo-from-template.png)
+## Where to go next
 
-2. **Name your repository**: Follow the [Repository Naming Guidelines](getting-started/repository-naming.md)
-3. **Complete checklist**: Use [Open Source Checklist](getting-started/open-source-checklist.md) to track progress
-4. **Customize files**: Update all template files for your specific project
-5. **Make it public**: Once all requirements are met, publish your repository
+- [Architecture](architecture.md) — components, state machine, queue semantics
+- [API Reference](api.md) — endpoints, error codes, examples
+- [Configuration](configuration.md) — every YAML key explained
+- [Operations](operations.md) — deployment, logs, failure handling
 
-## Key Requirements
-
-!!! warning "Before Going Public"
-    Your repository **must** include a [LICENSE](getting-started/open-source-checklist.md#license) file before it can be made public under the THD-Spatial-AI organization.
-
-### Essential Files
-
-- **LICENSE** - Required for all public repositories
-- **README.md** - Project overview and documentation
-- **CONTRIBUTING.md** - Guidelines for contributors
-- **CODE_OF_CONDUCT.md** - Community standards
-
-### Data Management
-
-- **Git LFS** - Required for repositories with large data files
-
-## Next Steps
-
-- [Open Source Checklist](getting-started/open-source-checklist.md) - Complete all requirements
-- [Repository Naming Guidelines](getting-started/repository-naming.md) - Learn about naming conventions
-
-## Support
-
-For questions or issues with this template, please [open an issue](https://github.com/THD-Spatial-AI/github-template/issues) or contact the THD-Spatial-AI group administrators.
+For the quickstart, see the [README](https://github.com/enerplanet/tentacron#quickstart).

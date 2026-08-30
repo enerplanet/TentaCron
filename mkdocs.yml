@@ -1,13 +1,14 @@
 # Project information
-site_name: THD-Spatial-AI GitHub Template
-site_author: THD-Spatial-AI
+site_name: Tentacron
+site_author: enerplanet
 site_description: >-
-  Template repository for open source projects in the THD-Spatial-AI GitHub organisation
-site_url: https://THD-Spatial-AI.github.io/gitHub-template
+  Orchestration and resolvent API that turns renewable-energy resolvent objects
+  into time series and forwards the completed payload to target services.
+site_url: https://enerplanet.github.io/tentacron
 
 # Repository
-repo_name: THD-Spatial/GitHub-Template
-repo_url: https://github.com/THD-Spatial-AI/gitHub-template
+repo_name: enerplanet/tentacron
+repo_url: https://github.com/enerplanet/tentacron
 edit_uri: edit/main/docs/
 
 # Theme configuration
@@ -116,6 +117,11 @@ markdown_extensions:
 # Page tree
 nav:
   - Home: index.md
+  - Service:
+      - Architecture: architecture.md
+      - API Reference: api.md
+      - Configuration: configuration.md
+      - Operations: operations.md
   - Contributing:
       - Open Source Checklist: getting-started/open-source-checklist.md
       - Repository Naming: getting-started/repository-naming.md
