@@ -76,10 +76,14 @@ curl -s -X POST localhost:8080/v1/requests \
 curl -s localhost:8080/v1/requests/6f1c9be2… -H 'X-API-Key: dev-key'
 ```
 
-Or with Docker:
+Or containerized — [environment/](environment/) carries a single image with
+the full toolchain, meme-style (`ENV=dev|prod` selects `environment/.env.*`):
 
 ```bash
-docker compose up --build   # secrets via .env
+make -C environment build ENV=dev   # one-time image build
+make -C environment run   ENV=dev   # API on http://localhost:8080
+make -C environment test  ENV=dev   # Go suite inside the container
+make -C environment shell ENV=dev   # interactive shell (go / make / sqlite3)
 ```
 
 ## API

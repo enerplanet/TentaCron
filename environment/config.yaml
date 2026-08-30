@@ -1,0 +1,82 @@
+# Tentacron configuration for the containerized environment.
+#
+# Same layout as ../config.example.yaml, but the listen port and every
+# credential come from the environment (.env.dev / .env.prod via docker
+# compose). Interpolation runs over the whole file; referencing an unset
+# variable aborts startup.
+
+server:
+  addr: ":${PORT}"
+
+auth:
+  api_keys:
+    - name: frontend
+      key: "${TENTACRON_KEY_FRONTEND}"
+    - name: batch-runner
+      key: "${TENTACRON_KEY_BATCH}"
+
+storage:
+  path: ./data/tentacron.db # /src/data on the bind mount (gitignored)
+  results_dir: ./data/results
+  retention: 720h
+
+worker:
+  count: 4
+  resolvent_concurrency: 4
+  poll_interval: 2s
+  max_attempts: 5
+  backoff_base: 2s
+  backoff_max: 60s
+  job_timeout: 5m
+
+cache:
+  default_ttl: 6h
+  cleanup_interval: 15m
+
+targets:
+  meme:
+    url: "https://meme.example.com/simulate?target=all"
+    method: POST
+    api_key: "${MEME_API_KEY}"
+    api_key_inject: body_field
+    api_key_field: api_key
+    timeout: 60s
+    timeseries_path: "model.timeseries"
+    response:
+      mode: poll
+      poll:
+        id_json_path: "job_id"
+        url_template: "https://meme.example.com/jobs/{id}"
+        status_json_path: "status"
+        done_values: [done, completed]
+        failed_values: [failed, error]
+        interval: 10s
+        timeout: 30m
+
+  buem:
+    url: "https://buem.example.com/v1/run"
+    method: POST
+    api_key: "${BUEM_API_KEY}"
+    api_key_inject: header
+    api_key_header: X-API-Key
+    timeout: 30s
+    timeseries_path: "time-series"
+    response:
+      mode: direct
+
+resolvents:
+  resolvent-pv1:
+    url: "https://pvsim.example.com/v1/generate"
+    method: POST
+    api_key: "${PV1_API_KEY}"
+    api_key_header: X-API-Key
+    timeout: 30s
+    cache_ttl: 24h
+
+  resolvent-wind:
+    url: "https://windsim.example.com/v1/series"
+    method: POST
+    api_key: "${WIND_API_KEY}"
+    api_key_header: X-API-Key
+    timeout: 30s
+    cache_ttl: 24h

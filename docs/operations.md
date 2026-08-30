@@ -10,12 +10,13 @@
 - **Secrets via environment.** The YAML config references `${VARS}`; supply
   them through your orchestrator's secret mechanism. Startup fails fast if a
   referenced variable is unset.
-- **Persistent volume** for `storage.path` and `storage.results_dir`
-  (`/data` in the container image).
+- **Persistent storage** for `storage.path` and `storage.results_dir`
+  (the containerized setup writes both under the bind-mounted repo's `data/`).
 
 ```bash
-docker compose up --build          # local
-# or
+make -C environment build ENV=prod   # containerized (see environment/README.md)
+make -C environment run   ENV=prod   # publishes on :80, settings from environment/.env.prod
+# or directly on the host:
 make build && ./bin/tentacron -config /etc/tentacron/config.yaml
 ```
 

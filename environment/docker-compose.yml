@@ -1,0 +1,70 @@
+# Build-and-test environment for the tentacron service.
+#
+# Per-environment settings (ports, config, image tag, keys) come from an env file:
+#   docker compose --env-file environment/.env.dev  -f environment/docker-compose.yml up api
+#   docker compose --env-file environment/.env.prod -f environment/docker-compose.yml up api
+# or via the Makefile:  make -C environment run ENV=dev   /   ENV=prod
+#
+# The repo root is bind-mounted into /src so edits are picked up without a
+# rebuild; only the Go toolchain layer is baked into the image.
+#
+# The project name comes from COMPOSE_PROJECT_NAME in the env files (portable
+# across compose v1 and v2, unlike the top-level `name:` key).
+
+services:
+  # Long-running API service.
+  api:
+    build:
+      context: ..
+      dockerfile: environment/Dockerfile
+    image: ${IMAGE_TAG:-tentacron-env:latest}
+    working_dir: /src
+    environment:
+      # Unified vars, consumed by the config file's ${...} interpolation and
+      # the root Makefile's run target. The client/upstream keys must be
+      # non-empty — tentacron refuses to start with missing credentials.
+      - PORT=${PORT:-8080}
+      - CONFIG=${CONFIG:-environment/config.yaml}
+      - TENTACRON_KEY_FRONTEND=${TENTACRON_KEY_FRONTEND:?set in environment/.env.dev|prod}
+      - TENTACRON_KEY_BATCH=${TENTACRON_KEY_BATCH:?set in environment/.env.dev|prod}
+      - MEME_API_KEY=${MEME_API_KEY:?set in environment/.env.dev|prod}
+      - BUEM_API_KEY=${BUEM_API_KEY:?set in environment/.env.dev|prod}
+      - PV1_API_KEY=${PV1_API_KEY:?set in environment/.env.dev|prod}
+      - WIND_API_KEY=${WIND_API_KEY:?set in environment/.env.dev|prod}
+    volumes:
+      - ..:/src
+      - go-build:/root/.cache/go-build
+      - go-mod:/root/go/pkg/mod
+    ports:
+      - "${HOST_PORT:-8080}:${PORT:-8080}"
+    command: make run
+
+  # One-shot: compile everything and run the Go test suite.
+  test:
+    image: ${IMAGE_TAG:-tentacron-env:latest}
+    build:
+      context: ..
+      dockerfile: environment/Dockerfile
+    working_dir: /src
+    volumes:
+      - ..:/src
+      - go-build:/root/.cache/go-build
+      - go-mod:/root/go/pkg/mod
+    command: make test
+
+  # Interactive shell with the Go toolchain and sqlite3 on PATH.
+  shell:
+    image: ${IMAGE_TAG:-tentacron-env:latest}
+    build:
+      context: ..
+      dockerfile: environment/Dockerfile
+    working_dir: /src
+    volumes:
+      - ..:/src
+      - go-build:/root/.cache/go-build
+      - go-mod:/root/go/pkg/mod
+    command: bash
+
+volumes:
+  go-build:
+  go-mod:
