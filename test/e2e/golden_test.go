@@ -67,9 +67,9 @@ var resolutionScenarios = []scenario{
 				{"type":"resolvent-pv1","lat":48.83,"capacity_kw":12.5},
 				{"type":"resolvent-wind","hub_height_m":120}
 			]}`
-			id := h.post("submit payload with duplicate resolvents", requestBody("buem", payload), nil)
+			id := h.post("submit payload with duplicate resolvents", requestBody("demo", payload), nil)
 			h.await("final state", id)
-			h.forwarded("both duplicate slots substituted from one fetch", "direct")
+			h.forwarded("both duplicate slots substituted from one fetch", "demo")
 			h.counts()
 		},
 	},
@@ -79,10 +79,10 @@ var resolutionScenarios = []scenario{
 		name: "series-cache-reuse",
 		run: func(t *testing.T, h *harness) {
 			payload := `{"time-series":[{"type":"resolvent-pv1","lat":48.83}]}`
-			first := h.post("first request", requestBody("buem", payload), nil)
+			first := h.post("first request", requestBody("demo", payload), nil)
 			h.await("first final state", first)
 			h.resourceReceived("resolvent object and key the resource API received")
-			second := h.post("second request, identical resolvent", requestBody("buem", payload), nil)
+			second := h.post("second request, identical resolvent", requestBody("demo", payload), nil)
 			h.await("second final state", second)
 			h.events("second job's audit trail (resolved from cache)", second)
 			h.counts()
@@ -92,7 +92,7 @@ var resolutionScenarios = []scenario{
 		name: "unknown-resolvent",
 		run: func(t *testing.T, h *harness) {
 			payload := `{"time-series":[{"type":"resolvent-pv1"},{"type":"resolvent-tidal"}]}`
-			id := h.post("submit payload with unconfigured resolvent type", requestBody("buem", payload), nil)
+			id := h.post("submit payload with unconfigured resolvent type", requestBody("demo", payload), nil)
 			h.await("final state (failed before any resource call)", id)
 			h.events("audit trail", id)
 			h.counts()
@@ -108,7 +108,7 @@ var resolutionScenarios = []scenario{
 			return reply{200, defaultSeries, ""}
 		}},
 		run: func(t *testing.T, h *harness) {
-			id := h.post("submit", requestBody("buem", `{"time-series":[{"type":"resolvent-pv1"}]}`), nil)
+			id := h.post("submit", requestBody("demo", `{"time-series":[{"type":"resolvent-pv1"}]}`), nil)
 			h.await("final state (completed on third attempt)", id)
 			h.events("audit trail with two backoff requeues", id)
 			h.counts()
@@ -121,7 +121,7 @@ var resolutionScenarios = []scenario{
 		}},
 		mod: func(cfg *config.Config) { cfg.Worker.MaxAttempts = 2 },
 		run: func(t *testing.T, h *harness) {
-			id := h.post("submit", requestBody("buem", `{"time-series":[{"type":"resolvent-pv1"}]}`), nil)
+			id := h.post("submit", requestBody("demo", `{"time-series":[{"type":"resolvent-pv1"}]}`), nil)
 			h.await("final state (attempts exhausted)", id)
 			h.events("audit trail", id)
 		},
@@ -133,7 +133,7 @@ var resolutionScenarios = []scenario{
 			return reply{400, `{"error":"bad params"}`, ""}
 		}},
 		run: func(t *testing.T, h *harness) {
-			id := h.post("submit", requestBody("buem", `{"time-series":[{"type":"resolvent-pv1"}]}`), nil)
+			id := h.post("submit", requestBody("demo", `{"time-series":[{"type":"resolvent-pv1"}]}`), nil)
 			h.await("final state (failed permanently, no retry)", id)
 			h.events("audit trail", id)
 			h.counts()
@@ -145,7 +145,7 @@ var resolutionScenarios = []scenario{
 		name:  "resource-null-body",
 		fakes: fakes{resource: func(int64) reply { return reply{200, `null`, ""} }},
 		run: func(t *testing.T, h *harness) {
-			id := h.post("submit", requestBody("buem", `{"time-series":[{"type":"resolvent-pv1"}]}`), nil)
+			id := h.post("submit", requestBody("demo", `{"time-series":[{"type":"resolvent-pv1"}]}`), nil)
 			h.await("final state", id)
 			h.events("audit trail", id)
 		},
@@ -154,7 +154,7 @@ var resolutionScenarios = []scenario{
 		name:  "resource-array-body",
 		fakes: fakes{resource: func(int64) reply { return reply{200, `[1,2,3]`, ""} }},
 		run: func(t *testing.T, h *harness) {
-			id := h.post("submit", requestBody("buem", `{"time-series":[{"type":"resolvent-pv1"}]}`), nil)
+			id := h.post("submit", requestBody("demo", `{"time-series":[{"type":"resolvent-pv1"}]}`), nil)
 			h.await("final state", id)
 			h.events("audit trail", id)
 		},
@@ -173,7 +173,7 @@ var targetProtocolScenarios = []scenario{
 			return reply{200, `{"ok":true}`, ""}
 		}},
 		run: func(t *testing.T, h *harness) {
-			id := h.post("submit", requestBody("buem", `{"time-series":[{"type":"resolvent-pv1"}]}`), nil)
+			id := h.post("submit", requestBody("demo", `{"time-series":[{"type":"resolvent-pv1"}]}`), nil)
 			h.await("final state (completed on second attempt)", id)
 			h.events("audit trail: target 500 requeued, retry resolves from cache", id)
 			h.counts()
@@ -184,10 +184,10 @@ var targetProtocolScenarios = []scenario{
 		// stored/served error message must show them redacted.
 		name: "target-400-secret-echo",
 		fakes: fakes{direct: func(int64) reply {
-			return reply{400, `{"error":"rejected key ` + buemSecret + ` for scenario"}`, ""}
+			return reply{400, `{"error":"rejected key ` + demoSecret + ` for scenario"}`, ""}
 		}},
 		run: func(t *testing.T, h *harness) {
-			id := h.post("submit", requestBody("buem", `{"time-series":[]}`), nil)
+			id := h.post("submit", requestBody("demo", `{"time-series":[]}`), nil)
 			h.await("final state (error message redacted)", id)
 		},
 	},
@@ -364,7 +364,7 @@ var targetProtocolScenarios = []scenario{
 			return reply{200, "PK\x03\x04direct-bundle-bytes", "application/zip"}
 		}},
 		run: func(t *testing.T, h *harness) {
-			id := h.post("submit", requestBody("buem", `{"time-series":[]}`), nil)
+			id := h.post("submit", requestBody("demo", `{"time-series":[]}`), nil)
 			h.await("final state (file result; upstream content type discarded)", id)
 			h.get("download", "/v1/requests/"+id+"/result",
 				map[string]string{"X-API-Key": clientKey})
@@ -379,7 +379,7 @@ var targetProtocolScenarios = []scenario{
 			return reply{200, `{"objective":9007199254740993,"meter_id":1234567890123456789}`, ""}
 		}},
 		run: func(t *testing.T, h *harness) {
-			id := h.post("submit", requestBody("buem", `{"time-series":[]}`), nil)
+			id := h.post("submit", requestBody("demo", `{"time-series":[]}`), nil)
 			h.await("final state (digits exact in embedded result)", id)
 			h.get("download inline JSON result", "/v1/requests/"+id+"/result",
 				map[string]string{"X-API-Key": clientKey})
@@ -391,19 +391,19 @@ var apiContractScenarios = []scenario{
 	{
 		name: "validation-errors",
 		run: func(t *testing.T, h *harness) {
-			h.postRaw("no content type", requestBody("buem", `{}`), "", nil)
-			h.postRaw("wrong content type", requestBody("buem", `{}`), "text/plain", nil)
+			h.postRaw("no content type", requestBody("demo", `{}`), "", nil)
+			h.postRaw("wrong content type", requestBody("demo", `{}`), "text/plain", nil)
 			h.postRaw("invalid json", `{"api_key":`, "application/json", nil)
-			h.postRaw("trailing garbage", requestBody("buem", `{}`)+`garbage`, "application/json", nil)
+			h.postRaw("trailing garbage", requestBody("demo", `{}`)+`garbage`, "application/json", nil)
 			h.postRaw("missing api_key", `{"target":"buem","payload":{}}`, "application/json", nil)
 			h.postRaw("missing target", `{"api_key":"`+clientKey+`","payload":{}}`, "application/json", nil)
 			h.postRaw("missing payload", `{"api_key":"`+clientKey+`","target":"buem"}`, "application/json", nil)
 			h.postRaw("payload not an object", `{"api_key":"`+clientKey+`","target":"buem","payload":[1]}`, "application/json", nil)
 			h.postRaw("wrong api key", `{"api_key":"nope","target":"buem","payload":{}}`, "application/json", nil)
 			h.postRaw("unknown target", requestBody("hydra", `{}`), "application/json", nil)
-			h.postRaw("oversized body", requestBody("buem", `{"blob":"`+strings.Repeat("x", 5000)+`"}`), "application/json", nil)
+			h.postRaw("oversized body", requestBody("demo", `{"blob":"`+strings.Repeat("x", 5000)+`"}`), "application/json", nil)
 			h.post("content type with charset parameter is accepted",
-				requestBody("buem", `{"time-series":[]}`),
+				requestBody("demo", `{"time-series":[]}`),
 				map[string]string{"Content-Type": "application/json; charset=utf-8"})
 		},
 	},
@@ -412,17 +412,17 @@ var apiContractScenarios = []scenario{
 		run: func(t *testing.T, h *harness) {
 			payload := `{"time-series":[]}`
 			hdr := map[string]string{"Idempotency-Key": "golden-key-1"}
-			id := h.post("first submit with Idempotency-Key", requestBody("buem", payload), hdr)
+			id := h.post("first submit with Idempotency-Key", requestBody("demo", payload), hdr)
 			// Let the job finish before replaying: the replay echoes the
 			// stored job's *current* state, which would otherwise race
 			// between received/resolving/completed.
 			h.await("first job finishes", id)
 			h.post("identical resubmit returns the same job (in its current state)",
-				requestBody("buem", payload), hdr)
+				requestBody("demo", payload), hdr)
 			h.postRaw("same key, different payload → conflict",
-				requestBody("buem", `{"time-series":[1]}`), "application/json", hdr)
+				requestBody("demo", `{"time-series":[1]}`), "application/json", hdr)
 			h.post("same key from another client → independent job",
-				strings.Replace(requestBody("buem", payload), clientKey, secondClientKey, 1), hdr)
+				strings.Replace(requestBody("demo", payload), clientKey, secondClientKey, 1), hdr)
 		},
 	},
 	{
@@ -431,7 +431,7 @@ var apiContractScenarios = []scenario{
 		// here as a reviewable golden diff.
 		name: "cross-client-read",
 		run: func(t *testing.T, h *harness) {
-			id := h.post("client A submits", requestBody("buem", `{"time-series":[]}`), nil)
+			id := h.post("client A submits", requestBody("demo", `{"time-series":[]}`), nil)
 			h.await("job completes", id)
 			auth2 := map[string]string{"X-API-Key": secondClientKey}
 			h.get("client B reads A's job status", "/v1/requests/"+id, auth2)
@@ -454,13 +454,13 @@ var apiContractScenarios = []scenario{
 		name: "list-failed-jobs",
 		run: func(t *testing.T, h *harness) {
 			id := h.post("submit a job that will fail",
-				requestBody("buem", `{"time-series":[{"type":"resolvent-tidal"}]}`), nil)
+				requestBody("demo", `{"time-series":[{"type":"resolvent-tidal"}]}`), nil)
 			h.await("final state", id)
 			// A distinct created_at millisecond, so newest-first ordering
 			// never falls back to the insertion tiebreaker.
 			time.Sleep(2 * time.Millisecond)
 			second := h.post("submit a second job that will fail",
-				requestBody("buem", `{"time-series":[{"type":"resolvent-tidal"}]}`), nil)
+				requestBody("demo", `{"time-series":[{"type":"resolvent-tidal"}]}`), nil)
 			h.await("second final state", second)
 			h.get("result is not available for a failed job", "/v1/requests/"+id+"/result",
 				map[string]string{"X-API-Key": clientKey})

@@ -14,8 +14,9 @@ curl -s localhost:8080/v1/requests/<id> -H 'X-API-Key: your-tentacron-api-key'
 
 | File | Shows |
 |---|---|
-| [`buem-direct.json`](buem-direct.json) | Array-style `time-series` container for a direct-mode target: two resolvents (`resolvent-pv1`, `resolvent-wind`) next to a pass-through measured series. |
+| [`demo-direct.json`](demo-direct.json) | Array-style `time-series` container for a direct-mode target: two resolvents (`resolvent-pv1`, `resolvent-wind`) next to a pass-through measured series. |
 | [`meme-poll.json`](meme-poll.json) | MEME-style canonical model with a `model.timeseries` name→object registry; one `resolvent-pv1` capacity-factor placeholder beside a literal demand series. Tentacron polls MEME's job to completion. |
+| [`buem-buildings.json`](buem-buildings.json) | The real [buem-gateway](https://github.com/enerplanet/buem-gateway) contract (`POST /api/v1/buem/buildings`): a `resolvent-weather` placeholder at the payload root becomes the `{index, variables}` weather block BuEM requires — with `attach_resolvent: false`, so the forwarded payload carries no tentacron marker. |
 | [`no-resolvents.json`](no-resolvents.json) | A payload with only literal series — nothing to resolve, forwarded as-is. |
 | [`big-numbers.json`](big-numbers.json) | Integer ids above 2^53 in the payload and the resolvent; the golden suite proves they reach the target byte-exact. |
 

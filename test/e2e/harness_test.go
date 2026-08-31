@@ -42,6 +42,7 @@ var update = flag.Bool("update", false, "rewrite golden files instead of compari
 const (
 	clientKey       = "golden-client-key"
 	secondClientKey = "golden-second-client-key"
+	demoSecret      = "demo-golden-secret"
 	buemSecret      = "buem-golden-secret"
 	memeSecret      = "meme-golden-secret"
 	resourceSecret  = "resource-golden-secret"
@@ -60,10 +61,11 @@ type reply struct {
 // per endpoint, starting at 1, so behavior like "fail twice, then succeed"
 // stays deterministic. Nil fields use the happy-path default.
 type fakes struct {
-	resource func(call int64) reply // POST <resource>/   (pv1 and wind share it)
-	direct   func(call int64) reply // POST <target>/run  (the "buem" direct target)
+	resource func(call int64) reply // POST <resource>/   (all resolvent types share it)
+	direct   func(call int64) reply // POST <target>/run  (the "demo" direct target)
 	accept   func(call int64) reply // POST <target>/simulate (the "meme" poll target)
 	poll     func(call int64) reply // GET  <target>/jobs/{id} (status and result fetch)
+	gateway  func(call int64) reply // POST <target>/api/v1/buem/buildings (the real buem contract)
 }
 
 func (f fakes) withDefaults() fakes {
@@ -79,6 +81,13 @@ func (f fakes) withDefaults() fakes {
 	if f.poll == nil {
 		f.poll = func(int64) reply { return reply{200, `{"status":"done","objective":1234.5}`, ""} }
 	}
+	if f.gateway == nil {
+		// One result entry per building, in request order — buem-gateway's
+		// documented response shape for POST /api/v1/buem/buildings.
+		f.gateway = func(int64) reply {
+			return reply{200, `[{"id":"b-1","buem":{"thermal_load_profile":{"summary":{"heating":{"total":{"value":12345.6,"unit":"kWh"}}}}}}]`, ""}
+		}
+	}
 	return f
 }
 
@@ -89,7 +98,7 @@ type harness struct {
 	st  *store.Store
 	api *httptest.Server
 
-	resourceCalls, directCalls, acceptCalls, pollCalls atomic.Int64
+	resourceCalls, demoCalls, acceptCalls, pollCalls, gatewayCalls atomic.Int64
 
 	mu               sync.Mutex
 	lastForwarded    map[string][]byte // keyed "direct" / "accept"
@@ -147,12 +156,16 @@ func newHarness(t *testing.T, f fakes, mod func(*config.Config)) *harness {
 	}
 	mux := http.NewServeMux()
 	mux.HandleFunc("POST /run", func(w http.ResponseWriter, r *http.Request) {
-		captureTarget("direct", r)
-		writeReply(w, f.direct(h.directCalls.Add(1)))
+		captureTarget("demo", r)
+		writeReply(w, f.direct(h.demoCalls.Add(1)))
 	})
 	mux.HandleFunc("POST /simulate", func(w http.ResponseWriter, r *http.Request) {
-		captureTarget("accept", r)
+		captureTarget("meme", r)
 		writeReply(w, f.accept(h.acceptCalls.Add(1)))
+	})
+	mux.HandleFunc("POST /api/v1/buem/buildings", func(w http.ResponseWriter, r *http.Request) {
+		captureTarget("buem", r)
+		writeReply(w, f.gateway(h.gatewayCalls.Add(1)))
 	})
 	mux.HandleFunc("GET /jobs/{id}", func(w http.ResponseWriter, _ *http.Request) {
 		writeReply(w, f.poll(h.pollCalls.Add(1)))
@@ -185,10 +198,22 @@ func newHarness(t *testing.T, f fakes, mod func(*config.Config)) *harness {
 		},
 		Cache: config.Cache{DefaultTTL: dur(time.Hour), CleanupInterval: dur(time.Hour)},
 		Targets: map[string]config.Target{
-			"buem": {
+			// The generic direct-mode fixture: default "time-series" array
+			// container, header key injection.
+			"demo": {
 				URL: target.URL + "/run", Method: "POST", Timeout: dur(2 * time.Second),
 				TimeseriesPath: "time-series",
-				APIKey:         buemSecret, APIKeyInject: config.InjectHeader, APIKeyHeader: "X-API-Key",
+				APIKey:         demoSecret, APIKeyInject: config.InjectHeader, APIKeyHeader: "X-API-Key",
+				Response: config.Response{Mode: config.ModeDirect},
+			},
+			// The real buem-gateway contract: synchronous batch endpoint,
+			// X-Api-Key via the reverse proxy, the weather time series at
+			// the payload root, and no tentacron marker in the forwarded
+			// payload (BuEM's schema must receive weather unchanged).
+			"buem": {
+				URL: target.URL + "/api/v1/buem/buildings", Method: "POST", Timeout: dur(2 * time.Second),
+				TimeseriesPath: config.RootTimeseriesPath, AttachResolvent: boolPtr(false),
+				APIKey:         buemSecret, APIKeyInject: config.InjectHeader, APIKeyHeader: "X-Api-Key",
 				Response: config.Response{Mode: config.ModeDirect},
 			},
 			"meme": {
@@ -207,6 +232,8 @@ func newHarness(t *testing.T, f fakes, mod func(*config.Config)) *harness {
 			"resolvent-pv1": {URL: resource.URL, Method: "POST", APIKey: resourceSecret,
 				APIKeyHeader: "X-API-Key", Timeout: dur(2 * time.Second), CacheTTL: dur(time.Hour)},
 			"resolvent-wind": {URL: resource.URL, Method: "POST", APIKey: resourceSecret,
+				APIKeyHeader: "X-API-Key", Timeout: dur(2 * time.Second), CacheTTL: dur(time.Hour)},
+			"resolvent-weather": {URL: resource.URL, Method: "POST", APIKey: resourceSecret,
 				APIKeyHeader: "X-API-Key", Timeout: dur(2 * time.Second), CacheTTL: dur(time.Hour)},
 		},
 	}
@@ -465,8 +492,9 @@ func (h *harness) countsStep(withPolls bool) map[string]any {
 	step := map[string]any{
 		"step":                         "upstream call counts",
 		"resource_calls":               h.resourceCalls.Load(),
-		"direct_calls":                 h.directCalls.Load(),
-		"accept_calls":                 h.acceptCalls.Load(),
+		"demo_calls":                   h.demoCalls.Load(),
+		"meme_accept_calls":            h.acceptCalls.Load(),
+		"buem_calls":                   h.gatewayCalls.Load(),
 		"unexpected_upstream_requests": unexpected,
 	}
 	if withPolls {
@@ -594,6 +622,8 @@ func allScenarios() []scenario {
 func requestBody(target, payload string) string {
 	return fmt.Sprintf(`{"api_key":%q,"target":%q,"payload":%s}`, clientKey, target, payload)
 }
+
+func boolPtr(b bool) *bool { return &b }
 
 // exampleRequest loads a file from examples/ and swaps the placeholder
 // api_key for the harness client key — number-safe via RawMessage, so the

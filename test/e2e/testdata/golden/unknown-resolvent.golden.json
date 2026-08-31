@@ -24,7 +24,7 @@
       "id": "«job-1»",
       "result": null,
       "state": "failed",
-      "target": "buem",
+      "target": "demo",
       "updated_at": "«ts»"
     },
     "status": 200,
@@ -39,8 +39,9 @@
     "step": "audit trail"
   },
   {
-    "accept_calls": 0,
-    "direct_calls": 0,
+    "buem_calls": 0,
+    "demo_calls": 0,
+    "meme_accept_calls": 0,
     "poll_calls": "not asserted (timing-dependent)",
     "resource_calls": 0,
     "step": "upstream call counts",

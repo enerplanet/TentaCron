@@ -57,15 +57,30 @@ targets:
         timeout: 30m
 
   buem:
-    url: "https://buem.example.com/v1/run"
+    # BuEM building-energy model via buem-gateway
+    # (github.com/enerplanet/buem-gateway): synchronous batch simulation of
+    # heating/cooling demand. Replace the host with your gateway deployment.
+    url: "https://buem-gateway.example.com/api/v1/buem/buildings"
     method: POST
     api_key: "${BUEM_API_KEY}"
     api_key_inject: header
-    api_key_header: X-API-Key
+    api_key_header: X-Api-Key # checked by buem-reverse-proxy
+    timeout: 300s # the whole batch simulates in one synchronous call
+    timeseries_path: "." # the weather block sits at the payload root
+    attach_resolvent: false # BuEM's schema must receive weather unchanged;
+    # traceability stays in tentacron's audit store
+    response:
+      mode: direct
+
+  demo:
+    # Minimal direct-mode target illustrating the default "time-series"
+    # array container; the generic example requests point here.
+    url: "https://demo-target.example.com/v1/run"
+    method: POST
     timeout: 30s
     timeseries_path: "time-series"
     response:
-      mode: direct # buem answers in the same call
+      mode: direct
 
 resolvents:
   resolvent-pv1:
@@ -82,4 +97,15 @@ resolvents:
     api_key: "${WIND_API_KEY}"
     api_key_header: X-API-Key
     timeout: 30s
+    cache_ttl: 24h
+
+  resolvent-weather:
+    # Resolves a weather placeholder into the {index, variables} block
+    # buem-gateway requires — the shape enerplanet/weather serves. Point it
+    # at a POST/JSON adapter in front of your weather source.
+    url: "https://weather.example.com/v1/weather/resolve"
+    method: POST
+    api_key: "${WEATHER_API_KEY}"
+    api_key_header: X-API-Key
+    timeout: 60s
     cache_ttl: 24h

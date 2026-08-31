@@ -9,7 +9,7 @@
       "state": "received"
     },
     "status": 202,
-    "step": "submit examples/buem-direct.json"
+    "step": "submit examples/demo-direct.json"
   },
   {
     "request": "GET /v1/requests/{id}",
@@ -26,16 +26,16 @@
         "target_status": 200
       },
       "state": "completed",
-      "target": "buem",
+      "target": "demo",
       "updated_at": "«ts»"
     },
     "status": 200,
     "step": "final state"
   },
   {
-    "endpoint": "direct",
-    "step": "payload the buem target received (header-injected key)",
-    "target_auth_header": "buem-golden-secret",
+    "endpoint": "demo",
+    "step": "payload the demo target received (header-injected key)",
+    "target_auth_header": "demo-golden-secret",
     "target_received": {
       "scenario": "rooftop-expansion-2030",
       "time-series": [
@@ -104,8 +104,9 @@
     "step": "audit trail"
   },
   {
-    "accept_calls": 0,
-    "direct_calls": 1,
+    "buem_calls": 0,
+    "demo_calls": 1,
+    "meme_accept_calls": 0,
     "poll_calls": "not asserted (timing-dependent)",
     "resource_calls": 2,
     "step": "upstream call counts",

@@ -5,7 +5,7 @@ workflows. It accepts a model payload that still contains **resolvent objects**
 (placeholders such as `"type": "resolvent-pv1"` describing a PV plant or wind
 turbine), resolves each of them into a real time series by calling the
 configured resource APIs, and forwards the completed payload to a target
-service such as [MEME](https://github.com/enerplanet/meme) or buem — polling
+service such as [MEME](https://github.com/enerplanet/meme) or [BuEM](https://github.com/enerplanet/buem-gateway) — polling
 async targets until their job finishes and storing the final result.
 
 ```
@@ -21,7 +21,7 @@ Client ──GET /v1/requests/id─    ▼  │
    returns `202 Accepted` and a request id; the request is persisted (SQLite).
 2. A worker finds every object with a `type` starting `resolvent-` inside the
    payload's time-series container (location configurable per target, e.g.
-   `model.timeseries` for MEME, `time-series` for buem).
+   `model.timeseries` for MEME, the payload root for BuEM's weather block).
 3. Each resolvent object is sent to its resource API (from `config.yaml`); the
    returned time series **replaces the resolvent in place**, with the original
    object preserved under the new series' `resolvent` key. Identical resolvents
@@ -46,7 +46,7 @@ make build
 # 2. Configure — copy the reference config and export the referenced secrets
 cp config.example.yaml config.yaml
 export TENTACRON_KEY_FRONTEND=dev-key TENTACRON_KEY_BATCH=dev-key2 \
-       MEME_API_KEY=… BUEM_API_KEY=… PV1_API_KEY=… WIND_API_KEY=…
+       MEME_API_KEY=… BUEM_API_KEY=… PV1_API_KEY=… WIND_API_KEY=… WEATHER_API_KEY=…
 
 # 3. Run
 ./bin/tentacron -config config.yaml
@@ -59,7 +59,7 @@ curl -s -X POST localhost:8080/v1/requests \
   -H 'Content-Type: application/json' \
   -d '{
     "api_key": "dev-key",
-    "target": "buem",
+    "target": "demo",
     "payload": {
       "scenario": "rooftop-expansion-2030",
       "time-series": [

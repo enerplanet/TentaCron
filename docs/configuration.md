@@ -87,10 +87,35 @@ targets:
         timeout: 30m                    # poll deadline -> target_timeout
 ```
 
+A synchronous target — the real BuEM integration via
+[buem-gateway](https://github.com/enerplanet/buem-gateway):
+
+```yaml
+  buem:
+    url: "https://buem-gateway.example.com/api/v1/buem/buildings"
+    method: POST
+    api_key: "${BUEM_API_KEY}"
+    api_key_inject: header
+    api_key_header: X-Api-Key           # checked by buem-reverse-proxy
+    timeout: 300s                       # the batch simulates in one call
+    timeseries_path: "."                # weather sits at the payload root
+    attach_resolvent: false             # BuEM's schema gets weather unchanged
+    response:
+      mode: direct
+```
+
 Notes:
 
 - `timeseries_path` is a dot-separated path into the payload
   (default `time-series`). MEME spells its registry `model.timeseries`.
+  The special value `"."` scans the whole payload — for contracts like
+  buem-gateway whose time series (the shared `weather` block) sits at the
+  payload root rather than inside a named container.
+- `attach_resolvent` (default `true`) controls whether the substituted series
+  keeps the original resolvent object under its `resolvent` key. Set `false`
+  for targets whose schema validation rejects unknown keys; tentacron's audit
+  store (original payload, resolved payload, events) keeps full traceability
+  either way.
 - `response.mode: direct` completes the job with the target's immediate
   response. `poll` extracts the target's job id, polls until a
   `done_values`/`failed_values` status appears, then fetches and stores the

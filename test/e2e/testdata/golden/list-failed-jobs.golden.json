@@ -24,7 +24,7 @@
       "id": "«job-1»",
       "result": null,
       "state": "failed",
-      "target": "buem",
+      "target": "demo",
       "updated_at": "«ts»"
     },
     "status": 200,
@@ -55,7 +55,7 @@
       "id": "«job-2»",
       "result": null,
       "state": "failed",
-      "target": "buem",
+      "target": "demo",
       "updated_at": "«ts»"
     },
     "status": 200,
@@ -89,7 +89,7 @@
           "id": "«job-2»",
           "result": null,
           "state": "failed",
-          "target": "buem",
+          "target": "demo",
           "updated_at": "«ts»"
         },
         {
@@ -103,7 +103,7 @@
           "id": "«job-1»",
           "result": null,
           "state": "failed",
-          "target": "buem",
+          "target": "demo",
           "updated_at": "«ts»"
         }
       ]

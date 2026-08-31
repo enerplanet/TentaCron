@@ -26,16 +26,16 @@
         "target_status": 200
       },
       "state": "completed",
-      "target": "buem",
+      "target": "demo",
       "updated_at": "«ts»"
     },
     "status": 200,
     "step": "final state"
   },
   {
-    "endpoint": "direct",
+    "endpoint": "demo",
     "step": "payload forwarded unchanged",
-    "target_auth_header": "buem-golden-secret",
+    "target_auth_header": "demo-golden-secret",
     "target_received": {
       "scenario": "measured-data-only",
       "time-series": [
@@ -65,8 +65,9 @@
     "step": "audit trail"
   },
   {
-    "accept_calls": 0,
-    "direct_calls": 1,
+    "buem_calls": 0,
+    "demo_calls": 1,
+    "meme_accept_calls": 0,
     "poll_calls": "not asserted (timing-dependent)",
     "resource_calls": 0,
     "step": "upstream call counts",

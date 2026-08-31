@@ -26,7 +26,7 @@
         "target_status": 200
       },
       "state": "completed",
-      "target": "buem",
+      "target": "demo",
       "updated_at": "«ts»"
     },
     "status": 200,
@@ -48,7 +48,7 @@
         "target_status": 200
       },
       "state": "completed",
-      "target": "buem",
+      "target": "demo",
       "updated_at": "«ts»"
     },
     "status": 200,
@@ -81,7 +81,7 @@
             "target_status": 200
           },
           "state": "completed",
-          "target": "buem",
+          "target": "demo",
           "updated_at": "«ts»"
         }
       ]

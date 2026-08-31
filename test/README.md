@@ -54,9 +54,11 @@ target errors with credential redaction, transient status-poll and
 result-fetch flakes, poll deadlines (exceeded and straddled), the mid-flight
 `awaiting_target` state, malformed/unsafe target job ids, binary and
 number-heavy results, both API-key injection modes (header and body-field,
-pinned via the captured upstream requests), the full validation-error
-surface, idempotency replay/conflict/cross-client scoping, cross-client read
-visibility, and list ordering. Every counts step also freezes an
+pinned via the captured upstream requests), the real buem-gateway contract
+(root-level weather resolvent substituted marker-free via
+`timeseries_path: "."` + `attach_resolvent: false`), the full validation-
+error surface, idempotency replay/conflict/cross-client scoping, cross-client
+read visibility, and list ordering. Every counts step also freezes an
 `unexpected_upstream_requests` tripwire (always empty), so any unscripted
 outbound request becomes a golden diff, and a corpus gate fails on stale
 golden files whose scenario no longer exists.

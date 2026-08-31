@@ -31,8 +31,9 @@
     "step": "final state"
   },
   {
-    "accept_calls": 1,
-    "direct_calls": 0,
+    "buem_calls": 0,
+    "demo_calls": 0,
+    "meme_accept_calls": 1,
     "poll_calls": 0,
     "resource_calls": 0,
     "step": "upstream call counts",

@@ -1,0 +1,137 @@
+[
+  {
+    "request": "POST /v1/requests",
+    "response": {
+      "id": "«job-1»",
+      "links": {
+        "self": "/v1/requests/«job-1»"
+      },
+      "state": "received"
+    },
+    "status": 202,
+    "step": "submit examples/buem-buildings.json"
+  },
+  {
+    "request": "GET /v1/requests/{id}",
+    "response": {
+      "attempts": 1,
+      "completed_at": "«ts»",
+      "created_at": "«ts»",
+      "error": null,
+      "id": "«job-1»",
+      "result": {
+        "target_response": [
+          {
+            "buem": {
+              "thermal_load_profile": {
+                "summary": {
+                  "heating": {
+                    "total": {
+                      "unit": "kWh",
+                      "value": 12345.6
+                    }
+                  }
+                }
+              }
+            },
+            "id": "b-1"
+          }
+        ],
+        "target_status": 200
+      },
+      "state": "completed",
+      "target": "buem",
+      "updated_at": "«ts»"
+    },
+    "status": 200,
+    "step": "final state"
+  },
+  {
+    "endpoint": "buem",
+    "step": "payload buem-gateway received (weather substituted, marker-free)",
+    "target_auth_header": "buem-golden-secret",
+    "target_received": {
+      "buildings": [
+        {
+          "building": {
+            "building_type": "SFH",
+            "construction_period": "04",
+            "country": "DE",
+            "envelope": {
+              "elements": [
+                {
+                  "U": {
+                    "unit": "W/(m2K)",
+                    "value": 1.6
+                  },
+                  "area": {
+                    "unit": "m2",
+                    "value": 30
+                  },
+                  "azimuth": {
+                    "unit": "deg",
+                    "value": 0
+                  },
+                  "id": "Wall_1",
+                  "name": "North Wall",
+                  "tilt": {
+                    "unit": "deg",
+                    "value": 90
+                  },
+                  "type": "wall"
+                }
+              ]
+            },
+            "n_storeys": 2
+          },
+          "geometry": {
+            "coordinates": [
+              12.957,
+              48.831
+            ],
+            "type": "Point"
+          },
+          "id": "b-1"
+        }
+      ],
+      "end_date": "2018-12-31T23:00:00Z",
+      "model_id": "demo-model",
+      "resolution": 60,
+      "start_date": "2018-01-01T00:00:00Z",
+      "weather": {
+        "index": [
+          "2018-01-01T00:30:00Z",
+          "2018-01-01T01:30:00Z"
+        ],
+        "variables": {
+          "GHI": [
+            0.0,
+            12.5
+          ],
+          "T": [
+            1.0,
+            1.2
+          ]
+        }
+      }
+    }
+  },
+  {
+    "audit_trail": [
+      "∅ → received: job accepted",
+      "received → resolving: claimed by worker",
+      "resolving → forwarding: resolved 1 resolvent(s), 0 from cache",
+      "forwarding → completed: target responded with status 200"
+    ],
+    "step": "audit trail"
+  },
+  {
+    "buem_calls": 1,
+    "demo_calls": 0,
+    "meme_accept_calls": 0,
+    "poll_calls": "not asserted (timing-dependent)",
+    "resource_calls": 1,
+    "step": "upstream call counts",
+    "unexpected_upstream_requests": []
+  }
+]

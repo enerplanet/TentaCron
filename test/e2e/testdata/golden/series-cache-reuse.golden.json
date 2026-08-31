@@ -26,7 +26,7 @@
         "target_status": 200
       },
       "state": "completed",
-      "target": "buem",
+      "target": "demo",
       "updated_at": "«ts»"
     },
     "status": 200,
@@ -67,7 +67,7 @@
         "target_status": 200
       },
       "state": "completed",
-      "target": "buem",
+      "target": "demo",
       "updated_at": "«ts»"
     },
     "status": 200,
@@ -83,8 +83,9 @@
     "step": "second job's audit trail (resolved from cache)"
   },
   {
-    "accept_calls": 0,
-    "direct_calls": 2,
+    "buem_calls": 0,
+    "demo_calls": 2,
+    "meme_accept_calls": 0,
     "poll_calls": "not asserted (timing-dependent)",
     "resource_calls": 1,
     "step": "upstream call counts",

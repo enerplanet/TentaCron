@@ -24,7 +24,7 @@
       "id": "«job-1»",
       "result": null,
       "state": "failed",
-      "target": "buem",
+      "target": "demo",
       "updated_at": "«ts»"
     },
     "status": 200,

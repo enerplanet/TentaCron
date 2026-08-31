@@ -10,11 +10,27 @@ func TestExamples(t *testing.T) {
 
 var exampleScenarios = []scenario{
 	{
-		name: "example-buem-direct",
+		name: "example-demo-direct",
 		run: func(t *testing.T, h *harness) {
-			id := h.post("submit examples/buem-direct.json", exampleRequest(t, "buem-direct.json"), nil)
+			id := h.post("submit examples/demo-direct.json", exampleRequest(t, "demo-direct.json"), nil)
 			h.await("final state", id)
-			h.forwarded("payload the buem target received (header-injected key)", "direct")
+			h.forwarded("payload the demo target received (header-injected key)", "demo")
+			h.events("audit trail", id)
+			h.counts()
+		},
+	},
+	{
+		// The real buem-gateway contract: the weather resolvent at the
+		// payload root is substituted by the exact {index, variables} block
+		// the gateway requires — no tentacron marker, buildings untouched.
+		name: "example-buem-buildings",
+		fakes: fakes{resource: func(int64) reply {
+			return reply{200, `{"index":["2018-01-01T00:30:00Z","2018-01-01T01:30:00Z"],"variables":{"T":[1.0,1.2],"GHI":[0.0,12.5]}}`, ""}
+		}},
+		run: func(t *testing.T, h *harness) {
+			id := h.post("submit examples/buem-buildings.json", exampleRequest(t, "buem-buildings.json"), nil)
+			h.await("final state", id)
+			h.forwarded("payload buem-gateway received (weather substituted, marker-free)", "buem")
 			h.events("audit trail", id)
 			h.counts()
 		},
@@ -24,7 +40,7 @@ var exampleScenarios = []scenario{
 		run: func(t *testing.T, h *harness) {
 			id := h.post("submit examples/meme-poll.json", exampleRequest(t, "meme-poll.json"), nil)
 			h.await("final state", id)
-			h.forwarded("payload the meme target received (body-injected key)", "accept")
+			h.forwarded("payload the meme target received (body-injected key)", "meme")
 			h.events("audit trail", id)
 			h.counts()
 		},
@@ -34,7 +50,7 @@ var exampleScenarios = []scenario{
 		run: func(t *testing.T, h *harness) {
 			id := h.post("submit examples/no-resolvents.json", exampleRequest(t, "no-resolvents.json"), nil)
 			h.await("final state", id)
-			h.forwarded("payload forwarded unchanged", "direct")
+			h.forwarded("payload forwarded unchanged", "demo")
 			h.events("audit trail", id)
 			h.counts()
 		},
@@ -44,7 +60,7 @@ var exampleScenarios = []scenario{
 		run: func(t *testing.T, h *harness) {
 			id := h.post("submit examples/big-numbers.json", exampleRequest(t, "big-numbers.json"), nil)
 			h.await("final state", id)
-			h.forwarded("payload with integers above 2^53 — digits must be exact", "direct")
+			h.forwarded("payload with integers above 2^53 — digits must be exact", "demo")
 			h.counts()
 		},
 	},

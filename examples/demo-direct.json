@@ -1,6 +1,6 @@
 {
   "api_key": "your-tentacron-api-key",
-  "target": "buem",
+  "target": "demo",
   "payload": {
     "scenario": "rooftop-expansion-2030",
     "time-series": [

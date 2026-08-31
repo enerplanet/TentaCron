@@ -26,7 +26,7 @@
         "target_status": 200
       },
       "state": "completed",
-      "target": "buem",
+      "target": "demo",
       "updated_at": "«ts»"
     },
     "status": 200,
@@ -37,7 +37,7 @@
       "∅ → received: job accepted",
       "received → resolving: claimed by worker",
       "resolving → forwarding: resolved 1 resolvent(s), 0 from cache",
-      "forwarding → received: attempt 1/3 failed (target buem: HTTP 500: {\"error\":\"busy\"}), retrying in «dur»",
+      "forwarding → received: attempt 1/3 failed (target demo: HTTP 500: {\"error\":\"busy\"}), retrying in «dur»",
       "received → resolving: claimed by worker",
       "resolving → forwarding: resolved 1 resolvent(s), 1 from cache",
       "forwarding → completed: target responded with status 200"
@@ -45,8 +45,9 @@
     "step": "audit trail: target 500 requeued, retry resolves from cache"
   },
   {
-    "accept_calls": 0,
-    "direct_calls": 2,
+    "buem_calls": 0,
+    "demo_calls": 2,
+    "meme_accept_calls": 0,
     "poll_calls": "not asserted (timing-dependent)",
     "resource_calls": 1,
     "step": "upstream call counts",

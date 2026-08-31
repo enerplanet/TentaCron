@@ -35,7 +35,7 @@
     "step": "final state"
   },
   {
-    "endpoint": "accept",
+    "endpoint": "meme",
     "step": "payload the meme target received (body-injected key)",
     "target_auth_header": "",
     "target_received": {
@@ -125,8 +125,9 @@
     "step": "audit trail"
   },
   {
-    "accept_calls": 1,
-    "direct_calls": 0,
+    "buem_calls": 0,
+    "demo_calls": 0,
+    "meme_accept_calls": 1,
     "poll_calls": "not asserted (timing-dependent)",
     "resource_calls": 1,
     "step": "upstream call counts",
