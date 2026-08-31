@@ -76,8 +76,12 @@ request is `completed`; `404` otherwise.
 
 ## GET /v1/requests
 
-List recent requests, newest first. Query parameters: `state` (filter by job
-state) and `limit` (default 50, max 200).
+List recent requests, newest first. Authenticated via the `X-API-Key` header,
+exactly like `GET /v1/requests/{id}` — the same applies to
+`GET /v1/requests/{id}/result`. Query parameters: `state` (filter by job
+state) and `limit` (default 50, max 200); invalid values answer
+`400 invalid_parameter` (unknown state filter, or limit not a positive
+integer).
 
 ```json
 { "items": [ { "id": "…", "state": "failed", "error": { "code": "target_timeout", "message": "…" } } ] }

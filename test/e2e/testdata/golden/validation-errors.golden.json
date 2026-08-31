@@ -1,0 +1,135 @@
+[
+  {
+    "request": "POST /v1/requests",
+    "response": {
+      "error": {
+        "code": "unsupported_media_type",
+        "message": "Content-Type must be application/json"
+      }
+    },
+    "status": 415,
+    "step": "no content type"
+  },
+  {
+    "request": "POST /v1/requests",
+    "response": {
+      "error": {
+        "code": "unsupported_media_type",
+        "message": "Content-Type must be application/json"
+      }
+    },
+    "status": 415,
+    "step": "wrong content type"
+  },
+  {
+    "request": "POST /v1/requests",
+    "response": {
+      "error": {
+        "code": "invalid_json",
+        "message": "request body is not valid JSON"
+      }
+    },
+    "status": 400,
+    "step": "invalid json"
+  },
+  {
+    "request": "POST /v1/requests",
+    "response": {
+      "error": {
+        "code": "invalid_json",
+        "message": "request body contains trailing data"
+      }
+    },
+    "status": 400,
+    "step": "trailing garbage"
+  },
+  {
+    "request": "POST /v1/requests",
+    "response": {
+      "error": {
+        "code": "missing_field",
+        "message": "api_key is required"
+      }
+    },
+    "status": 400,
+    "step": "missing api_key"
+  },
+  {
+    "request": "POST /v1/requests",
+    "response": {
+      "error": {
+        "code": "missing_field",
+        "message": "target is required"
+      }
+    },
+    "status": 400,
+    "step": "missing target"
+  },
+  {
+    "request": "POST /v1/requests",
+    "response": {
+      "error": {
+        "code": "missing_field",
+        "message": "payload is required"
+      }
+    },
+    "status": 400,
+    "step": "missing payload"
+  },
+  {
+    "request": "POST /v1/requests",
+    "response": {
+      "error": {
+        "code": "invalid_json",
+        "message": "payload must be a JSON object"
+      }
+    },
+    "status": 400,
+    "step": "payload not an object"
+  },
+  {
+    "request": "POST /v1/requests",
+    "response": {
+      "error": {
+        "code": "unauthorized",
+        "message": "invalid api_key"
+      }
+    },
+    "status": 401,
+    "step": "wrong api key"
+  },
+  {
+    "request": "POST /v1/requests",
+    "response": {
+      "error": {
+        "code": "unknown_target",
+        "message": "target \"hydra\" is not configured"
+      }
+    },
+    "status": 422,
+    "step": "unknown target"
+  },
+  {
+    "request": "POST /v1/requests",
+    "response": {
+      "error": {
+        "code": "payload_too_large",
+        "message": "request body exceeds the configured limit"
+      }
+    },
+    "status": 413,
+    "step": "oversized body"
+  },
+  {
+    "request": "POST /v1/requests",
+    "response": {
+      "id": "«job-1»",
+      "links": {
+        "self": "/v1/requests/«job-1»"
+      },
+      "state": "received"
+    },
+    "status": 202,
+    "step": "content type with charset parameter is accepted"
+  }
+]

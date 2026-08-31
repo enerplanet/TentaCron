@@ -1,0 +1,17 @@
+{
+  "api_key": "your-tentacron-api-key",
+  "target": "buem",
+  "payload": {
+    "scenario": "measured-data-only",
+    "time-series": [
+      {
+        "name": "measured_feed_in",
+        "type": "time-series",
+        "start": "2030-01-01T00:00:00Z",
+        "resolution": "PT1H",
+        "unit": "kW",
+        "values": [3.2, 3.4, 2.9, 3.8]
+      }
+    ]
+  }
+}

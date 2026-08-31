@@ -1,0 +1,75 @@
+[
+  {
+    "request": "POST /v1/requests",
+    "response": {
+      "id": "«job-1»",
+      "links": {
+        "self": "/v1/requests/«job-1»"
+      },
+      "state": "received"
+    },
+    "status": 202,
+    "step": "submit examples/no-resolvents.json"
+  },
+  {
+    "request": "GET /v1/requests/{id}",
+    "response": {
+      "attempts": 1,
+      "completed_at": "«ts»",
+      "created_at": "«ts»",
+      "error": null,
+      "id": "«job-1»",
+      "result": {
+        "target_response": {
+          "ok": true
+        },
+        "target_status": 200
+      },
+      "state": "completed",
+      "target": "buem",
+      "updated_at": "«ts»"
+    },
+    "status": 200,
+    "step": "final state"
+  },
+  {
+    "endpoint": "direct",
+    "step": "payload forwarded unchanged",
+    "target_auth_header": "buem-golden-secret",
+    "target_received": {
+      "scenario": "measured-data-only",
+      "time-series": [
+        {
+          "name": "measured_feed_in",
+          "resolution": "PT1H",
+          "start": "2030-01-01T00:00:00Z",
+          "type": "time-series",
+          "unit": "kW",
+          "values": [
+            3.2,
+            3.4,
+            2.9,
+            3.8
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "audit_trail": [
+      "∅ → received: job accepted",
+      "received → resolving: claimed by worker",
+      "resolving → forwarding: resolved 0 resolvent(s), 0 from cache",
+      "forwarding → completed: target responded with status 200"
+    ],
+    "step": "audit trail"
+  },
+  {
+    "accept_calls": 0,
+    "direct_calls": 1,
+    "poll_calls": "not asserted (timing-dependent)",
+    "resource_calls": 0,
+    "step": "upstream call counts",
+    "unexpected_upstream_requests": []
+  }
+]

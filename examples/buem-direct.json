@@ -1,0 +1,32 @@
+{
+  "api_key": "your-tentacron-api-key",
+  "target": "buem",
+  "payload": {
+    "scenario": "rooftop-expansion-2030",
+    "time-series": [
+      {
+        "name": "pv_south_roof",
+        "type": "resolvent-pv1",
+        "location": { "lat": 48.831, "lon": 12.957 },
+        "capacity_kw": 12.5,
+        "azimuth": 180,
+        "tilt": 35
+      },
+      {
+        "name": "wind_ridge",
+        "type": "resolvent-wind",
+        "location": { "lat": 48.902, "lon": 12.581 },
+        "hub_height_m": 120,
+        "rotor_diameter_m": 90
+      },
+      {
+        "name": "household_load",
+        "type": "time-series",
+        "start": "2030-01-01T00:00:00Z",
+        "resolution": "PT1H",
+        "unit": "kW",
+        "values": [0.42, 0.38, 0.35, 0.61]
+      }
+    ]
+  }
+}

@@ -103,14 +103,18 @@ See [docs/api.md](docs/api.md) for the full reference,
 ## Development
 
 ```bash
-make test        # unit + integration tests
-make test-race   # with race detector (CI mode)
-make lint        # go vet + golangci-lint
-make run         # build and run with config.example.yaml
+make test           # unit + integration + golden E2E tests
+make test-race      # with race detector (CI mode)
+make e2e            # golden end-to-end corpus only, verbose
+make golden-update  # accept an intended behavior change
+make lint           # go vet + golangci-lint
+make run            # build and run with config.example.yaml
 ```
 
 The test suite spins up fake resource/target services in-process — no network
-or external services required.
+or external services required. Ready-to-send request payloads live in
+[examples/](examples/) (each one is executed by the golden E2E suite), and
+the test pyramid is documented in [test/README.md](test/README.md).
 
 ## License
 

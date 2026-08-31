@@ -1,0 +1,17 @@
+{
+  "api_key": "your-tentacron-api-key",
+  "target": "buem",
+  "payload": {
+    "scenario": "number-fidelity",
+    "meter_id": 1234567890123456789,
+    "site_ref": 9007199254740993,
+    "time-series": [
+      {
+        "name": "pv_metered",
+        "type": "resolvent-pv1",
+        "asset_id": 9223372036854775807,
+        "capacity_kw": 12.5
+      }
+    ]
+  }
+}

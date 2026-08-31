@@ -1,0 +1,43 @@
+[
+  {
+    "request": "POST /v1/requests",
+    "response": {
+      "id": "«job-1»",
+      "links": {
+        "self": "/v1/requests/«job-1»"
+      },
+      "state": "received"
+    },
+    "status": 202,
+    "step": "submit"
+  },
+  {
+    "request": "GET /v1/requests/{id}",
+    "response": {
+      "attempts": 2,
+      "completed_at": "«ts»",
+      "created_at": "«ts»",
+      "error": {
+        "code": "max_attempts_exceeded",
+        "message": "gave up after 2 attempts, last error: resource resolvent-pv1: HTTP 500: {\"error\":\"down\"}"
+      },
+      "id": "«job-1»",
+      "result": null,
+      "state": "failed",
+      "target": "buem",
+      "updated_at": "«ts»"
+    },
+    "status": 200,
+    "step": "final state (attempts exhausted)"
+  },
+  {
+    "audit_trail": [
+      "∅ → received: job accepted",
+      "received → resolving: claimed by worker",
+      "resolving → received: attempt 1/2 failed (resource resolvent-pv1: HTTP 500: {\"error\":\"down\"}), retrying in «dur»",
+      "received → resolving: claimed by worker",
+      "resolving → failed: max_attempts_exceeded: gave up after 2 attempts, last error: resource resolvent-pv1: HTTP 500: {\"error\":\"down\"}"
+    ],
+    "step": "audit trail"
+  }
+]

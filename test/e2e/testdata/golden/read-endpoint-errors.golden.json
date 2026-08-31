@@ -1,0 +1,62 @@
+[
+  {
+    "content_type": "application/json",
+    "request": "GET /v1/requests/0123456789abcdef0123456789abcdef",
+    "response": {
+      "error": {
+        "code": "unauthorized",
+        "message": "missing or invalid X-API-Key header"
+      }
+    },
+    "status": 401,
+    "step": "status without api key"
+  },
+  {
+    "content_type": "application/json",
+    "request": "GET /v1/requests/0123456789abcdef0123456789abcdef",
+    "response": {
+      "error": {
+        "code": "not_found",
+        "message": "no such request"
+      }
+    },
+    "status": 404,
+    "step": "status for unknown id"
+  },
+  {
+    "content_type": "application/json",
+    "request": "GET /v2/other",
+    "response": {
+      "error": {
+        "code": "not_found",
+        "message": "no such route"
+      }
+    },
+    "status": 404,
+    "step": "unknown route"
+  },
+  {
+    "content_type": "application/json",
+    "request": "GET /v1/requests?state=bogus",
+    "response": {
+      "error": {
+        "code": "invalid_parameter",
+        "message": "unknown state filter \"bogus\""
+      }
+    },
+    "status": 400,
+    "step": "list with unknown state filter"
+  },
+  {
+    "content_type": "application/json",
+    "request": "GET /v1/requests?limit=-1",
+    "response": {
+      "error": {
+        "code": "invalid_parameter",
+        "message": "limit must be a positive integer"
+      }
+    },
+    "status": 400,
+    "step": "list with invalid limit"
+  }
+]

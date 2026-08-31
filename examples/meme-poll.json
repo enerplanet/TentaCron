@@ -1,0 +1,38 @@
+{
+  "api_key": "your-tentacron-api-key",
+  "target": "meme",
+  "payload": {
+    "model": {
+      "metadata": { "name": "pv-vs-grid", "currency": "EUR" },
+      "time": { "start": "2030-01-01", "end": "2030-01-02", "resolution": "1H" },
+      "carriers": {
+        "electricity": { "unit": "MWh", "co2_intensity": 0.2 }
+      },
+      "nodes": {
+        "deggendorf": { "coords": { "lat": 48.831, "lon": 12.957 } }
+      },
+      "timeseries": {
+        "pv_cf": {
+          "type": "resolvent-pv1",
+          "location": { "lat": 48.831, "lon": 12.957 },
+          "capacity_kw": 950,
+          "azimuth": 180,
+          "tilt": 30
+        },
+        "demand": {
+          "type": "time-series",
+          "unit": "MW",
+          "values": [5.1, 4.8, 4.4, 5.9]
+        }
+      },
+      "technologies": {
+        "rooftop_pv": { "role": "supply", "carrier": "electricity" },
+        "city_demand": { "role": "demand", "carrier": "electricity" }
+      }
+    },
+    "experiment": {
+      "mode": "plan",
+      "solver": { "name": "highs" }
+    }
+  }
+}

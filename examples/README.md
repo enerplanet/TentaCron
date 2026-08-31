@@ -1,0 +1,24 @@
+# `examples/` — ready-to-send requests
+
+Complete request bodies for `POST /v1/requests`. Replace
+`your-tentacron-api-key` with a key from your `auth.api_keys` config and send:
+
+```bash
+curl -s -X POST localhost:8080/v1/requests \
+  -H 'Content-Type: application/json' \
+  -d @examples/buem-direct.json
+# → {"id":"6f1c9be2…","state":"received","links":{"self":"/v1/requests/6f1c9be2…"}}
+
+curl -s localhost:8080/v1/requests/<id> -H 'X-API-Key: your-tentacron-api-key'
+```
+
+| File | Shows |
+|---|---|
+| [`buem-direct.json`](buem-direct.json) | Array-style `time-series` container for a direct-mode target: two resolvents (`resolvent-pv1`, `resolvent-wind`) next to a pass-through measured series. |
+| [`meme-poll.json`](meme-poll.json) | MEME-style canonical model with a `model.timeseries` name→object registry; one `resolvent-pv1` capacity-factor placeholder beside a literal demand series. Tentacron polls MEME's job to completion. |
+| [`no-resolvents.json`](no-resolvents.json) | A payload with only literal series — nothing to resolve, forwarded as-is. |
+| [`big-numbers.json`](big-numbers.json) | Integer ids above 2^53 in the payload and the resolvent; the golden suite proves they reach the target byte-exact. |
+
+Every file here is executed by the golden end-to-end suite
+([`test/e2e`](../test/e2e)) against an in-process tentacron on every
+`go test ./...` run — an example that drifts from the actual contract fails CI.
