@@ -148,12 +148,14 @@ func resolventType(obj map[string]any) (string, bool) {
 }
 
 // Substitute replaces the found resolvent with the resource API's response.
-// The response must be a JSON object; it gets the original resolvent object
-// attached under "resolvent" and overwrites the resolvent's slot in the
-// payload. Non-fatal oddities are returned as warnings.
+// The response must be a JSON object; it overwrites the resolvent's slot in
+// the payload and — when attachResolvent is set — gets the original resolvent
+// object attached under "resolvent" for traceability. Targets whose schema
+// rejects unknown keys pass false; the substituted series then carries no
+// tentacron marker at all. Non-fatal oddities are returned as warnings.
 // Each call decodes seriesBody afresh, so duplicate resolvents fed the same
 // cached body never share the substituted map.
-func (f *Found) Substitute(seriesBody []byte) (warnings []string, err error) {
+func (f *Found) Substitute(seriesBody []byte, attachResolvent bool) (warnings []string, err error) {
 	// decodeObject keeps number fidelity (the series lands in the forwarded
 	// payload) and rejects "null", which would otherwise decode into a nil
 	// map and panic on the resolvent-key assignment below.
@@ -165,11 +167,13 @@ func (f *Found) Substitute(seriesBody []byte) (warnings []string, err error) {
 		warnings = append(warnings, fmt.Sprintf(
 			"resource response for %s has type %q, expected %q", f.Type, typ, TimeSeriesType))
 	}
-	if _, exists := series[ResolventKey]; exists {
-		warnings = append(warnings, fmt.Sprintf(
-			"resource response for %s already contains a %q key; it was overwritten", f.Type, ResolventKey))
+	if attachResolvent {
+		if _, exists := series[ResolventKey]; exists {
+			warnings = append(warnings, fmt.Sprintf(
+				"resource response for %s already contains a %q key; it was overwritten", f.Type, ResolventKey))
+		}
+		series[ResolventKey] = f.Object
 	}
-	series[ResolventKey] = f.Object
 	f.replace(series)
 	return warnings, nil
 }

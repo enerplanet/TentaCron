@@ -83,7 +83,13 @@ func (p *Pool) processNew(ctx, bg context.Context, job *store.Job) {
 		p.failJob(bg, job, errInvalidPayload, err.Error())
 		return
 	}
-	found, err := resolver.Find(root, tcfg.TimeseriesPath)
+	// The "." sentinel scans the whole payload (resolver treats "" as
+	// root-scan; the config layer reserves "" for "use the default path").
+	path := tcfg.TimeseriesPath
+	if path == config.RootTimeseriesPath {
+		path = ""
+	}
+	found, err := resolver.Find(root, path)
 	if err != nil {
 		p.failJob(bg, job, errInvalidPayload, err.Error())
 		return
@@ -104,8 +110,11 @@ func (p *Pool) processNew(ctx, bg context.Context, job *store.Job) {
 		p.retryOrFail(bg, job, errResourceError, err)
 		return
 	}
+	// nil means "not configured": config.Load defaults it to true, but a
+	// hand-built config (tests, embedders) must get the same default.
+	attach := tcfg.AttachResolvent == nil || *tcfg.AttachResolvent
 	for _, f := range found {
-		warnings, err := f.Substitute(seriesByHash[f.Hash])
+		warnings, err := f.Substitute(seriesByHash[f.Hash], attach)
 		if err != nil {
 			p.failJob(bg, job, errInvalidResource, err.Error())
 			return

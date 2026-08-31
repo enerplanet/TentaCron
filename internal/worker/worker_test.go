@@ -558,6 +558,59 @@ func TestShutdownParksInFlightJob(t *testing.T) {
 	}
 }
 
+// A buem-gateway-style target: the time series (the weather block) sits at
+// the payload root, and the target's schema forbids tentacron's resolvent
+// marker — the substituted block must be exactly the resource response.
+func TestRootPathTargetWithoutResolventMarker(t *testing.T) {
+	cfg := baseConfig(t)
+	weatherBody := `{"index":["2018-01-01T00:30:00Z"],"variables":{"T":[1.0],"GHI":[0.0]}}`
+	weatherResource := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, weatherBody)
+	}))
+	t.Cleanup(weatherResource.Close)
+	target, lastBody := fakeDirectTarget(t, 200, `[{"id":"111","buem":{"ok":true}}]`)
+
+	attach := false
+	cfg.Resolvents["resolvent-weather"] = resolventCfg(weatherResource.URL)
+	cfg.Targets["buem"] = config.Target{
+		URL: target.URL, Method: "POST", Timeout: dur(2 * time.Second),
+		TimeseriesPath: config.RootTimeseriesPath, AttachResolvent: &attach,
+		APIKeyInject: config.InjectNone,
+		Response:     config.Response{Mode: config.ModeDirect},
+	}
+
+	st := openStore(t)
+	id := createJob(t, st, "buem", `{
+		"model_id": "m1",
+		"weather": {"type": "resolvent-weather", "lat": 48.83, "lon": 12.95},
+		"buildings": [{"id": "111", "building": {"envelope": {"elements": []}}}]
+	}`, 3)
+	startPool(t, cfg, st)
+
+	job := waitForTerminal(t, st, id)
+	if job.State != store.StateCompleted {
+		t.Fatalf("state = %s, error = %s: %s", job.State, job.ErrorCode, job.ErrorMessage)
+	}
+	var fwd map[string]any
+	if err := json.Unmarshal(lastBody(), &fwd); err != nil {
+		t.Fatalf("forwarded body: %v", err)
+	}
+	weather := fwd["weather"].(map[string]any)
+	if _, exists := weather["resolvent"]; exists {
+		t.Errorf("resolvent marker attached despite attach_resolvent=false: %v", weather)
+	}
+	if _, exists := weather["type"]; exists {
+		t.Errorf("type key leaked into the substituted weather block: %v", weather)
+	}
+	if _, exists := weather["variables"]; !exists {
+		t.Errorf("weather not substituted: %v", weather)
+	}
+	if fwd["model_id"] != "m1" {
+		t.Errorf("sibling keys must survive: %v", fwd)
+	}
+}
+
 // A resource API answering 200 "null" must fail the job with the documented
 // invalid_resource_response — not poison the series cache and panic
 // Substitute into an "internal" failure.

@@ -139,7 +139,7 @@ func TestSubstituteArraySlot(t *testing.T) {
 		]
 	}`)
 	found := find(t, root, "time-series")
-	warnings, err := found[0].Substitute([]byte(`{"type":"time-series","unit":"kW","values":[0.1,0.2]}`))
+	warnings, err := found[0].Substitute([]byte(`{"type":"time-series","unit":"kW","values":[0.1,0.2]}`), true)
 	if err != nil || len(warnings) != 0 {
 		t.Fatalf("Substitute: warn=%v err=%v", warnings, err)
 	}
@@ -179,7 +179,7 @@ func TestSubstituteArraySlot(t *testing.T) {
 func TestSubstituteRegistrySlot(t *testing.T) {
 	root := parse(t, `{"model":{"timeseries":{"pv_cf":{"type":"resolvent-pv1"}}}}`)
 	found := find(t, root, "model.timeseries")
-	if _, err := found[0].Substitute([]byte(`{"type":"time-series","values":[9]}`)); err != nil {
+	if _, err := found[0].Substitute([]byte(`{"type":"time-series","values":[9]}`), true); err != nil {
 		t.Fatal(err)
 	}
 	model := root["model"].(map[string]any)
@@ -195,7 +195,7 @@ func TestSubstituteRegistrySlot(t *testing.T) {
 func TestSubstituteWarnings(t *testing.T) {
 	root := parse(t, `{"time-series":[{"type":"resolvent-pv1"}]}`)
 	found := find(t, root, "time-series")
-	warnings, err := found[0].Substitute([]byte(`{"type":"other","resolvent":"pre-existing"}`))
+	warnings, err := found[0].Substitute([]byte(`{"type":"other","resolvent":"pre-existing"}`), true)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -208,7 +208,7 @@ func TestSubstituteRejectsNonObject(t *testing.T) {
 	for _, body := range []string{`[1,2,3]`, `"text"`, `not json`} {
 		root := parse(t, `{"time-series":[{"type":"resolvent-pv1"}]}`)
 		found := find(t, root, "time-series")
-		if _, err := found[0].Substitute([]byte(body)); err == nil {
+		if _, err := found[0].Substitute([]byte(body), true); err == nil {
 			t.Errorf("Substitute(%q): want error, got nil", body)
 		}
 	}
@@ -250,10 +250,10 @@ func TestDuplicateResolventsShareHash(t *testing.T) {
 		t.Fatalf("want 2 founds sharing a hash, got %d", len(found))
 	}
 	// Both slots must be independently replaceable.
-	if _, err := found[0].Substitute([]byte(`{"type":"time-series","values":[1]}`)); err != nil {
+	if _, err := found[0].Substitute([]byte(`{"type":"time-series","values":[1]}`), true); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := found[1].Substitute([]byte(`{"type":"time-series","values":[1]}`)); err != nil {
+	if _, err := found[1].Substitute([]byte(`{"type":"time-series","values":[1]}`), true); err != nil {
 		t.Fatal(err)
 	}
 	arr := root["time-series"].([]any)
@@ -284,7 +284,7 @@ func TestNumberFidelityThroughRoundTrip(t *testing.T) {
 	}`)
 	found := find(t, root, "time-series")
 	// Resource responses land in the payload too and get the same fidelity.
-	if _, err := found[0].Substitute([]byte(`{"type":"time-series","reading":10000000000000000001}`)); err != nil {
+	if _, err := found[0].Substitute([]byte(`{"type":"time-series","reading":10000000000000000001}`), true); err != nil {
 		t.Fatal(err)
 	}
 	out, err := Marshal(root)
@@ -298,12 +298,33 @@ func TestNumberFidelityThroughRoundTrip(t *testing.T) {
 	}
 }
 
+// Targets whose schema rejects unknown keys opt out of the resolvent marker:
+// the substituted series must carry no tentacron key at all.
+func TestSubstituteWithoutAttachingResolvent(t *testing.T) {
+	root := parse(t, `{"model_id":"m1","weather":{"type":"resolvent-weather","lat":48.8}}`)
+	found := find(t, root, "")
+	if len(found) != 1 {
+		t.Fatalf("found %d, want 1", len(found))
+	}
+	weatherBody := `{"index":["2018-01-01T00:30:00Z"],"variables":{"T":[1.0]}}`
+	if _, err := found[0].Substitute([]byte(weatherBody), false); err != nil {
+		t.Fatal(err)
+	}
+	weather := root["weather"].(map[string]any)
+	if _, exists := weather[ResolventKey]; exists {
+		t.Error("resolvent key attached despite attachResolvent=false")
+	}
+	if _, exists := weather["variables"]; !exists {
+		t.Errorf("series not substituted: %+v", weather)
+	}
+}
+
 // "null" decodes into a nil map without error; Substitute must reject it
 // instead of panicking on the resolvent-key assignment.
 func TestSubstituteRejectsNull(t *testing.T) {
 	root := parse(t, `{"time-series":[{"type":"resolvent-pv1"}]}`)
 	found := find(t, root, "time-series")
-	if _, err := found[0].Substitute([]byte(`null`)); err == nil {
+	if _, err := found[0].Substitute([]byte(`null`), true); err == nil {
 		t.Fatal("Substitute(null) must error, not panic")
 	}
 }

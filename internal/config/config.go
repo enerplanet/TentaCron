@@ -100,6 +100,12 @@ const (
 	ModePoll   = "poll"
 )
 
+// RootTimeseriesPath is the timeseries_path value that scans the whole
+// payload for resolvent objects instead of one named container — for targets
+// like buem-gateway whose time series (the weather block) sits at the payload
+// root. ("" cannot express this: it means "use the default".)
+const RootTimeseriesPath = "."
+
 // Target describes one downstream target workflow (e.g. meme, buem).
 type Target struct {
 	URL            string   `yaml:"url"`
@@ -110,7 +116,14 @@ type Target struct {
 	APIKeyHeader   string   `yaml:"api_key_header"`
 	Timeout        Duration `yaml:"timeout"`
 	TimeseriesPath string   `yaml:"timeseries_path"`
-	Response       Response `yaml:"response"`
+	// AttachResolvent controls whether the original resolvent object is
+	// preserved under the substituted series' "resolvent" key (tentacron's
+	// default traceability contract). Set false for targets whose schema
+	// validation rejects unknown keys (e.g. buem-gateway forwarding to
+	// BuEM's GeoJSON validator); the audit store keeps full traceability
+	// either way.
+	AttachResolvent *bool    `yaml:"attach_resolvent"`
+	Response        Response `yaml:"response"`
 }
 
 // Response describes how a target reports its result.
@@ -243,6 +256,10 @@ func (t *Target) applyDefaults() {
 	}
 	if t.TimeseriesPath == "" {
 		t.TimeseriesPath = "time-series"
+	}
+	if t.AttachResolvent == nil {
+		attach := true
+		t.AttachResolvent = &attach
 	}
 	setDur(&t.Timeout, 60*time.Second)
 	if t.APIKeyInject == "" {

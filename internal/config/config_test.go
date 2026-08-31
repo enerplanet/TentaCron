@@ -54,6 +54,9 @@ func TestLoadMinimalAppliesDefaults(t *testing.T) {
 	if tgt.Response.Mode != ModeDirect {
 		t.Errorf("response mode = %q, want direct", tgt.Response.Mode)
 	}
+	if tgt.AttachResolvent == nil || !*tgt.AttachResolvent {
+		t.Errorf("attach_resolvent must default to true, got %v", tgt.AttachResolvent)
+	}
 	if cfg.Cache.DefaultTTL.Std() != 6*time.Hour {
 		t.Errorf("default_ttl = %v, want 6h", cfg.Cache.DefaultTTL.Std())
 	}
@@ -90,6 +93,30 @@ targets:
 `))
 	if err == nil || !strings.Contains(err.Error(), "TC_DEFINITELY_UNSET_VAR") {
 		t.Fatalf("want unset-env error naming the variable, got %v", err)
+	}
+}
+
+func TestLoadRootPathAndAttachResolvent(t *testing.T) {
+	cfg, err := Load(writeConfig(t, `
+auth:
+  api_keys:
+    - name: test
+      key: secret
+targets:
+  buem:
+    url: "https://buem-gateway.example.com/api/v1/buem/buildings"
+    timeseries_path: "."
+    attach_resolvent: false
+`))
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	tgt := cfg.Targets["buem"]
+	if tgt.TimeseriesPath != RootTimeseriesPath {
+		t.Errorf("timeseries_path = %q, want %q", tgt.TimeseriesPath, RootTimeseriesPath)
+	}
+	if tgt.AttachResolvent == nil || *tgt.AttachResolvent {
+		t.Errorf("attach_resolvent = %v, want false", tgt.AttachResolvent)
 	}
 }
 
@@ -279,13 +306,29 @@ targets:
 func TestLoadFullExample(t *testing.T) {
 	for _, v := range []string{
 		"TENTACRON_KEY_FRONTEND", "TENTACRON_KEY_BATCH",
-		"MEME_API_KEY", "BUEM_API_KEY", "PV1_API_KEY", "WIND_API_KEY",
+		"MEME_API_KEY", "BUEM_API_KEY", "PV1_API_KEY", "WIND_API_KEY", "WEATHER_API_KEY",
 	} {
 		t.Setenv(v, "test-"+v)
 	}
 	cfg, err := Load("../../config.example.yaml")
 	if err != nil {
 		t.Fatalf("config.example.yaml must load cleanly: %v", err)
+	}
+	buem := cfg.Targets["buem"]
+	if buem.TimeseriesPath != RootTimeseriesPath {
+		t.Errorf("buem timeseries_path = %q, want %q (weather at the payload root)", buem.TimeseriesPath, RootTimeseriesPath)
+	}
+	if buem.AttachResolvent == nil || *buem.AttachResolvent {
+		t.Errorf("buem attach_resolvent = %v, want false", buem.AttachResolvent)
+	}
+	if buem.APIKeyHeader != "X-Api-Key" {
+		t.Errorf("buem api_key_header = %q, want the gateway's X-Api-Key", buem.APIKeyHeader)
+	}
+	if _, ok := cfg.Targets["demo"]; !ok {
+		t.Error("demo target missing — the generic examples point at it")
+	}
+	if _, ok := cfg.Resolvents["resolvent-weather"]; !ok {
+		t.Error("resolvent-weather missing — buem payloads resolve weather through it")
 	}
 	meme := cfg.Targets["meme"]
 	if meme.Response.Mode != ModePoll {
