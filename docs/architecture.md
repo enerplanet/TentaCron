@@ -98,7 +98,13 @@ SQLite *is* the queue — no external broker:
 - Target/resource credentials live only in the YAML config (via environment
   variables) and are injected into outbound requests at send time.
 - All outbound URLs come from configuration — request data can only select
-  dictionary entries, never supply a URL (no SSRF surface).
+  dictionary entries, never supply a URL. Target-supplied job ids are
+  validated against a strict charset and path-escaped before they are
+  substituted into poll/result URL templates.
+- Outbound calls never follow redirects (Go's default policy would forward
+  the injected API-key headers to cross-origin redirect targets), and
+  upstream error excerpts have all configured credentials redacted before
+  they are stored or logged.
 - Request and response bodies are size-capped; TLS termination is expected at
   a reverse proxy.
 

@@ -21,16 +21,21 @@ Submit a request for orchestration.
 **Headers**
 
 - `Content-Type: application/json` (required)
-- `Idempotency-Key` (optional) — resubmitting with the same key returns the
-  original request id instead of creating a duplicate.
+- `Idempotency-Key` (optional) — scoped to the authenticated client.
+  Resubmitting the identical request (same target and payload) with the same
+  key returns the original request id instead of creating a duplicate;
+  reusing the key with a *different* request is rejected with `409`.
 
 **Responses**
 
 - `202 Accepted` — `{ "id": "…", "state": "received", "links": { "self": "/v1/requests/…" } }`
-- `400 invalid_json` / `missing_field` — malformed body or missing field
+- `400 invalid_json` / `missing_field` — malformed body (including trailing
+  data after the JSON object) or missing field
 - `401 unauthorized` — unknown api key
+- `409 idempotency_conflict` — `Idempotency-Key` already used with a
+  different target or payload
 - `413 payload_too_large` — body exceeds `server.max_body_bytes`
-- `415 unsupported_media_type`
+- `415 unsupported_media_type` — `Content-Type: application/json` is required
 - `422 unknown_target` — target not configured
 
 ## GET /v1/requests/{id}

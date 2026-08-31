@@ -31,7 +31,9 @@ make build && ./bin/tentacron -config /etc/tentacron/config.yaml
 Structured JSON on stdout (`log/slog`). Useful fields: `request_id` (echoed
 from/into `X-Request-ID`), `job_id`, `target`, `attempt`, `client` (the name
 of the API key used), `error`. API keys are never logged; upstream error
-bodies are truncated to 512 bytes.
+bodies have every configured downstream credential redacted and are then
+truncated to 512 bytes — a resource or target API echoing the request back
+in an error cannot leak a key into logs, the audit store, or API responses.
 
 ## Inspecting state
 
