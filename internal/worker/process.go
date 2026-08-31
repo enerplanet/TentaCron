@@ -32,6 +32,11 @@ const (
 	errInternal         = "internal"
 )
 
+// errBadResourceBody marks a resource API response whose body is not a JSON
+// object; processNew maps it to the invalid_resource_response job code
+// instead of the HTTP-level resource_error.
+var errBadResourceBody = errors.New("resource response is not a JSON object")
+
 // Results up to this size that are valid JSON stay inline in the database;
 // anything bigger or binary goes to the results directory.
 const inlineResultLimit = 256 << 10
@@ -92,6 +97,10 @@ func (p *Pool) processNew(ctx, bg context.Context, job *store.Job) {
 
 	seriesByHash, cached, err := p.fetchAll(ctx, bg, found)
 	if err != nil {
+		if errors.Is(err, errBadResourceBody) {
+			p.failJob(bg, job, errInvalidResource, err.Error())
+			return
+		}
 		p.retryOrFail(bg, job, errResourceError, err)
 		return
 	}
@@ -122,19 +131,22 @@ func (p *Pool) processNew(ctx, bg context.Context, job *store.Job) {
 }
 
 // fetchAll retrieves the time series for every unique resolvent hash, from
-// cache when possible, otherwise from the resource APIs with bounded
-// concurrency. The first error cancels the remaining calls.
+// cache when possible, otherwise from the resource APIs. A fixed worker set
+// bounds goroutines — not just concurrent HTTP calls — so a payload with tens
+// of thousands of resolvents cannot spawn a goroutine each. The first error
+// cancels the remaining work.
 func (p *Pool) fetchAll(ctx, bg context.Context, found []*resolver.Found) (map[string][]byte, int, error) {
-	unique := map[string]*resolver.Found{}
+	seen := map[string]bool{}
+	unique := make([]*resolver.Found, 0, len(found))
 	for _, f := range found {
-		if _, ok := unique[f.Hash]; !ok {
-			unique[f.Hash] = f
+		if !seen[f.Hash] {
+			seen[f.Hash] = true
+			unique = append(unique, f)
 		}
 	}
 
 	fctx, cancel := context.WithCancel(ctx)
 	defer cancel()
-	sem := make(chan struct{}, p.cfg.Worker.ResolventConcurrency)
 	type result struct {
 		hash   string
 		body   []byte
@@ -143,23 +155,29 @@ func (p *Pool) fetchAll(ctx, bg context.Context, found []*resolver.Found) (map[s
 	}
 	results := make(chan result, len(unique))
 
-	for hash, f := range unique {
-		go func() {
+	feed := make(chan *resolver.Found)
+	go func() {
+		defer close(feed)
+		for _, f := range unique {
 			select {
-			case sem <- struct{}{}:
-				defer func() { <-sem }()
+			case feed <- f:
 			case <-fctx.Done():
-				results <- result{hash: hash, err: fctx.Err()}
-				return
+				results <- result{hash: f.Hash, err: fctx.Err()}
 			}
-			body, cached, err := p.fetchOne(fctx, bg, f)
-			results <- result{hash: hash, body: body, cached: cached, err: err}
+		}
+	}()
+	for range min(p.cfg.Worker.ResolventConcurrency, len(unique)) {
+		go func() {
+			for f := range feed {
+				body, cached, err := p.fetchOne(fctx, bg, f)
+				results <- result{hash: f.Hash, body: body, cached: cached, err: err}
+			}
 		}()
 	}
 
-	// Collect exactly len(unique) results: every goroutine sends one result
-	// even when cancelled while still waiting for the semaphore, so this
-	// loop always drains and cannot deadlock.
+	// Collect exactly len(unique) results: each unique resolvent is either
+	// handed to a worker (which always sends one result) or reported as
+	// cancelled by the feeder, so this loop always drains and cannot deadlock.
 	seriesByHash := make(map[string][]byte, len(unique))
 	cachedCount := 0
 	var firstErr error
@@ -202,7 +220,12 @@ func (p *Pool) fetchOne(ctx, bg context.Context, f *resolver.Found) (body []byte
 	}
 	var probe map[string]any
 	if err := json.Unmarshal(body, &probe); err != nil {
-		return nil, false, fmt.Errorf("resource %s returned a non-object response: %w", f.Type, err)
+		return nil, false, fmt.Errorf("resource %s returned malformed JSON (%v): %w", f.Type, err, errBadResourceBody)
+	}
+	if probe == nil {
+		// json.Unmarshal accepts "null" into a map without error; caching it
+		// would poison every job sharing this resolvent for the TTL.
+		return nil, false, fmt.Errorf("resource %s returned null instead of a time-series object: %w", f.Type, errBadResourceBody)
 	}
 	if err := p.store.PutSeries(bg, f.Hash, f.Type, body, rcfg.CacheTTL.Std()); err != nil {
 		p.logger.Warn("series cache write failed", "type", f.Type, "error", err)
@@ -244,28 +267,31 @@ func (p *Pool) parkForPolling(bg context.Context, job *store.Job, poll *config.P
 }
 
 // processPoll runs one poll tick for a job awaiting its target's result.
-// ctx bounds upstream I/O; bg is for store writes that must survive
-// cancellation.
+// The poll deadline is evaluated after the status call, so a target job that
+// finished just as the deadline passed still completes instead of failing
+// with a wrong target_timeout. ctx bounds upstream I/O; bg is for store
+// writes that must survive cancellation.
 func (p *Pool) processPoll(ctx, bg context.Context, job *store.Job) {
 	tcfg, ok := p.cfg.Targets[job.Target]
 	if !ok || tcfg.Response.Mode != config.ModePoll || tcfg.Response.Poll == nil {
 		p.failJob(bg, job, errUnknownTarget, fmt.Sprintf("target %q is no longer configured for polling", job.Target))
 		return
 	}
-	if job.PollDeadline != nil && time.Now().After(*job.PollDeadline) {
-		p.failJob(bg, job, errTargetTimeout, fmt.Sprintf(
-			"target job %s did not finish before the poll deadline", job.TargetJobID))
-		return
-	}
 
 	st, err := p.client.PollTarget(ctx, job.Target, tcfg, job.TargetJobID)
+	pastDeadline := job.PollDeadline != nil && time.Now().After(*job.PollDeadline)
 	if err != nil {
-		if upstream.IsTransient(err) {
+		switch {
+		case upstream.IsTransient(err) && !pastDeadline:
 			// The next poll tick is already scheduled; just note the miss.
 			p.logger.Warn("poll attempt failed", "job_id", job.ID, "error", err)
-			return
+		case upstream.IsTransient(err):
+			p.failJob(bg, job, errTargetTimeout, fmt.Sprintf(
+				"target job %s did not finish before the poll deadline (status endpoint unreachable: %v)",
+				job.TargetJobID, err))
+		default:
+			p.failJob(bg, job, errTargetError, err.Error())
 		}
-		p.failJob(bg, job, errTargetError, err.Error())
 		return
 	}
 
@@ -274,18 +300,23 @@ func (p *Pool) processPoll(ctx, bg context.Context, job *store.Job) {
 		p.failJob(bg, job, errTargetJobFailed, fmt.Sprintf(
 			"target job %s reported status %q", job.TargetJobID, st.Raw))
 	case st.Done:
-		p.fetchAndComplete(ctx, bg, job, tcfg, st.Raw)
+		p.fetchAndComplete(ctx, bg, job, tcfg, st.Raw, pastDeadline)
+	case pastDeadline:
+		p.failJob(bg, job, errTargetTimeout, fmt.Sprintf(
+			"target job %s did not finish before the poll deadline", job.TargetJobID))
 	default:
 		p.logger.Debug("target job still running", "job_id", job.ID, "status", st.Raw)
 	}
 }
 
 // fetchAndComplete retrieves the finished target job's result and completes
-// the job; a transient fetch error leaves the job parked for the next tick.
-func (p *Pool) fetchAndComplete(ctx, bg context.Context, job *store.Job, tcfg config.Target, rawStatus string) {
+// the job. A transient fetch error leaves the job parked for the next tick —
+// unless the poll deadline has passed, in which case the job fails with an
+// accurate target_error (the target job itself finished).
+func (p *Pool) fetchAndComplete(ctx, bg context.Context, job *store.Job, tcfg config.Target, rawStatus string, pastDeadline bool) {
 	ct, body, err := p.client.FetchResult(ctx, job.Target, tcfg, job.TargetJobID)
 	if err != nil {
-		if upstream.IsTransient(err) {
+		if upstream.IsTransient(err) && !pastDeadline {
 			p.logger.Warn("result fetch failed, will retry next tick", "job_id", job.ID, "error", err)
 			return
 		}
@@ -311,10 +342,7 @@ func (p *Pool) complete(bg context.Context, job *store.Job, status int, contentT
 		contentType = "application/octet-stream"
 	}
 	if isJSON && len(body) <= inlineResultLimit {
-		if err := p.store.MarkCompleted(bg, job.ID, status, body, "", "", detail); err != nil {
-			p.logger.Error("mark completed failed", "job_id", job.ID, "error", err)
-		}
-		p.logger.Info("job completed", "job_id", job.ID, "target", job.Target)
+		p.markCompleted(bg, job, status, body, "", "", detail)
 		return
 	}
 
@@ -323,20 +351,39 @@ func (p *Pool) complete(bg context.Context, job *store.Job, status int, contentT
 		p.failJob(bg, job, errInternal, err.Error())
 		return
 	}
-	if err := p.store.MarkCompleted(bg, job.ID, status, nil, path, contentType, detail); err != nil {
+	p.markCompleted(bg, job, status, nil, path, contentType, detail)
+}
+
+func (p *Pool) markCompleted(bg context.Context, job *store.Job, status int, body []byte, path, contentType, detail string) {
+	err := p.store.MarkCompleted(bg, job.ID, status, body, path, contentType, detail)
+	switch {
+	case errors.Is(err, store.ErrTerminalState):
+		// An overlapping poll tick finished the job first; this outcome is
+		// redundant, not wrong.
+		p.logger.Debug("job already terminal, dropping duplicate completion", "job_id", job.ID)
+	case err != nil:
 		p.logger.Error("mark completed failed", "job_id", job.ID, "error", err)
-		return
+	case path != "":
+		p.logger.Info("job completed with file result", "job_id", job.ID, "target", job.Target, "result_path", path)
+	default:
+		p.logger.Info("job completed", "job_id", job.ID, "target", job.Target)
 	}
-	p.logger.Info("job completed with file result", "job_id", job.ID, "target", job.Target, "result_path", path)
 }
 
 // writeResultFile stores an oversized or non-JSON result in the results dir.
+// The write goes to a temp file first and is renamed into place, so a client
+// streaming the previous file (or a concurrent duplicate completion) never
+// observes a truncated result.
 func (p *Pool) writeResultFile(jobID, contentType string, body []byte) (string, error) {
 	if err := os.MkdirAll(p.cfg.Storage.ResultsDir, 0o750); err != nil {
 		return "", fmt.Errorf("create results dir: %w", err)
 	}
 	path := filepath.Join(p.cfg.Storage.ResultsDir, jobID+resultExt(contentType))
-	if err := os.WriteFile(path, body, 0o600); err != nil {
+	tmp := path + ".tmp"
+	if err := os.WriteFile(tmp, body, 0o600); err != nil {
+		return "", fmt.Errorf("write result file: %w", err)
+	}
+	if err := os.Rename(tmp, path); err != nil {
 		return "", fmt.Errorf("write result file: %w", err)
 	}
 	return path, nil
@@ -392,6 +439,12 @@ func isContextErr(err error) bool {
 
 func (p *Pool) failJob(bg context.Context, job *store.Job, code, message string) {
 	if err := p.store.MarkFailed(bg, job.ID, code, message); err != nil {
+		if errors.Is(err, store.ErrTerminalState) {
+			// A faster overlapping worker finished the job; a client may
+			// already have seen that outcome, so this late failure is dropped.
+			p.logger.Debug("job already terminal, dropping late failure", "job_id", job.ID, "code", code)
+			return
+		}
 		p.logger.Error("mark failed failed", "job_id", job.ID, "error", err)
 		return
 	}

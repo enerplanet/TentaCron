@@ -1,6 +1,7 @@
 package store
 
 import (
+	"bytes"
 	"context"
 	"crypto/rand"
 	"database/sql"
@@ -24,11 +25,22 @@ const (
 // ErrNotFound is returned when no matching job exists.
 var ErrNotFound = errors.New("job not found")
 
+// ErrTerminalState is returned when a transition would move a job out of
+// completed/failed. Terminal states are final: a stale worker (e.g. an
+// overlapping poll tick) must never overwrite a result the client may have
+// already observed.
+var ErrTerminalState = errors.New("job is in a terminal state")
+
+// ErrIdempotencyConflict is returned when an idempotency key is reused with a
+// different target or payload than the stored request.
+var ErrIdempotencyConflict = errors.New("idempotency key reused with a different request")
+
 // Job is one orchestration request and its processing state. Field order
 // mirrors jobColumns; keep the two in sync.
 type Job struct {
 	// Identity and queue state.
 	ID             string
+	Client         string // authenticated client name; scopes the idempotency key
 	IdempotencyKey string
 	Target         string
 	State          string
@@ -68,7 +80,7 @@ func NewID() (string, error) {
 	return hex.EncodeToString(b), nil
 }
 
-const jobColumns = `id, idempotency_key, target, state, attempts, max_attempts,
+const jobColumns = `id, client, idempotency_key, target, state, attempts, max_attempts,
 	next_attempt_at, payload, resolved_payload, target_job_id, poll_deadline,
 	target_status, target_response, result_path, result_content_type,
 	error_code, error_message, created_at, updated_at, completed_at`
@@ -83,7 +95,7 @@ func scanJob(r rowScanner) (*Job, error) {
 		createdAt, updatedAt, completedAt     sql.NullString
 		targetStatus                          sql.NullInt64
 	)
-	err := r.Scan(&j.ID, &idem, &j.Target, &j.State, &j.Attempts, &j.MaxAttempts,
+	err := r.Scan(&j.ID, &j.Client, &idem, &j.Target, &j.State, &j.Attempts, &j.MaxAttempts,
 		&nextAt, &j.Payload, &j.ResolvedPayload, &targetJobID, &pollDL,
 		&targetStatus, &j.TargetResponse, &resultPath, &resultCT,
 		&errCode, &errMsg, &createdAt, &updatedAt, &completedAt)
@@ -122,10 +134,24 @@ func scanJob(r rowScanner) (*Job, error) {
 }
 
 // CreateJob inserts a new job in state "received" and records the accept
-// event. If the job carries an idempotency key that already exists, the
-// stored job is returned instead with created == false. On creation the
-// returned job is j itself with state and timestamps filled in.
+// event. Idempotency keys are scoped per client: replaying a key with an
+// identical target and payload returns the stored job with created == false;
+// reusing it with a different request returns ErrIdempotencyConflict. On
+// creation the returned job is j itself with state and timestamps filled in.
 func (s *Store) CreateJob(ctx context.Context, j *Job) (created bool, stored *Job, err error) {
+	// The unique-violation fallback reads outside the failed transaction, so
+	// the stored job can vanish (retention prune) in between; retry the
+	// insert rather than failing a valid request.
+	for attempt := 0; attempt < 3; attempt++ {
+		created, stored, err = s.createJobOnce(ctx, j)
+		if !errors.Is(err, ErrNotFound) {
+			return created, stored, err
+		}
+	}
+	return false, nil, fmt.Errorf("create job %s: idempotency race did not settle", j.ID)
+}
+
+func (s *Store) createJobOnce(ctx context.Context, j *Job) (created bool, stored *Job, err error) {
 	now := time.Now()
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
@@ -142,18 +168,21 @@ func (s *Store) CreateJob(ctx context.Context, j *Job) (created bool, stored *Jo
 		idem = j.IdempotencyKey
 	}
 	_, err = tx.ExecContext(ctx, `INSERT INTO jobs
-		(id, idempotency_key, target, state, attempts, max_attempts, payload, created_at, updated_at)
-		VALUES (?, ?, ?, ?, 0, ?, ?, ?, ?)`,
-		j.ID, idem, j.Target, StateReceived, j.MaxAttempts, j.Payload, ts(now), ts(now))
+		(id, client, idempotency_key, target, state, attempts, max_attempts, payload, created_at, updated_at)
+		VALUES (?, ?, ?, ?, ?, 0, ?, ?, ?, ?)`,
+		j.ID, j.Client, idem, j.Target, StateReceived, j.MaxAttempts, j.Payload, ts(now), ts(now))
 	if err != nil {
-		// SQLite's stable message for the partial unique index on idempotency_key.
-		if strings.Contains(err.Error(), "UNIQUE constraint failed: jobs.idempotency_key") {
+		// SQLite's stable message for the partial unique index on (client, idempotency_key).
+		if strings.Contains(err.Error(), "jobs.idempotency_key") {
 			// Roll back explicitly: the deferred rollback only fires when err
 			// is non-nil, and the successful lookup below returns err == nil.
 			_ = tx.Rollback()
-			existing, gerr := s.GetJobByIdempotencyKey(ctx, j.IdempotencyKey)
+			existing, gerr := s.GetJobByIdempotency(ctx, j.Client, j.IdempotencyKey)
 			if gerr != nil {
 				return false, nil, gerr
+			}
+			if existing.Target != j.Target || !bytes.Equal(existing.Payload, j.Payload) {
+				return false, nil, fmt.Errorf("key %q: %w", j.IdempotencyKey, ErrIdempotencyConflict)
 			}
 			return false, existing, nil
 		}
@@ -181,10 +210,11 @@ func (s *Store) GetJob(ctx context.Context, id string) (*Job, error) {
 	return j, err
 }
 
-// GetJobByIdempotencyKey fetches the job stored under an idempotency key.
-// It returns ErrNotFound if none exists.
-func (s *Store) GetJobByIdempotencyKey(ctx context.Context, key string) (*Job, error) {
-	row := s.db.QueryRowContext(ctx, `SELECT `+jobColumns+` FROM jobs WHERE idempotency_key = ?`, key)
+// GetJobByIdempotency fetches the job a client stored under an idempotency
+// key. It returns ErrNotFound if none exists.
+func (s *Store) GetJobByIdempotency(ctx context.Context, client, key string) (*Job, error) {
+	row := s.db.QueryRowContext(ctx,
+		`SELECT `+jobColumns+` FROM jobs WHERE client = ? AND idempotency_key = ?`, client, key)
 	j, err := scanJob(row)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrNotFound
@@ -220,11 +250,13 @@ func (s *Store) ListJobs(ctx context.Context, state string, limit int) ([]*Job, 
 
 // ClaimNext atomically claims the next eligible job. Jobs in "received" move
 // to "resolving"; attempts is incremented at claim time, not on failure, so
-// an attempt cut short by a crash or restart is still counted after recovery
-// and a poison payload cannot retry forever. Jobs in "awaiting_target" whose
-// poll time is due are claimed by pushing next_attempt_at forward (CAS), so
-// no other worker picks the same poll tick; pollNext supplies the per-target
-// poll interval. Returns nil when no work is eligible.
+// an attempt cut short by a crash or restart is still counted after recovery.
+// A received job whose attempts already reached max_attempts is failed here
+// instead of claimed, so a poison payload cannot retry forever even when its
+// attempts end in crashes. Jobs in "awaiting_target" whose poll time is due
+// are claimed by pushing next_attempt_at forward (CAS), so no other worker
+// picks the same poll tick; pollNext supplies the per-target poll interval.
+// Returns nil when no work is eligible.
 func (s *Store) ClaimNext(ctx context.Context, pollNext func(target string) time.Duration) (*Job, error) {
 	now := time.Now()
 	cands, err := s.claimCandidates(ctx, ts(now))
@@ -243,14 +275,18 @@ func (s *Store) ClaimNext(ctx context.Context, pollNext func(target string) time
 	return nil, nil
 }
 
-type claimCand struct{ id, state, target, nextAt string }
+type claimCand struct {
+	id, state, target, nextAt string
+	attempts, maxAttempts     int
+}
 
 // claimCandidates lists jobs eligible for claiming right now: due received
 // jobs and awaiting_target jobs whose poll time has arrived.
 func (s *Store) claimCandidates(ctx context.Context, nowS string) ([]claimCand, error) {
 	// Fetch a small candidate batch: a worker that loses the claim race on
 	// one row can try the next without re-querying.
-	rows, err := s.db.QueryContext(ctx, `SELECT id, state, target, next_attempt_at FROM jobs
+	rows, err := s.db.QueryContext(ctx, `SELECT id, state, target, next_attempt_at, attempts, max_attempts
+		FROM jobs
 		WHERE (state = ? AND (next_attempt_at IS NULL OR next_attempt_at <= ?))
 		   OR (state = ? AND next_attempt_at IS NOT NULL AND next_attempt_at <= ?)
 		ORDER BY created_at LIMIT 8`,
@@ -263,7 +299,7 @@ func (s *Store) claimCandidates(ctx context.Context, nowS string) ([]claimCand, 
 	for rows.Next() {
 		var c claimCand
 		var nextAt sql.NullString
-		if err := rows.Scan(&c.id, &c.state, &c.target, &nextAt); err != nil {
+		if err := rows.Scan(&c.id, &c.state, &c.target, &nextAt, &c.attempts, &c.maxAttempts); err != nil {
 			return nil, err
 		}
 		c.nextAt = nextAt.String
@@ -275,6 +311,22 @@ func (s *Store) claimCandidates(ctx context.Context, nowS string) ([]claimCand, 
 func (s *Store) claimOne(ctx context.Context, c claimCand, now time.Time, pollNext func(string) time.Duration) (bool, error) {
 	switch c.state {
 	case StateReceived:
+		if c.attempts >= c.maxAttempts {
+			// The previous attempts were cut short (crash/restart) without a
+			// chance to give up in-process; enforce the ceiling here. The
+			// code string matches the worker's max_attempts_exceeded.
+			err := s.transition(ctx, c.id, StateReceived, StateFailed,
+				"max_attempts_exceeded: attempts exhausted, last attempt interrupted", func(q *updateBuilder) {
+					q.set("error_code = ?", "max_attempts_exceeded")
+					q.set("error_message = ?", fmt.Sprintf("gave up after %d attempts; the last attempt was interrupted", c.attempts))
+					q.set("next_attempt_at = NULL")
+					q.set("completed_at = ?", ts(now))
+				})
+			if err != nil && !errors.Is(err, ErrTerminalState) {
+				return false, err
+			}
+			return false, nil
+		}
 		return s.claimReceived(ctx, c.id, now)
 	case StateAwaitingTarget:
 		return s.claimPollTick(ctx, c.id, c.nextAt, now.Add(pollNext(c.target)), now)
@@ -283,7 +335,9 @@ func (s *Store) claimOne(ctx context.Context, c claimCand, now time.Time, pollNe
 }
 
 // claimReceived moves a received job to resolving (incrementing attempts) and
-// records the audit event, all in one transaction.
+// records the audit event, all in one transaction. The CAS re-checks the
+// backoff schedule: a stale candidate that another worker just requeued with
+// a future next_attempt_at must lose, or its backoff would be skipped.
 func (s *Store) claimReceived(ctx context.Context, id string, now time.Time) (bool, error) {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
@@ -291,8 +345,8 @@ func (s *Store) claimReceived(ctx context.Context, id string, now time.Time) (bo
 	}
 	res, err := tx.ExecContext(ctx, `UPDATE jobs
 		SET state = ?, attempts = attempts + 1, next_attempt_at = NULL, updated_at = ?
-		WHERE id = ? AND state = ?`,
-		StateResolving, ts(now), id, StateReceived)
+		WHERE id = ? AND state = ? AND (next_attempt_at IS NULL OR next_attempt_at <= ?)`,
+		StateResolving, ts(now), id, StateReceived, ts(now))
 	if err != nil {
 		_ = tx.Rollback()
 		return false, err
@@ -343,7 +397,9 @@ func (s *Store) MarkAwaitingTarget(ctx context.Context, id, targetJobID string, 
 	})
 }
 
-// MarkCompleted finishes a job successfully.
+// MarkCompleted finishes a job successfully. It returns ErrTerminalState if
+// the job already reached a terminal state (e.g. a faster overlapping poll
+// tick finished it first).
 func (s *Store) MarkCompleted(ctx context.Context, id string, targetStatus int, response []byte, resultPath, resultContentType, detail string) error {
 	now := time.Now()
 	return s.transition(ctx, id, anyState, StateCompleted, detail, func(q *updateBuilder) {
@@ -360,7 +416,8 @@ func (s *Store) MarkCompleted(ctx context.Context, id string, targetStatus int, 
 	})
 }
 
-// MarkFailed finishes a job with a permanent error.
+// MarkFailed finishes a job with a permanent error. It returns
+// ErrTerminalState if the job already reached a terminal state.
 func (s *Store) MarkFailed(ctx context.Context, id, code, message string) error {
 	now := time.Now()
 	detail := code + ": " + message
@@ -388,28 +445,73 @@ func (s *Store) RecoverInFlight(ctx context.Context) (int, error) {
 	if err != nil {
 		return 0, err
 	}
-	for _, id := range ids {
-		if err := s.transition(ctx, id, anyState, StateReceived, "recovered after restart", func(q *updateBuilder) {
-			q.set("next_attempt_at = NULL")
-		}); err != nil {
-			return 0, err
-		}
-	}
-	return len(ids), nil
+	return len(ids), s.requeueAll(ctx, ids, "recovered after restart")
 }
 
-// PruneTerminal deletes completed/failed jobs finished before cutoff and
-// returns the result file paths that belonged to them.
-func (s *Store) PruneTerminal(ctx context.Context, cutoff time.Time) ([]string, error) {
-	paths, err := s.queryStrings(ctx, `SELECT result_path FROM jobs
-		WHERE state IN (?, ?) AND completed_at < ? AND result_path IS NOT NULL AND result_path != ''`,
+// RescueStuck requeues jobs abandoned mid-processing while the process kept
+// running — the rare case where a bookkeeping write failed and the worker
+// could only log: such jobs sit in resolving/forwarding with no schedule and
+// would otherwise never be claimed again. Only jobs untouched since olderThan
+// are rescued so in-flight work is left alone.
+func (s *Store) RescueStuck(ctx context.Context, olderThan time.Time) (int, error) {
+	ids, err := s.queryStrings(ctx, `SELECT id FROM jobs WHERE state IN (?, ?) AND updated_at < ?`,
+		StateResolving, StateForwarding, ts(olderThan))
+	if err != nil {
+		return 0, err
+	}
+	return len(ids), s.requeueAll(ctx, ids, "rescued stuck job")
+}
+
+func (s *Store) requeueAll(ctx context.Context, ids []string, detail string) error {
+	for _, id := range ids {
+		if err := s.transition(ctx, id, anyState, StateReceived, detail, func(q *updateBuilder) {
+			q.set("next_attempt_at = NULL")
+		}); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// TerminalBefore lists completed/failed jobs finished before cutoff, with
+// their result file paths. The caller removes the files first and then calls
+// DeleteJobs — in that order a crash in between leaves rows that the next
+// sweep re-selects, instead of orphaned files no row references anymore.
+func (s *Store) TerminalBefore(ctx context.Context, cutoff time.Time) (ids, paths []string, err error) {
+	rows, err := s.db.QueryContext(ctx, `SELECT id, result_path FROM jobs
+		WHERE state IN (?, ?) AND completed_at < ?`,
 		StateCompleted, StateFailed, ts(cutoff))
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
-	_, err = s.db.ExecContext(ctx, `DELETE FROM jobs WHERE state IN (?, ?) AND completed_at < ?`,
-		StateCompleted, StateFailed, ts(cutoff))
-	return paths, err
+	defer rows.Close()
+	for rows.Next() {
+		var id string
+		var path sql.NullString
+		if err := rows.Scan(&id, &path); err != nil {
+			return nil, nil, err
+		}
+		ids = append(ids, id)
+		if path.String != "" {
+			paths = append(paths, path.String)
+		}
+	}
+	return ids, paths, rows.Err()
+}
+
+// DeleteJobs removes the given jobs (their events cascade).
+func (s *Store) DeleteJobs(ctx context.Context, ids []string) error {
+	if len(ids) == 0 {
+		return nil
+	}
+	placeholders := strings.Repeat("?,", len(ids)-1) + "?"
+	args := make([]any, len(ids))
+	for i, id := range ids {
+		args[i] = id
+	}
+	// placeholders is only "?" repetition; every id is a bound parameter.
+	_, err := s.db.ExecContext(ctx, `DELETE FROM jobs WHERE id IN (`+placeholders+`)`, args...) //nolint:gosec // G202: constant placeholders, bound values
+	return err
 }
 
 // queryStrings runs a single-column query and returns all values.
@@ -441,13 +543,13 @@ func (u *updateBuilder) set(clause string, args ...any) {
 	u.args = append(u.args, args...)
 }
 
-// anyState, passed as transition's fromState, accepts whatever state the job
-// is currently in.
+// anyState, passed as transition's fromState, accepts any non-terminal state.
 const anyState = ""
 
 // transition applies a state change plus extra column updates and appends the
 // audit event, all in one transaction. fromState anyState accepts any current
-// state.
+// state — except the terminal ones: completed/failed are final and yield
+// ErrTerminalState (callers treat that as "someone else finished first").
 func (s *Store) transition(ctx context.Context, id, fromState, toState, detail string, build func(*updateBuilder)) (err error) {
 	now := time.Now()
 	tx, err := s.db.BeginTx(ctx, nil)
@@ -466,6 +568,9 @@ func (s *Store) transition(ctx context.Context, id, fromState, toState, detail s
 			err = ErrNotFound
 		}
 		return err
+	}
+	if (current == StateCompleted || current == StateFailed) && current != toState {
+		return fmt.Errorf("job %s: cannot leave %s for %s: %w", id, current, toState, ErrTerminalState)
 	}
 	if fromState != anyState && current != fromState {
 		return fmt.Errorf("job %s: cannot transition %s -> %s (state is %s)", id, fromState, toState, current)

@@ -1,12 +1,15 @@
 package upstream
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
+	"net/url"
+	"regexp"
 	"slices"
-	"strconv"
 	"strings"
 
 	"github.com/enerplanet/tentacron/internal/config"
@@ -36,12 +39,18 @@ func (c *Client) ForwardToTarget(ctx context.Context, name string, tcfg config.T
 	headers := authHeaders(tcfg)
 	outbound := payload
 	if tcfg.APIKeyInject == config.InjectBodyField {
-		var doc map[string]any
+		// Inject via RawMessage so nested values pass through byte-for-byte:
+		// a full decode into map[string]any would round large integers
+		// through float64 and silently corrupt model data.
+		var doc map[string]json.RawMessage
 		if err := json.Unmarshal(payload, &doc); err != nil {
 			return nil, &Error{Op: op, Transient: false, Err: fmt.Errorf("payload not an object for key injection: %w", err)}
 		}
-		doc[tcfg.APIKeyField] = tcfg.APIKey
-		var err error
+		keyJSON, err := json.Marshal(tcfg.APIKey)
+		if err != nil {
+			return nil, &Error{Op: op, Transient: false, Err: err}
+		}
+		doc[tcfg.APIKeyField] = keyJSON
 		if outbound, err = json.Marshal(doc); err != nil {
 			return nil, &Error{Op: op, Transient: false, Err: err}
 		}
@@ -62,6 +71,12 @@ type PollStatus struct {
 	Body   []byte
 }
 
+// jobIDPattern bounds what a target-supplied job id may look like before it
+// is substituted into the poll/result URL templates: the id comes from the
+// target's response, and URL metacharacters in it would rewrite the
+// configured request path.
+var jobIDPattern = regexp.MustCompile(`^[A-Za-z0-9._~-]{1,256}$`)
+
 // ExtractJobID pulls the target's job id out of its accept response using the
 // configured JSON path.
 func ExtractJobID(acceptBody []byte, poll *config.Poll) (string, error) {
@@ -69,24 +84,26 @@ func ExtractJobID(acceptBody []byte, poll *config.Poll) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("extract job id at %q: %w", poll.IDJSONPath, err)
 	}
-	switch id := v.(type) {
+	var id string
+	switch typed := v.(type) {
 	case string:
-		if id == "" {
-			return "", fmt.Errorf("job id at %q is empty", poll.IDJSONPath)
-		}
-		return id, nil
-	case float64:
-		return strconv.FormatFloat(id, 'f', -1, 64), nil
+		id = typed
+	case json.Number:
+		id = typed.String()
 	default:
 		return "", fmt.Errorf("job id at %q has unsupported type %T", poll.IDJSONPath, v)
 	}
+	if !jobIDPattern.MatchString(id) {
+		return "", fmt.Errorf("job id at %q is empty or contains characters unsafe for URL templates", poll.IDJSONPath)
+	}
+	return id, nil
 }
 
 // PollTarget checks the state of the target's job once.
 func (c *Client) PollTarget(ctx context.Context, name string, tcfg config.Target, targetJobID string) (*PollStatus, error) {
 	poll := tcfg.Response.Poll
-	url := strings.ReplaceAll(poll.URLTemplate, "{id}", targetJobID)
-	_, body, err := c.do(ctx, "poll "+name, http.MethodGet, url, nil, authHeaders(tcfg), tcfg.Timeout.Std())
+	pollURL := strings.ReplaceAll(poll.URLTemplate, "{id}", url.PathEscape(targetJobID))
+	_, body, err := c.do(ctx, "poll "+name, http.MethodGet, pollURL, nil, authHeaders(tcfg), tcfg.Timeout.Std())
 	if err != nil {
 		return nil, err
 	}
@@ -110,11 +127,11 @@ func (c *Client) PollTarget(ctx context.Context, name string, tcfg config.Target
 // alongside the body.
 func (c *Client) FetchResult(ctx context.Context, name string, tcfg config.Target, targetJobID string) (contentType string, body []byte, err error) {
 	poll := tcfg.Response.Poll
-	url := strings.ReplaceAll(poll.ResultURLTemplate, "{id}", targetJobID)
+	resultURL := strings.ReplaceAll(poll.ResultURLTemplate, "{id}", url.PathEscape(targetJobID))
 
 	callCtx, cancel := context.WithTimeout(ctx, tcfg.Timeout.Std())
 	defer cancel()
-	resp, err := c.send(callCtx, "result "+name, http.MethodGet, url, nil, authHeaders(tcfg))
+	resp, err := c.send(callCtx, "result "+name, http.MethodGet, resultURL, nil, authHeaders(tcfg))
 	if err != nil {
 		return "", nil, err
 	}
@@ -123,17 +140,22 @@ func (c *Client) FetchResult(ctx context.Context, name string, tcfg config.Targe
 		transient := resp.StatusCode == http.StatusTooManyRequests || resp.StatusCode >= 500
 		return "", nil, &Error{Op: "result " + name, Status: resp.StatusCode, Transient: transient}
 	}
-	body, err = readCapped(resp.Body, c.maxBody)
+	body, err = c.readCapped(resp.Body)
 	if err != nil {
-		return "", nil, &Error{Op: "result " + name, Transient: false, Err: err}
+		// A mid-download failure is retryable next tick; only the size cap
+		// is final (the body will not shrink).
+		return "", nil, &Error{Op: "result " + name, Transient: !errors.Is(err, errBodyTooLarge), Err: err}
 	}
 	return resp.Header.Get("Content-Type"), body, nil
 }
 
-// jsonPath navigates a dot-separated path through a JSON object.
+// jsonPath navigates a dot-separated path through a JSON object. Numbers are
+// decoded as json.Number so large integer ids survive verbatim.
 func jsonPath(body []byte, path string) (any, error) {
+	dec := json.NewDecoder(bytes.NewReader(body))
+	dec.UseNumber()
 	var doc any
-	if err := json.Unmarshal(body, &doc); err != nil {
+	if err := dec.Decode(&doc); err != nil {
 		return nil, fmt.Errorf("response is not JSON: %w", err)
 	}
 	cur := doc

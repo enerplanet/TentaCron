@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"errors"
+	"fmt"
 	"path/filepath"
 	"sync"
 	"testing"
@@ -271,13 +272,15 @@ func TestRecoverInFlight(t *testing.T) {
 	}
 }
 
-func TestPruneTerminal(t *testing.T) {
+func TestTerminalBeforeAndDeleteJobs(t *testing.T) {
 	s := openTest(t)
 	ctx := context.Background()
 	j1 := newJob(t, "meme")
 	j2 := newJob(t, "meme")
+	j3 := newJob(t, "meme") // stays received, must never be listed
 	mustCreate(t, s, j1)
 	mustCreate(t, s, j2)
+	mustCreate(t, s, j3)
 	if err := s.MarkCompleted(ctx, j1.ID, 200, nil, "/data/results/old.zip", "application/zip", "done"); err != nil {
 		t.Fatal(err)
 	}
@@ -285,20 +288,235 @@ func TestPruneTerminal(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	paths, err := s.PruneTerminal(ctx, time.Now().Add(time.Minute))
+	ids, paths, err := s.TerminalBefore(ctx, time.Now().Add(time.Minute))
 	if err != nil {
-		t.Fatalf("PruneTerminal: %v", err)
+		t.Fatalf("TerminalBefore: %v", err)
+	}
+	if len(ids) != 2 {
+		t.Errorf("ids = %v, want the two terminal jobs", ids)
 	}
 	if len(paths) != 1 || paths[0] != "/data/results/old.zip" {
 		t.Errorf("paths = %v", paths)
 	}
+
+	// Listing is read-only: the rows must survive until DeleteJobs — that
+	// ordering is what lets the sweeper remove files before rows.
+	if _, err := s.GetJob(ctx, j1.ID); err != nil {
+		t.Fatalf("j1 must still exist after TerminalBefore: %v", err)
+	}
+	if err := s.DeleteJobs(ctx, ids); err != nil {
+		t.Fatalf("DeleteJobs: %v", err)
+	}
 	if _, err := s.GetJob(ctx, j1.ID); !errors.Is(err, ErrNotFound) {
 		t.Errorf("j1 should be pruned, got %v", err)
+	}
+	if _, err := s.GetJob(ctx, j3.ID); err != nil {
+		t.Errorf("j3 must survive the prune: %v", err)
 	}
 	// Events cascade with the job.
 	events, _ := s.ListEvents(ctx, j1.ID)
 	if len(events) != 0 {
 		t.Errorf("events should cascade-delete, got %d", len(events))
+	}
+}
+
+// Regression test for the deferred-transaction write-upgrade bug: transition
+// opens a transaction that reads (SELECT state) before writing. In SQLite's
+// default deferred mode a concurrent committed write invalidates the read
+// snapshot and the upgrade fails immediately with SQLITE_BUSY — busy_timeout
+// is not consulted — stranding jobs mid-transition. The store opens the DB
+// with _txlock=immediate so writers queue at BEGIN instead; this test hammers
+// concurrent transitions to keep the regression from coming back.
+func TestConcurrentTransitionsSurviveWriteContention(t *testing.T) {
+	s := openTest(t)
+	ctx := context.Background()
+
+	const jobCount = 8
+	ids := make([]string, jobCount)
+	for i := range ids {
+		j := newJob(t, "meme")
+		mustCreate(t, s, j)
+		ids[i] = j.ID
+	}
+
+	var wg sync.WaitGroup
+	errCh := make(chan error, jobCount)
+	for _, id := range ids {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for i := 0; i < 25; i++ {
+				if err := s.Requeue(ctx, id, time.Now().Add(time.Hour), "contention hammer"); err != nil {
+					errCh <- fmt.Errorf("job %s iteration %d: %w", id, i, err)
+					return
+				}
+			}
+		}()
+	}
+	wg.Wait()
+	close(errCh)
+	for err := range errCh {
+		t.Errorf("transition failed under write contention: %v", err)
+	}
+}
+
+// Terminal states are final: a stale worker (overlapping poll tick) must not
+// overwrite an outcome the client may already have observed.
+func TestTerminalStatesAreFinal(t *testing.T) {
+	s := openTest(t)
+	ctx := context.Background()
+	j := newJob(t, "meme")
+	mustCreate(t, s, j)
+	if err := s.MarkCompleted(ctx, j.ID, 200, []byte(`{"ok":true}`), "", "", "done"); err != nil {
+		t.Fatal(err)
+	}
+
+	err := s.MarkFailed(ctx, j.ID, "target_error", "stale worker outcome")
+	if !errors.Is(err, ErrTerminalState) {
+		t.Fatalf("MarkFailed on completed job: err = %v, want ErrTerminalState", err)
+	}
+	got, _ := s.GetJob(ctx, j.ID)
+	if got.State != StateCompleted || got.ErrorCode != "" {
+		t.Errorf("job overwritten: state=%s code=%s", got.State, got.ErrorCode)
+	}
+	for _, e := range mustEvents(t, s, j.ID) {
+		if e.FromState == StateCompleted && e.ToState == StateFailed {
+			t.Error("audit trail records a completed -> failed transition")
+		}
+	}
+	// Re-marking the same terminal state is also rejected as a plain
+	// invalid transition? No — same-state writes are allowed (idempotent
+	// duplicate completion), so a duplicate MarkCompleted must not error.
+	if err := s.MarkCompleted(ctx, j.ID, 200, []byte(`{"ok":true}`), "", "", "duplicate"); err != nil {
+		t.Errorf("duplicate MarkCompleted: %v", err)
+	}
+}
+
+func mustEvents(t *testing.T, s *Store, id string) []Event {
+	t.Helper()
+	events, err := s.ListEvents(context.Background(), id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return events
+}
+
+// The claim CAS must re-check the backoff schedule: a stale candidate that
+// another worker just requeued with a future next_attempt_at may not be
+// claimed, or its backoff would be skipped.
+func TestClaimReceivedRespectsFutureBackoff(t *testing.T) {
+	s := openTest(t)
+	ctx := context.Background()
+	j := newJob(t, "meme")
+	mustCreate(t, s, j)
+	if c, _ := s.ClaimNext(ctx, noPoll); c == nil {
+		t.Fatal("initial claim failed")
+	}
+	if err := s.Requeue(ctx, j.ID, time.Now().Add(time.Hour), "backoff"); err != nil {
+		t.Fatal(err)
+	}
+	// Simulate a worker acting on a candidate list gathered before the
+	// requeue: the direct CAS must lose against the future schedule.
+	claimed, err := s.claimReceived(ctx, j.ID, time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if claimed {
+		t.Fatal("stale candidate claimed a job whose backoff has not elapsed")
+	}
+	got, _ := s.GetJob(ctx, j.ID)
+	if got.Attempts != 1 {
+		t.Errorf("attempts = %d, want 1 (no extra attempt burned)", got.Attempts)
+	}
+}
+
+// A received job whose attempts are already exhausted (every attempt ended in
+// a crash, so no in-process gave-up path ever ran) must be failed at claim
+// time, not retried forever.
+func TestClaimFailsExhaustedJob(t *testing.T) {
+	s := openTest(t)
+	ctx := context.Background()
+	j := newJob(t, "meme")
+	j.MaxAttempts = 2
+	mustCreate(t, s, j)
+
+	for i := 0; i < 2; i++ {
+		if c, _ := s.ClaimNext(ctx, noPoll); c == nil {
+			t.Fatalf("claim %d failed", i+1)
+		}
+		// Crash-and-recover: back to received without burning the attempt
+		// in-process.
+		if _, err := s.RecoverInFlight(ctx); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	c, err := s.ClaimNext(ctx, noPoll)
+	if err != nil || c != nil {
+		t.Fatalf("exhausted job must not be claimable, got %v (err %v)", c, err)
+	}
+	got, _ := s.GetJob(ctx, j.ID)
+	if got.State != StateFailed || got.ErrorCode != "max_attempts_exceeded" {
+		t.Errorf("job = state %s code %s, want failed/max_attempts_exceeded", got.State, got.ErrorCode)
+	}
+}
+
+func TestIdempotencyScopedPerClient(t *testing.T) {
+	s := openTest(t)
+	j1 := newJob(t, "meme")
+	j1.Client, j1.IdempotencyKey = "frontend", "shared-key"
+	mustCreate(t, s, j1)
+
+	// A different client may use the same key: independent jobs.
+	j2 := newJob(t, "meme")
+	j2.Client, j2.IdempotencyKey = "batch", "shared-key"
+	created, stored, err := s.CreateJob(context.Background(), j2)
+	if err != nil || !created || stored.ID == j1.ID {
+		t.Fatalf("cross-client key must create a new job: created=%v id=%s err=%v", created, stored.ID, err)
+	}
+}
+
+func TestIdempotencyConflictOnDifferentRequest(t *testing.T) {
+	s := openTest(t)
+	j1 := newJob(t, "meme")
+	j1.Client, j1.IdempotencyKey = "frontend", "key-1"
+	mustCreate(t, s, j1)
+
+	j2 := newJob(t, "meme")
+	j2.Client, j2.IdempotencyKey = "frontend", "key-1"
+	j2.Payload = []byte(`{"x":2}`) // different request, same key
+	_, _, err := s.CreateJob(context.Background(), j2)
+	if !errors.Is(err, ErrIdempotencyConflict) {
+		t.Fatalf("err = %v, want ErrIdempotencyConflict", err)
+	}
+
+	j3 := newJob(t, "buem") // different target, same payload
+	j3.Client, j3.IdempotencyKey = "frontend", "key-1"
+	if _, _, err := s.CreateJob(context.Background(), j3); !errors.Is(err, ErrIdempotencyConflict) {
+		t.Fatalf("different target: err = %v, want ErrIdempotencyConflict", err)
+	}
+}
+
+func TestRescueStuck(t *testing.T) {
+	s := openTest(t)
+	ctx := context.Background()
+	j := newJob(t, "meme")
+	mustCreate(t, s, j)
+	if c, _ := s.ClaimNext(ctx, noPoll); c == nil {
+		t.Fatal("claim failed")
+	}
+	// The job now sits in "resolving". A rescue with a cutoff in the past
+	// must leave fresh in-flight work alone...
+	if n, err := s.RescueStuck(ctx, time.Now().Add(-time.Minute)); err != nil || n != 0 {
+		t.Fatalf("fresh job rescued: n=%d err=%v", n, err)
+	}
+	// ...but a cutoff beyond its updated_at reclaims the abandoned job.
+	if n, err := s.RescueStuck(ctx, time.Now().Add(time.Minute)); err != nil || n != 1 {
+		t.Fatalf("stuck job not rescued: n=%d err=%v", n, err)
+	}
+	got, _ := s.GetJob(ctx, j.ID)
+	if got.State != StateReceived {
+		t.Errorf("state = %s, want received", got.State)
 	}
 }
 

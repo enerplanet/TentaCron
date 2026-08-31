@@ -3,10 +3,12 @@ package upstream
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -14,7 +16,7 @@ import (
 )
 
 func testClient(maxBody int64) *Client {
-	return New(maxBody)
+	return New(maxBody, nil)
 }
 
 func dur(d time.Duration) config.Duration { return config.Duration(d) }
@@ -147,6 +149,149 @@ func TestExtractJobID(t *testing.T) {
 				t.Errorf("id = %q, want %q", got, tt.want)
 			}
 		})
+	}
+}
+
+// Go's default redirect policy forwards custom headers (our injected API
+// keys) to cross-origin redirect targets; the client must not follow
+// redirects at all.
+func TestRedirectsAreNotFollowed(t *testing.T) {
+	var leaked atomic.Int64
+	srvB := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		leaked.Add(1)
+		_, _ = io.WriteString(w, `{}`)
+	}))
+	defer srvB.Close()
+	srvA := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, srvB.URL, http.StatusFound)
+	}))
+	defer srvA.Close()
+
+	c := testClient(1 << 20)
+	_, _, err := c.do(context.Background(), "test", http.MethodGet, srvA.URL, nil,
+		map[string]string{"X-API-Key": "credential"}, time.Second)
+	if err == nil {
+		t.Fatal("3xx must surface as an error")
+	}
+	var ue *Error
+	if !errors.As(err, &ue) || ue.Status != http.StatusFound || ue.Transient {
+		t.Errorf("err = %v, want permanent *Error with status 302", err)
+	}
+	if leaked.Load() != 0 {
+		t.Errorf("redirect target was contacted %d times; credentials leaked", leaked.Load())
+	}
+}
+
+// Numeric job ids above 2^53 must survive verbatim — float64 round-tripping
+// would poll a different (rounded) job id on every tick.
+func TestExtractJobIDPreservesLargeIntegers(t *testing.T) {
+	got, err := ExtractJobID([]byte(`{"job_id":1234567890123456789}`), &config.Poll{IDJSONPath: "job_id"})
+	if err != nil || got != "1234567890123456789" {
+		t.Fatalf("id = %q (err %v), want the exact digits", got, err)
+	}
+}
+
+// The job id comes from the target's response and is substituted into URL
+// templates; URL metacharacters must be rejected.
+func TestExtractJobIDRejectsUnsafeIDs(t *testing.T) {
+	for _, body := range []string{
+		`{"job_id":"x/../../admin?full=1"}`,
+		`{"job_id":"ab#cd"}`,
+		`{"job_id":"a b"}`,
+		"{\"job_id\":\"j\x01b\"}",
+	} {
+		if _, err := ExtractJobID([]byte(body), &config.Poll{IDJSONPath: "job_id"}); err == nil {
+			t.Errorf("ExtractJobID(%s): want error, got nil", body)
+		}
+	}
+}
+
+// body_field injection must not round payload values through float64.
+func TestForwardBodyFieldPreservesNumbers(t *testing.T) {
+	var received []byte
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		received, _ = io.ReadAll(r.Body)
+		_, _ = io.WriteString(w, `{}`)
+	}))
+	defer srv.Close()
+
+	tcfg := config.Target{
+		URL: srv.URL, Method: "POST", Timeout: dur(time.Second),
+		APIKey: "k", APIKeyInject: config.InjectBodyField, APIKeyField: "api_key",
+	}
+	payload := []byte(`{"meter_id":1234567890123456789,"scenario":"s1"}`)
+	if _, err := testClient(1<<20).ForwardToTarget(context.Background(), "meme", tcfg, payload); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(received), "1234567890123456789") {
+		t.Errorf("large integer corrupted in outbound body: %s", received)
+	}
+	if !strings.Contains(string(received), `"api_key":"k"`) {
+		t.Errorf("api key not injected: %s", received)
+	}
+}
+
+// Upstream error bodies often echo the request back; configured credentials
+// must be redacted before the excerpt is stored, logged, or served.
+func TestErrorExcerptRedactsSecrets(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		http.Error(w, `{"error":"invalid request: api_key tk-super-secret rejected"}`, http.StatusBadRequest)
+	}))
+	defer srv.Close()
+
+	c := New(1<<20, []string{"tk-super-secret"})
+	_, _, err := c.do(context.Background(), "target meme", "POST", srv.URL, []byte(`{}`), nil, time.Second)
+	if err == nil {
+		t.Fatal("want error")
+	}
+	msg := err.Error()
+	if strings.Contains(msg, "tk-super-secret") {
+		t.Errorf("secret leaked into error: %s", msg)
+	}
+	if !strings.Contains(msg, "[redacted]") {
+		t.Errorf("redaction marker missing: %s", msg)
+	}
+}
+
+// A failure while downloading the result body is retryable on the next poll
+// tick; only the size cap is final.
+func TestFetchResultReadFailureIsTransient(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Length", "1000")
+		w.WriteHeader(http.StatusOK)
+		_, _ = io.WriteString(w, "short")
+		panic(http.ErrAbortHandler) // drop the connection mid-body
+	}))
+	defer srv.Close()
+
+	tcfg := pollTargetCfg(srv.URL)
+	_, _, err := testClient(1<<20).FetchResult(context.Background(), "meme", tcfg, "j1")
+	if err == nil || !IsTransient(err) {
+		t.Errorf("mid-body read failure must be transient, got %v", err)
+	}
+}
+
+func TestFetchResultOversizedIsPermanent(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write(make([]byte, 256))
+	}))
+	defer srv.Close()
+
+	tcfg := pollTargetCfg(srv.URL)
+	_, _, err := testClient(64).FetchResult(context.Background(), "meme", tcfg, "j1")
+	if err == nil || IsTransient(err) {
+		t.Errorf("oversized result must fail permanently, got %v", err)
+	}
+}
+
+func pollTargetCfg(base string) config.Target {
+	return config.Target{
+		Timeout: dur(2 * time.Second), APIKeyInject: config.InjectNone,
+		Response: config.Response{Mode: config.ModePoll, Poll: &config.Poll{
+			IDJSONPath:  "job_id",
+			URLTemplate: base + "/jobs/{id}", ResultURLTemplate: base + "/jobs/{id}",
+			StatusJSONPath: "status", DoneValues: []string{"done"}, FailedValues: []string{"failed"},
+		}},
 	}
 }
 

@@ -20,7 +20,7 @@ type Error struct {
 	Op        string // e.g. "resource resolvent-pv1", "target meme"
 	Status    int    // 0 for transport-level failures
 	Transient bool
-	Body      string // truncated response excerpt for diagnostics
+	Body      string // truncated, redacted response excerpt for diagnostics
 	Err       error  // underlying transport error, if any
 }
 
@@ -46,21 +46,37 @@ func IsTransient(err error) bool {
 	return false
 }
 
+// errBodyTooLarge marks a response over the configured size cap — the one
+// read failure that must never be retried (the body will not shrink).
+var errBodyTooLarge = errors.New("response exceeds the size limit")
+
 const errBodyExcerpt = 512
 
 // Client is the shared outbound HTTP client.
 type Client struct {
 	http    *http.Client
 	maxBody int64
+	secrets []string
 }
 
-// New builds a Client. maxBody caps every upstream response body.
-func New(maxBody int64) *Client {
+// New builds a Client. maxBody caps every upstream response body; secrets
+// lists credential values (target/resource API keys) that must never appear
+// in error excerpts — upstream error bodies often echo the request back.
+func New(maxBody int64, secrets []string) *Client {
 	return &Client{
-		// Per-call deadlines come from contexts; the transport-level timeout
-		// is a safety net against connections that hang forever.
-		http:    &http.Client{Timeout: 10 * time.Minute},
+		http: &http.Client{
+			// Per-call deadlines come from contexts; the transport-level
+			// timeout is a safety net against connections that hang forever.
+			Timeout: 10 * time.Minute,
+			// Never follow redirects: Go's default policy forwards custom
+			// headers (our injected API keys) to cross-origin redirect
+			// targets. A 3xx surfaces as a permanent error instead.
+			CheckRedirect: func(*http.Request, []*http.Request) error {
+				return http.ErrUseLastResponse
+			},
+		},
 		maxBody: maxBody,
+		secrets: secrets,
 	}
 }
 
@@ -104,39 +120,47 @@ func (c *Client) do(ctx context.Context, op, method, url string, body []byte, he
 	}
 	defer resp.Body.Close()
 
-	respBody, err := io.ReadAll(io.LimitReader(resp.Body, c.maxBody+1))
+	respBody, err := c.readCapped(resp.Body)
 	if err != nil {
-		return 0, nil, &Error{Op: op, Transient: true, Err: fmt.Errorf("read response: %w", err)}
-	}
-	if int64(len(respBody)) > c.maxBody {
-		return 0, nil, &Error{Op: op, Status: resp.StatusCode, Transient: false,
-			Err: fmt.Errorf("response exceeds the %d byte limit", c.maxBody)}
+		if errors.Is(err, errBodyTooLarge) {
+			return 0, nil, &Error{Op: op, Status: resp.StatusCode, Transient: false, Err: err}
+		}
+		return 0, nil, &Error{Op: op, Transient: true, Err: err}
 	}
 
 	switch {
 	case resp.StatusCode >= 200 && resp.StatusCode < 300:
 		return resp.StatusCode, respBody, nil
 	case resp.StatusCode == http.StatusTooManyRequests || resp.StatusCode >= 500:
-		return resp.StatusCode, nil, &Error{Op: op, Status: resp.StatusCode, Transient: true, Body: excerpt(respBody)}
+		return resp.StatusCode, nil, &Error{Op: op, Status: resp.StatusCode, Transient: true, Body: c.excerpt(respBody)}
 	default:
-		return resp.StatusCode, nil, &Error{Op: op, Status: resp.StatusCode, Transient: false, Body: excerpt(respBody)}
+		return resp.StatusCode, nil, &Error{Op: op, Status: resp.StatusCode, Transient: false, Body: c.excerpt(respBody)}
 	}
 }
 
-func readCapped(r io.Reader, maxBody int64) ([]byte, error) {
-	body, err := io.ReadAll(io.LimitReader(r, maxBody+1))
+// readCapped reads a response body up to the configured cap. Over-cap
+// failures wrap errBodyTooLarge; other errors are plain read failures.
+func (c *Client) readCapped(r io.Reader) ([]byte, error) {
+	body, err := io.ReadAll(io.LimitReader(r, c.maxBody+1))
 	if err != nil {
 		return nil, fmt.Errorf("read response: %w", err)
 	}
-	if int64(len(body)) > maxBody {
-		return nil, fmt.Errorf("response exceeds the %d byte limit", maxBody)
+	if int64(len(body)) > c.maxBody {
+		return nil, fmt.Errorf("response exceeds the %d byte limit: %w", c.maxBody, errBodyTooLarge)
 	}
 	return body, nil
 }
 
-// excerpt truncates an upstream body for logs and error messages.
-func excerpt(b []byte) string {
+// excerpt prepares an upstream body for logs, stored error messages and API
+// responses: configured credentials are redacted before the excerpt is
+// truncated, so a secret can never survive by straddling the cut.
+func (c *Client) excerpt(b []byte) string {
 	s := strings.ToValidUTF8(string(b), "")
+	for _, secret := range c.secrets {
+		if secret != "" {
+			s = strings.ReplaceAll(s, secret, "[redacted]")
+		}
+	}
 	if len(s) > errBodyExcerpt {
 		s = s[:errBodyExcerpt] + "…"
 	}

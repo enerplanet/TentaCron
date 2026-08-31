@@ -286,6 +286,72 @@ func TestList(t *testing.T) {
 	}
 }
 
+// The docs declare Content-Type: application/json required; a missing header
+// must 415 exactly like a wrong one.
+func TestCreateRequiresContentType(t *testing.T) {
+	e := newEnv(t)
+	req := httptest.NewRequest(http.MethodPost, "/v1/requests", bytes.NewBufferString(validBody))
+	// deliberately no Content-Type header
+	rec := httptest.NewRecorder()
+	e.server.Handler().ServeHTTP(rec, req)
+	if rec.Code != http.StatusUnsupportedMediaType {
+		t.Fatalf("status = %d, want 415", rec.Code)
+	}
+	if got := errCode(t, rec); got != CodeUnsupportedMediaType {
+		t.Errorf("error code = %q", got)
+	}
+}
+
+// json.Decoder stops after the first value; trailing data means the body was
+// not a single JSON object and must be rejected, not silently accepted.
+func TestCreateRejectsTrailingData(t *testing.T) {
+	e := newEnv(t)
+	for _, body := range []string{validBody + "garbage", validBody + validBody} {
+		rec := e.do(t, "POST", "/v1/requests", body, nil)
+		if rec.Code != http.StatusBadRequest {
+			t.Fatalf("status = %d, want 400 (body %.40s…)", rec.Code, body)
+		}
+		if got := errCode(t, rec); got != CodeInvalidJSON {
+			t.Errorf("error code = %q", got)
+		}
+	}
+}
+
+// Reusing an Idempotency-Key with a different request must 409, never
+// silently drop the new request in favor of the stored one.
+func TestCreateIdempotencyConflict(t *testing.T) {
+	e := newEnv(t)
+	h := map[string]string{"Idempotency-Key": "k-1"}
+	if rec := e.do(t, "POST", "/v1/requests", validBody, h); rec.Code != http.StatusAccepted {
+		t.Fatalf("first request: %d", rec.Code)
+	}
+	other := `{"api_key":"valid-key","target":"meme","payload":{"time-series":[1]}}`
+	rec := e.do(t, "POST", "/v1/requests", other, h)
+	if rec.Code != http.StatusConflict {
+		t.Fatalf("status = %d, want 409 (body %s)", rec.Code, rec.Body.String())
+	}
+	if got := errCode(t, rec); got != CodeIdempotencyConflict {
+		t.Errorf("error code = %q", got)
+	}
+}
+
+// A result file pruned between GetJob and os.Open is a 404, not a 500.
+func TestResultFileMissingReturns404(t *testing.T) {
+	e := newEnv(t)
+	created := decodeBody[createResponse](t, e.do(t, "POST", "/v1/requests", validBody, nil))
+	missing := filepath.Join(t.TempDir(), "already-pruned.zip")
+	if err := e.store.MarkCompleted(context.Background(), created.ID, 200, nil, missing, "application/zip", "done"); err != nil {
+		t.Fatal(err)
+	}
+	rec := e.do(t, "GET", "/v1/requests/"+created.ID+"/result", "", map[string]string{"X-API-Key": "valid-key"})
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("status = %d, want 404", rec.Code)
+	}
+	if got := errCode(t, rec); got != CodeNotFound {
+		t.Errorf("error code = %q", got)
+	}
+}
+
 func TestHealthAndReady(t *testing.T) {
 	e := newEnv(t)
 	if rec := e.do(t, "GET", "/healthz", "", nil); rec.Code != http.StatusOK {

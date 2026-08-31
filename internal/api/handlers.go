@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"io/fs"
 	"mime"
 	"net/http"
 	"os"
@@ -30,16 +31,17 @@ type createResponse struct {
 // the client error response itself when the request is unusable.
 func (s *Server) decodeCreateRequest(w http.ResponseWriter, r *http.Request) (createRequest, bool) {
 	var req createRequest
-	if ct := r.Header.Get("Content-Type"); ct != "" {
-		if mt, _, err := mime.ParseMediaType(ct); err != nil || mt != "application/json" {
-			writeError(w, http.StatusUnsupportedMediaType, CodeUnsupportedMediaType,
-				"Content-Type must be application/json")
-			return req, false
-		}
+	// The header is required, as documented: mime.ParseMediaType("") errors,
+	// so an absent Content-Type takes the same 415 path as a wrong one.
+	if mt, _, err := mime.ParseMediaType(r.Header.Get("Content-Type")); err != nil || mt != "application/json" {
+		writeError(w, http.StatusUnsupportedMediaType, CodeUnsupportedMediaType,
+			"Content-Type must be application/json")
+		return req, false
 	}
 
 	r.Body = http.MaxBytesReader(w, r.Body, s.cfg.Server.MaxBodyBytes)
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	dec := json.NewDecoder(r.Body)
+	if err := dec.Decode(&req); err != nil {
 		var maxErr *http.MaxBytesError
 		if errors.As(err, &maxErr) {
 			writeError(w, http.StatusRequestEntityTooLarge, CodePayloadTooLarge,
@@ -47,6 +49,12 @@ func (s *Server) decodeCreateRequest(w http.ResponseWriter, r *http.Request) (cr
 			return req, false
 		}
 		writeError(w, http.StatusBadRequest, CodeInvalidJSON, "request body is not valid JSON")
+		return req, false
+	}
+	// Decode stops after the first JSON value; anything but EOF behind it
+	// means the body was not a single JSON object.
+	if err := dec.Decode(new(struct{})); !errors.Is(err, io.EOF) {
+		writeError(w, http.StatusBadRequest, CodeInvalidJSON, "request body contains trailing data")
 		return req, false
 	}
 
@@ -91,12 +99,18 @@ func (s *Server) handleCreate(w http.ResponseWriter, r *http.Request) {
 	}
 	job := &store.Job{
 		ID:             id,
+		Client:         client,
 		IdempotencyKey: r.Header.Get("Idempotency-Key"),
 		Target:         req.Target,
 		MaxAttempts:    s.cfg.Worker.MaxAttempts,
 		Payload:        req.Payload, // client api_key lives outside payload and is never stored
 	}
 	created, stored, err := s.store.CreateJob(r.Context(), job)
+	if errors.Is(err, store.ErrIdempotencyConflict) {
+		writeError(w, http.StatusConflict, CodeIdempotencyConflict,
+			"Idempotency-Key was already used with a different target or payload")
+		return
+	}
 	if err != nil {
 		s.internalError(w, "create job failed", err)
 		return
@@ -219,8 +233,15 @@ func (s *Server) handleResult(w http.ResponseWriter, r *http.Request) {
 	}
 	if job.ResultPath != "" {
 		f, err := os.Open(job.ResultPath) // #nosec G304 G703 -- path is written by the worker, never taken from request input
+		if errors.Is(err, fs.ErrNotExist) {
+			// The retention sweeper removes files just before their rows; a
+			// request landing in that window gets a 404, not a 500.
+			s.logger.Warn("result file already pruned", "job_id", job.ID, "path", job.ResultPath)
+			writeError(w, http.StatusNotFound, CodeNotFound, "result no longer available")
+			return
+		}
 		if err != nil {
-			s.logger.Error("result file missing", "job_id", job.ID, "path", job.ResultPath, "error", err)
+			s.logger.Error("result file unreadable", "job_id", job.ID, "path", job.ResultPath, "error", err)
 			writeError(w, http.StatusInternalServerError, CodeInternal, "stored result is unavailable")
 			return
 		}

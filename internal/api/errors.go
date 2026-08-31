@@ -11,6 +11,7 @@ const (
 	CodeMissingField         = "missing_field"
 	CodeUnauthorized         = "unauthorized"
 	CodeUnknownTarget        = "unknown_target"
+	CodeIdempotencyConflict  = "idempotency_conflict"
 	CodePayloadTooLarge      = "payload_too_large"
 	CodeUnsupportedMediaType = "unsupported_media_type"
 	CodeNotFound             = "not_found"

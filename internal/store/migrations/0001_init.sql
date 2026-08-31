@@ -1,5 +1,6 @@
 CREATE TABLE jobs (
     id                  TEXT PRIMARY KEY,
+    client              TEXT NOT NULL DEFAULT '',   -- authenticated client name; scopes idempotency keys
     idempotency_key     TEXT,
     target              TEXT NOT NULL,
     state               TEXT NOT NULL DEFAULT 'received' CHECK (state IN
@@ -21,7 +22,7 @@ CREATE TABLE jobs (
     updated_at          TEXT NOT NULL,
     completed_at        TEXT
 );
-CREATE UNIQUE INDEX jobs_idem_uq ON jobs(idempotency_key) WHERE idempotency_key IS NOT NULL;
+CREATE UNIQUE INDEX jobs_idem_uq ON jobs(client, idempotency_key) WHERE idempotency_key IS NOT NULL;
 CREATE INDEX jobs_queue_ix ON jobs(state, next_attempt_at);
 CREATE INDEX jobs_created_ix ON jobs(created_at);
 

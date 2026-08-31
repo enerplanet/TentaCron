@@ -59,7 +59,7 @@ func startPool(t *testing.T, cfg *config.Config, st *store.Store) chan struct{} 
 	t.Helper()
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
 	nudge := make(chan struct{}, 1)
-	pool := New(cfg, st, upstream.New(cfg.Server.MaxBodyBytes), logger, nudge)
+	pool := New(cfg, st, upstream.New(cfg.Server.MaxBodyBytes, nil), logger, nudge)
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan struct{})
 	go func() {
@@ -529,7 +529,7 @@ func TestShutdownParksInFlightJob(t *testing.T) {
 	id := createJob(t, st, "buem", `{"time-series":[{"type":"resolvent-pv1"}]}`, 5)
 
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
-	pool := New(cfg, st, upstream.New(cfg.Server.MaxBodyBytes), logger, make(chan struct{}))
+	pool := New(cfg, st, upstream.New(cfg.Server.MaxBodyBytes, nil), logger, make(chan struct{}))
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan struct{})
 	go func() {
@@ -558,6 +558,96 @@ func TestShutdownParksInFlightJob(t *testing.T) {
 	}
 }
 
+// A resource API answering 200 "null" must fail the job with the documented
+// invalid_resource_response — not poison the series cache and panic
+// Substitute into an "internal" failure.
+func TestNullResourceBodyFailsCleanly(t *testing.T) {
+	cfg := baseConfig(t)
+	nullResource := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, `null`)
+	}))
+	t.Cleanup(nullResource.Close)
+	target, _ := fakeDirectTarget(t, 200, `{"ok":true}`)
+	cfg.Resolvents["resolvent-pv1"] = resolventCfg(nullResource.URL)
+	cfg.Targets["buem"] = directTargetCfg(target.URL)
+
+	st := openStore(t)
+	id := createJob(t, st, "buem", `{"time-series":[{"type":"resolvent-pv1"}]}`, 3)
+	startPool(t, cfg, st)
+
+	job := waitForTerminal(t, st, id)
+	if job.State != store.StateFailed || job.ErrorCode != errInvalidResource {
+		t.Fatalf("state=%s code=%s, want failed/invalid_resource_response", job.State, job.ErrorCode)
+	}
+}
+
+// A non-object resource body maps to invalid_resource_response, keeping
+// resource_error reserved for HTTP-level failures as documented.
+func TestArrayResourceBodyUsesInvalidResourceCode(t *testing.T) {
+	cfg := baseConfig(t)
+	arrResource := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = io.WriteString(w, `[1,2,3]`)
+	}))
+	t.Cleanup(arrResource.Close)
+	target, _ := fakeDirectTarget(t, 200, `{"ok":true}`)
+	cfg.Resolvents["resolvent-pv1"] = resolventCfg(arrResource.URL)
+	cfg.Targets["buem"] = directTargetCfg(target.URL)
+
+	st := openStore(t)
+	id := createJob(t, st, "buem", `{"time-series":[{"type":"resolvent-pv1"}]}`, 3)
+	startPool(t, cfg, st)
+
+	job := waitForTerminal(t, st, id)
+	if job.State != store.StateFailed || job.ErrorCode != errInvalidResource {
+		t.Fatalf("state=%s code=%s, want failed/invalid_resource_response", job.State, job.ErrorCode)
+	}
+	if job.Attempts != 1 {
+		t.Errorf("attempts = %d, want 1 (malformed body is permanent)", job.Attempts)
+	}
+}
+
+// A target job that finished must complete even when its "done" status is
+// only observed after the poll deadline: the deadline exists for unfinished
+// jobs. The old pre-poll deadline check failed such jobs as target_timeout
+// without ever asking the target.
+func TestFinishedJobPastDeadlineStillCompletes(t *testing.T) {
+	cfg := baseConfig(t)
+	mux := http.NewServeMux()
+	mux.HandleFunc("POST /simulate", func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusAccepted)
+		_, _ = io.WriteString(w, `{"job_id":"m-edge"}`)
+	})
+	mux.HandleFunc("GET /jobs/{id}", func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = io.WriteString(w, `{"status":"done","objective":7}`)
+	})
+	targetSrv := httptest.NewServer(mux)
+	t.Cleanup(targetSrv.Close)
+
+	cfg.Targets["meme"] = config.Target{
+		URL: targetSrv.URL + "/simulate", Method: "POST", Timeout: dur(2 * time.Second),
+		TimeseriesPath: "time-series", APIKeyInject: config.InjectNone,
+		Response: config.Response{Mode: config.ModePoll, Poll: &config.Poll{
+			IDJSONPath: "job_id", URLTemplate: targetSrv.URL + "/jobs/{id}",
+			ResultURLTemplate: targetSrv.URL + "/jobs/{id}",
+			StatusJSONPath:    "status", DoneValues: []string{"done"}, FailedValues: []string{"failed"},
+			Interval: dur(10 * time.Millisecond),
+			// The deadline is over before the first poll tick can run.
+			Timeout: dur(time.Millisecond),
+		}},
+	}
+
+	st := openStore(t)
+	id := createJob(t, st, "meme", `{"time-series":[]}`, 3)
+	startPool(t, cfg, st)
+
+	job := waitForTerminal(t, st, id)
+	if job.State != store.StateCompleted {
+		t.Fatalf("state=%s code=%s: %s — a finished target job must not become target_timeout",
+			job.State, job.ErrorCode, job.ErrorMessage)
+	}
+}
+
 func TestSweepPrunesCacheAndOldJobs(t *testing.T) {
 	cfg := baseConfig(t)
 	cfg.Storage.Retention = dur(0) // everything terminal is immediately stale
@@ -578,7 +668,7 @@ func TestSweepPrunesCacheAndOldJobs(t *testing.T) {
 	time.Sleep(5 * time.Millisecond) // let completed_at fall behind the cutoff
 
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
-	pool := New(cfg, st, upstream.New(cfg.Server.MaxBodyBytes), logger, make(chan struct{}))
+	pool := New(cfg, st, upstream.New(cfg.Server.MaxBodyBytes, nil), logger, make(chan struct{}))
 	pool.sweep(ctx)
 
 	if _, ok, _ := st.GetSeries(ctx, "h-old"); ok {

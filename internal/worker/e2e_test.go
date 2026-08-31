@@ -100,7 +100,7 @@ func startStack(t *testing.T) *e2eStack {
 	}
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
 	nudge := make(chan struct{}, 1)
-	pool := worker.New(cfg, st, upstream.New(cfg.Server.MaxBodyBytes), logger, nudge)
+	pool := worker.New(cfg, st, upstream.New(cfg.Server.MaxBodyBytes, nil), logger, nudge)
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan struct{})
 	go func() {

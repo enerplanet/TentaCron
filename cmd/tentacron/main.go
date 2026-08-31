@@ -48,7 +48,7 @@ func run() error {
 	}
 
 	nudge := make(chan struct{}, 1)
-	client := upstream.New(cfg.Server.MaxBodyBytes)
+	client := upstream.New(cfg.Server.MaxBodyBytes, cfg.UpstreamSecrets())
 	pool := worker.New(cfg, st, client, logger, nudge)
 	server := api.New(cfg, st, logger, nudge)
 
