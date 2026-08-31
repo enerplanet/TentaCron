@@ -371,6 +371,44 @@ var targetProtocolScenarios = []scenario{
 		},
 	},
 	{
+		// buem-gateway reports per-building failures INSIDE a 200 response
+		// (verified against its handler: writeJSON with the default status;
+		// a missing envelope fails that building's entry, not the batch).
+		// For tentacron that is a COMPLETED job whose stored result carries
+		// the error entries — partial building failures are result data,
+		// never a job failure. This golden keeps that semantic from being
+		// "fixed" into a target_error later.
+		name: "buem-partial-building-errors",
+		fakes: fakes{
+			resource: func(int64) reply {
+				return reply{200, `{"index":["2018-01-01T00:30:00Z"],"variables":{"T":[1.0]}}`, ""}
+			},
+			gateway: func(int64) reply {
+				return reply{200, `[` +
+					`{"id":"b-1","buem":{"thermal_load_profile":{"summary":{"heating":{"total":{"value":12345.6,"unit":"kWh"}}}}}},` +
+					`{"id":"b-2","error":"envelope missing or empty"}]`, ""}
+			},
+		},
+		run: func(t *testing.T, h *harness) {
+			payload := `{
+				"start_date": "2018-01-01T00:00:00Z", "end_date": "2018-01-02T00:00:00Z",
+				"resolution": 60, "model_id": "m-partial",
+				"weather": {"type": "resolvent-weather", "location": {"lat": 48.83, "lon": 12.95}},
+				"buildings": [
+					{"id": "b-1", "building": {"envelope": {"elements": [{"id": "W1", "type": "wall"}]}}},
+					{"id": "b-2", "building": {}}
+				]
+			}`
+			id := h.post("submit batch where one building lacks its envelope", requestBody("buem", payload), nil)
+			h.await("final state (completed; the per-building error is result data)", id)
+			h.forwarded("payload buem-gateway received", "buem")
+			h.get("result carries one buem block and one error entry", "/v1/requests/"+id+"/result",
+				map[string]string{"X-API-Key": clientKey})
+			h.events("audit trail", id)
+			h.counts()
+		},
+	},
+	{
 		// Numbers flow back too: the target's response embeds integers
 		// above 2^53 which must reach the client byte-exact, inline and
 		// via the /result endpoint.

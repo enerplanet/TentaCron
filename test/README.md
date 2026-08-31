@@ -56,7 +56,9 @@ result-fetch flakes, poll deadlines (exceeded and straddled), the mid-flight
 number-heavy results, both API-key injection modes (header and body-field,
 pinned via the captured upstream requests), the real buem-gateway contract
 (root-level weather resolvent substituted marker-free via
-`timeseries_path: "."` + `attach_resolvent: false`), the full validation-
+`timeseries_path: "."` + `attach_resolvent: false`, and per-building error
+entries inside a 200 completing the job with the errors as result data,
+never as a job failure), the full validation-
 error surface, idempotency replay/conflict/cross-client scoping, cross-client
 read visibility, and list ordering. Every counts step also freezes an
 `unexpected_upstream_requests` tripwire (always empty), so any unscripted
