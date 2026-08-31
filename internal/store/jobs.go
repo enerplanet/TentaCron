@@ -222,7 +222,9 @@ func (s *Store) GetJobByIdempotency(ctx context.Context, client, key string) (*J
 	return j, err
 }
 
-// ListJobs returns jobs newest-first, optionally filtered by state.
+// ListJobs returns jobs newest-first, optionally filtered by state; rowid
+// breaks created_at ties by insertion order (ids are random hex, so ordering
+// by id would shuffle same-millisecond jobs run to run).
 func (s *Store) ListJobs(ctx context.Context, state string, limit int) ([]*Job, error) {
 	q := `SELECT ` + jobColumns + ` FROM jobs`
 	args := []any{}
@@ -230,7 +232,7 @@ func (s *Store) ListJobs(ctx context.Context, state string, limit int) ([]*Job, 
 		q += ` WHERE state = ?`
 		args = append(args, state)
 	}
-	q += ` ORDER BY created_at DESC, id DESC LIMIT ?`
+	q += ` ORDER BY created_at DESC, rowid DESC LIMIT ?`
 	args = append(args, limit)
 	rows, err := s.db.QueryContext(ctx, q, args...)
 	if err != nil {

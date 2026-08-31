@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"slices"
+	"sort"
 	"strings"
 	"time"
 
@@ -292,7 +293,8 @@ func setDur(d *Duration, def time.Duration) {
 // UpstreamSecrets returns every configured downstream credential (target and
 // resolvent API keys). The upstream client redacts these from error excerpts
 // so a service echoing a request back can never leak a key into logs, the
-// audit store, or API responses.
+// audit store, or API responses. The list is ordered longest-first so a
+// shorter credential can never split a longer one during redaction.
 func (c *Config) UpstreamSecrets() []string {
 	var secrets []string
 	for _, t := range c.Targets {
@@ -305,5 +307,11 @@ func (c *Config) UpstreamSecrets() []string {
 			secrets = append(secrets, r.APIKey)
 		}
 	}
+	sort.Slice(secrets, func(i, j int) bool {
+		if len(secrets[i]) != len(secrets[j]) {
+			return len(secrets[i]) > len(secrets[j])
+		}
+		return secrets[i] < secrets[j]
+	})
 	return secrets
 }

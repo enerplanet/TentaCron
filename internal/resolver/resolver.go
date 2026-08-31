@@ -7,6 +7,8 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"maps"
+	"slices"
 	"strings"
 )
 
@@ -104,6 +106,9 @@ func Find(root map[string]any, path string) ([]*Found, error) {
 // together with its type and a closure that overwrites its slot in the parent
 // container. It does not descend into resolvent objects (their properties are
 // opaque resource-API parameters) nor into genuine time-series objects (data).
+// Reporting order is deterministic: array order for arrays, sorted key order
+// for objects — so error messages and processing order never depend on map
+// iteration randomness.
 func walk(node any, report func(typ string, obj map[string]any, replace func(map[string]any))) {
 	switch v := node.(type) {
 	case []any:
@@ -120,7 +125,8 @@ func walk(node any, report func(typ string, obj map[string]any, replace func(map
 		if typ, _ := v[typeKey].(string); typ == TimeSeriesType {
 			return
 		}
-		for k, elem := range v {
+		for _, k := range slices.Sorted(maps.Keys(v)) {
+			elem := v[k]
 			if obj, ok := elem.(map[string]any); ok {
 				if typ, ok := resolventType(obj); ok {
 					report(typ, obj, func(series map[string]any) { v[k] = series })
