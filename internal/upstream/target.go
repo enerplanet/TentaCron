@@ -149,6 +149,20 @@ func (c *Client) FetchResult(ctx context.Context, name string, tcfg config.Targe
 	return resp.Header.Get("Content-Type"), body, nil
 }
 
+// ExtractPath returns the sub-document at the dot-separated path of a JSON
+// body, re-encoded with number fidelity (json.Number round-trips verbatim).
+// An empty path returns the body unchanged.
+func ExtractPath(body []byte, path string) ([]byte, error) {
+	if path == "" {
+		return body, nil
+	}
+	v, err := jsonPath(body, path)
+	if err != nil {
+		return nil, err
+	}
+	return json.Marshal(v)
+}
+
 // jsonPath navigates a dot-separated path through a JSON object. Numbers are
 // decoded as json.Number so large integer ids survive verbatim.
 func jsonPath(body []byte, path string) (any, error) {

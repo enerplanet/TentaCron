@@ -144,7 +144,8 @@ type Poll struct {
 	Timeout           Duration `yaml:"timeout"`
 }
 
-// Resolvent describes the resource API for one resolvent type.
+// Resolvent describes the backend for one resolvent type: either a resource
+// API (URL) or a configured target (Target).
 type Resolvent struct {
 	URL          string   `yaml:"url"`
 	Method       string   `yaml:"method"`
@@ -152,6 +153,23 @@ type Resolvent struct {
 	APIKeyHeader string   `yaml:"api_key_header"`
 	Timeout      Duration `yaml:"timeout"`
 	CacheTTL     Duration `yaml:"cache_ttl"`
+
+	// Target names a configured direct-mode target that backs this resolvent
+	// instead of a raw resource URL — tentacron composing its own targets,
+	// e.g. a BuEM simulation feeding a MEME model. The nested payload is
+	// forwarded to that target as-is (never re-resolved), so resolvent loops
+	// are impossible by construction; the target's url/auth/timeout apply.
+	// Mutually exclusive with URL.
+	Target string `yaml:"target"`
+	// PayloadField selects which field of the resolvent object is sent as
+	// the call's payload. Empty sends the whole resolvent object (the
+	// classic resource-API contract).
+	PayloadField string `yaml:"payload_field"`
+	// ResponsePath optionally extracts a sub-object of the response (dot
+	// separated) as the substituted series — e.g.
+	// "buem.thermal_load_profile.timeseries". Empty substitutes the whole
+	// response.
+	ResponsePath string `yaml:"response_path"`
 }
 
 // Load reads the YAML file at path, interpolates ${ENV} references, applies
@@ -289,13 +307,18 @@ func (t *Target) applyDefaults() {
 }
 
 func (r *Resolvent) applyDefaults(defaultTTL Duration) {
-	if r.Method == "" {
-		r.Method = "POST"
+	// URL-call defaults only apply to URL-backed resolvents: a target-backed
+	// resolvent inherits transport settings from its backing target, and
+	// defaulted-but-dead fields here would only mislead the operator.
+	if r.Target == "" {
+		if r.Method == "" {
+			r.Method = "POST"
+		}
+		if r.APIKeyHeader == "" {
+			r.APIKeyHeader = "X-API-Key"
+		}
+		setDur(&r.Timeout, 30*time.Second)
 	}
-	if r.APIKeyHeader == "" {
-		r.APIKeyHeader = "X-API-Key"
-	}
-	setDur(&r.Timeout, 30*time.Second)
 	if r.CacheTTL == 0 {
 		r.CacheTTL = defaultTTL
 	}

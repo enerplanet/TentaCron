@@ -611,6 +611,89 @@ func TestRootPathTargetWithoutResolventMarker(t *testing.T) {
 	}
 }
 
+// Target composition: a resolvent backed by another configured target — a
+// BuEM simulation feeding the payload of the outer target. The nested call
+// must forward exactly the resolvent's payload_field (as-is, never
+// re-resolved), extract response_path, and substitute the result with the
+// outer target's marker policy.
+func TestTargetBackedResolvent(t *testing.T) {
+	cfg := baseConfig(t)
+
+	var nestedReceived []byte
+	var nestedAuth string
+	var mu sync.Mutex
+	buemSingle := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		mu.Lock()
+		nestedReceived, nestedAuth = body, r.Header.Get("X-Api-Key")
+		mu.Unlock()
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, `{"id":"b-1","buem":{"thermal_load_profile":{"timeseries":{"unit":"kW","timestamps":["2018-01-01T00:00:00Z"],"heating":[19.01]}},"model_metadata":{"version":"x"}}}`)
+	}))
+	t.Cleanup(buemSingle.Close)
+	outer, lastBody := fakeDirectTarget(t, 200, `{"ok":true}`)
+
+	cfg.Targets["buem-building"] = config.Target{
+		URL: buemSingle.URL, Method: "POST", Timeout: dur(2 * time.Second),
+		APIKey: "nested-secret", APIKeyInject: config.InjectHeader, APIKeyHeader: "X-Api-Key",
+		Response: config.Response{Mode: config.ModeDirect},
+	}
+	cfg.Targets["outer"] = directTargetCfg(outer.URL)
+	cfg.Resolvents["resolvent-buem"] = config.Resolvent{
+		Target: "buem-building", PayloadField: "payload",
+		ResponsePath: "buem.thermal_load_profile.timeseries",
+		CacheTTL:     dur(time.Hour),
+	}
+
+	nestedPayload := `{"id":"b-1","start_date":"2018-01-01T00:00:00Z","buem":{"building":{"envelope":{"elements":[{"id":"W1"}]}},"weather":{"index":["2018-01-01T00:30:00Z"],"variables":{"T":[1.0]}}}}`
+	st := openStore(t)
+	id := createJob(t, st, "outer", `{"time-series":[
+		{"name":"heat_demand","type":"resolvent-buem","payload":`+nestedPayload+`}
+	]}`, 3)
+	startPool(t, cfg, st)
+
+	job := waitForTerminal(t, st, id)
+	if job.State != store.StateCompleted {
+		t.Fatalf("state = %s, error = %s: %s", job.State, job.ErrorCode, job.ErrorMessage)
+	}
+
+	// The nested target received exactly the payload_field content, with its
+	// own auth applied.
+	mu.Lock()
+	gotNested, gotAuth := string(nestedReceived), nestedAuth
+	mu.Unlock()
+	if gotAuth != "nested-secret" {
+		t.Errorf("nested auth header = %q", gotAuth)
+	}
+	var want, got map[string]any
+	if err := json.Unmarshal([]byte(nestedPayload), &want); err != nil {
+		t.Fatal(err)
+	}
+	if err := json.Unmarshal([]byte(gotNested), &got); err != nil {
+		t.Fatalf("nested body: %v", err)
+	}
+	if len(got) != len(want) || got["start_date"] != want["start_date"] {
+		t.Errorf("nested payload not forwarded as-is: %s", gotNested)
+	}
+
+	// The outer target sees the extracted timeseries in the resolvent's
+	// slot, marker attached (the outer target's default policy).
+	var fwd map[string]any
+	if err := json.Unmarshal(lastBody(), &fwd); err != nil {
+		t.Fatal(err)
+	}
+	slot := fwd["time-series"].([]any)[0].(map[string]any)
+	if slot["unit"] != "kW" || slot["heating"] == nil {
+		t.Errorf("response_path extraction failed: %v", slot)
+	}
+	if _, exists := slot["model_metadata"]; exists {
+		t.Errorf("whole response substituted instead of response_path: %v", slot)
+	}
+	if slot["resolvent"].(map[string]any)["type"] != "resolvent-buem" {
+		t.Errorf("marker missing: %v", slot)
+	}
+}
+
 // A resource API answering 200 "null" must fail the job with the documented
 // invalid_resource_response — not poison the series cache and panic
 // Substitute into an "internal" failure.

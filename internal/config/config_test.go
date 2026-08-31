@@ -120,6 +120,89 @@ targets:
 	}
 }
 
+func TestLoadTargetBackedResolvent(t *testing.T) {
+	cfg, err := Load(writeConfig(t, `
+auth:
+  api_keys: [{name: t, key: k}]
+targets:
+  buem-building:
+    url: "https://buem-gateway.example.com/api/v1/buem/building"
+resolvents:
+  resolvent-buem:
+    target: buem-building
+    payload_field: payload
+    response_path: "buem.thermal_load_profile.timeseries"
+`))
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	r := cfg.Resolvents["resolvent-buem"]
+	if r.Target != "buem-building" || r.PayloadField != "payload" ||
+		r.ResponsePath != "buem.thermal_load_profile.timeseries" {
+		t.Errorf("resolvent = %+v", r)
+	}
+	// URL-call defaults must not be applied to a target-backed resolvent.
+	if r.Method != "" || r.Timeout != 0 {
+		t.Errorf("dead URL-call defaults applied: method=%q timeout=%v", r.Method, r.Timeout)
+	}
+	if r.CacheTTL == 0 {
+		t.Error("cache_ttl default must still apply")
+	}
+}
+
+func TestValidateTargetBackedResolventRules(t *testing.T) {
+	base := `
+auth:
+  api_keys: [{name: t, key: k}]
+targets:
+  direct-t:
+    url: "https://direct.example.com/run"
+  poll-t:
+    url: "https://poll.example.com/simulate"
+    response:
+      mode: poll
+      poll:
+        id_json_path: job_id
+        url_template: "https://poll.example.com/jobs/{id}"
+        status_json_path: status
+        done_values: [done]
+`
+	tests := []struct {
+		name, resolvents, wantErr string
+	}{
+		{"url and target together", `
+resolvents:
+  resolvent-x:
+    url: "https://x.example.com"
+    target: direct-t
+`, "mutually exclusive"},
+		{"unknown backing target", `
+resolvents:
+  resolvent-x:
+    target: nope
+`, "not a configured target"},
+		{"poll-mode backing target", `
+resolvents:
+  resolvent-x:
+    target: poll-t
+`, "only direct-mode targets can back a resolvent"},
+		{"url-call fields on target-backed", `
+resolvents:
+  resolvent-x:
+    target: direct-t
+    api_key: leak
+`, "belong to the backing target"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := Load(writeConfig(t, base+tt.resolvents))
+			if err == nil || !strings.Contains(err.Error(), tt.wantErr) {
+				t.Fatalf("want error containing %q, got %v", tt.wantErr, err)
+			}
+		})
+	}
+}
+
 func TestLoadDollarEscape(t *testing.T) {
 	cfg, err := Load(writeConfig(t, `
 auth:
@@ -329,6 +412,10 @@ func TestLoadFullExample(t *testing.T) {
 	}
 	if _, ok := cfg.Resolvents["resolvent-weather"]; !ok {
 		t.Error("resolvent-weather missing — buem payloads resolve weather through it")
+	}
+	rb := cfg.Resolvents["resolvent-buem"]
+	if rb.Target != "buem-building" || rb.PayloadField != "payload" || rb.ResponsePath == "" {
+		t.Errorf("resolvent-buem must be backed by the buem-building target: %+v", rb)
 	}
 	meme := cfg.Targets["meme"]
 	if meme.Response.Mode != ModePoll {

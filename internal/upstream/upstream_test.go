@@ -1,6 +1,7 @@
 package upstream
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -292,6 +293,30 @@ func pollTargetCfg(base string) config.Target {
 			URLTemplate: base + "/jobs/{id}", ResultURLTemplate: base + "/jobs/{id}",
 			StatusJSONPath: "status", DoneValues: []string{"done"}, FailedValues: []string{"failed"},
 		}},
+	}
+}
+
+func TestExtractPath(t *testing.T) {
+	body := []byte(`{"id":"b-1","buem":{"thermal_load_profile":{"timeseries":{"unit":"kW","meter":1234567890123456789,"heating":[19.0,19.1]}}}}`)
+
+	got, err := ExtractPath(body, "buem.thermal_load_profile.timeseries")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{`"unit":"kW"`, `1234567890123456789`} {
+		if !strings.Contains(string(got), want) {
+			t.Errorf("extracted %s, want it to contain %s", got, want)
+		}
+	}
+
+	if got, err := ExtractPath(body, ""); err != nil || !bytes.Equal(got, body) {
+		t.Errorf("empty path must return the body unchanged (err %v)", err)
+	}
+	if _, err := ExtractPath(body, "buem.missing.path"); err == nil {
+		t.Error("missing path must error")
+	}
+	if _, err := ExtractPath(body, "id.deeper"); err == nil {
+		t.Error("path through a non-object must error")
 	}
 }
 

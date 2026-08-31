@@ -219,13 +219,17 @@ func (p *Pool) fetchOne(ctx, bg context.Context, f *resolver.Found) (body []byte
 		return body, true, nil
 	}
 	rcfg := p.cfg.Resolvents[f.Type]
-	objBytes, err := json.Marshal(f.Object)
-	if err != nil {
-		return nil, false, fmt.Errorf("encode resolvent %s: %w", f.Type, err)
-	}
-	body, err = p.client.ResolveResolvent(ctx, f.Type, rcfg, objBytes)
+	body, err = p.callResolventBackend(ctx, f, rcfg)
 	if err != nil {
 		return nil, false, err
+	}
+	if rcfg.ResponsePath != "" {
+		extracted, err := upstream.ExtractPath(body, rcfg.ResponsePath)
+		if err != nil {
+			return nil, false, fmt.Errorf("resource %s response has no %q (%v): %w",
+				f.Type, rcfg.ResponsePath, err, errBadResourceBody)
+		}
+		body = extracted
 	}
 	var probe map[string]any
 	if err := json.Unmarshal(body, &probe); err != nil {
@@ -240,6 +244,41 @@ func (p *Pool) fetchOne(ctx, bg context.Context, f *resolver.Found) (body []byte
 		p.logger.Warn("series cache write failed", "type", f.Type, "error", err)
 	}
 	return body, false, nil
+}
+
+// callResolventBackend performs the outbound call for one resolvent: either
+// a POST to its resource URL, or — for a target-backed resolvent — a forward
+// through the named direct-mode target (tentacron composing its own targets,
+// with the target's url/auth/timeout applying). The payload is the resolvent
+// object itself, or the object under payload_field when configured; it is
+// sent as-is, never re-resolved, so resolvent recursion cannot occur.
+func (p *Pool) callResolventBackend(ctx context.Context, f *resolver.Found, rcfg config.Resolvent) ([]byte, error) {
+	payload := any(f.Object)
+	if rcfg.PayloadField != "" {
+		nested, ok := f.Object[rcfg.PayloadField].(map[string]any)
+		if !ok {
+			return nil, fmt.Errorf("resolvent %s: field %q must hold the payload object for the backend call",
+				f.Type, rcfg.PayloadField)
+		}
+		payload = nested
+	}
+	payloadBytes, err := json.Marshal(payload)
+	if err != nil {
+		return nil, fmt.Errorf("encode resolvent %s: %w", f.Type, err)
+	}
+
+	if rcfg.Target != "" {
+		tcfg, ok := p.cfg.Targets[rcfg.Target]
+		if !ok {
+			return nil, fmt.Errorf("resolvent %s: backing target %q is no longer configured", f.Type, rcfg.Target)
+		}
+		res, err := p.client.ForwardToTarget(ctx, rcfg.Target, tcfg, payloadBytes)
+		if err != nil {
+			return nil, err
+		}
+		return res.Body, nil
+	}
+	return p.client.ResolveResolvent(ctx, f.Type, rcfg, payloadBytes)
 }
 
 // forward sends the resolved payload to the target and either completes the

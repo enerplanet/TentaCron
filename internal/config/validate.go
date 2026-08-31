@@ -96,11 +96,28 @@ func (c *Config) Validate() error {
 		if !strings.HasPrefix(name, ResolventTypePrefix) {
 			fail("%s: resolvent type must start with %q", p, ResolventTypePrefix)
 		}
-		if err := checkURL(p+".url", r.URL); err != nil {
-			errs = append(errs, err)
-		}
-		if !validMethod(r.Method) {
-			fail("%s.method: %q is not a supported HTTP method", p, r.Method)
+		switch {
+		case r.Target != "" && r.URL != "":
+			fail("%s: url and target are mutually exclusive", p)
+		case r.Target != "":
+			if tgt, ok := c.Targets[r.Target]; !ok {
+				fail("%s.target: %q is not a configured target", p, r.Target)
+			} else if tgt.Response.Mode != ModeDirect {
+				// A poll-mode backing target would make resolution itself
+				// asynchronous; only synchronous targets can back a resolvent.
+				fail("%s.target: %q uses response mode %q; only direct-mode targets can back a resolvent",
+					p, r.Target, tgt.Response.Mode)
+			}
+			if r.APIKey != "" || r.Method != "" || r.Timeout != 0 {
+				fail("%s: method/api_key/timeout belong to the backing target %q, not the resolvent", p, r.Target)
+			}
+		default:
+			if err := checkURL(p+".url", r.URL); err != nil {
+				errs = append(errs, err)
+			}
+			if !validMethod(r.Method) {
+				fail("%s.method: %q is not a supported HTTP method", p, r.Method)
+			}
 		}
 	}
 
