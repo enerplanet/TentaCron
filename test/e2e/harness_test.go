@@ -45,6 +45,7 @@ const (
 	secondClientKey = "golden-second-client-key"
 	demoSecret      = "demo-golden-secret"
 	buemSecret      = "buem-golden-secret"
+	ignisSecret     = "ignis-golden-secret"
 	memeSecret      = "meme-golden-secret"
 	resourceSecret  = "resource-golden-secret"
 )
@@ -73,6 +74,7 @@ type fakes struct {
 	result      func(call int64) reply              // GET  <target>/jobs/{id} (result fetch)
 	gateway     func(call int64) reply              // POST <target>/api/v1/buem/buildings (the real buem contract)
 	building    func(call int64) reply              // POST <target>/api/v1/buem/building (single building; backs resolvent-buem)
+	calculate   func(call int64) reply              // POST <target>/api/v1/calculate/{code} (ignis; the proxy-target exemplar)
 }
 
 const weatherBody = `{"index":["2018-01-01T00:30:00Z","2018-01-01T01:30:00Z"],"variables":{"T":[1.0,1.2],"GHI":[0.0,12.5]}}`
@@ -123,6 +125,13 @@ func (f fakes) withDefaults() fakes {
 			return reply{200, `{"id":"b-1","buem":{"thermal_load_profile":{"timeseries":{"unit":"kW","timestamps":["2018-01-01T00:00:00Z","2018-01-01T01:00:00Z"],"heating":[19.01,19.16]}},"model_metadata":{"buem_version":"golden"}}}`, ""}
 		}
 	}
+	if f.calculate == nil {
+		// ignis's documented calculate response: annual heating demand for
+		// the variant, with optional overrides applied.
+		f.calculate = func(int64) reply {
+			return reply{200, `{"variant_code":"DE.N.SFH.04.Gen.ReEx.001.001","q_h_nd":112.4,"unit":"kWh/(m2a)"}`, ""}
+		}
+	}
 	return f
 }
 
@@ -133,11 +142,12 @@ type harness struct {
 	st  *store.Store
 	api *httptest.Server
 
-	resourceCalls, demoCalls, acceptCalls, statusCalls, resultCalls, gatewayCalls, buildingCalls atomic.Int64
+	resourceCalls, demoCalls, acceptCalls, statusCalls, resultCalls, gatewayCalls, buildingCalls, calculateCalls atomic.Int64
 
 	mu               sync.Mutex
 	lastForwarded    map[string][]byte // keyed by target name
 	lastTargetAuth   map[string]string // X-API-Key seen per endpoint
+	lastTargetPath   map[string]string // request path seen per endpoint
 	lastResourceAuth string
 	lastResourceBody []byte
 	resourceGETs     map[string]string // path -> "GET path?query" of the last GET per path
@@ -166,6 +176,7 @@ func newHarness(t *testing.T, f fakes, mod func(*config.Config)) *harness {
 		t:              t,
 		lastForwarded:  map[string][]byte{},
 		lastTargetAuth: map[string]string{},
+		lastTargetPath: map[string]string{},
 		resourceGETs:   map[string]string{},
 	}
 
@@ -196,6 +207,7 @@ func newHarness(t *testing.T, f fakes, mod func(*config.Config)) *harness {
 		h.mu.Lock()
 		h.lastForwarded[endpoint] = body
 		h.lastTargetAuth[endpoint] = r.Header.Get("X-API-Key")
+		h.lastTargetPath[endpoint] = r.URL.Path
 		h.mu.Unlock()
 	}
 	mux := http.NewServeMux()
@@ -214,6 +226,10 @@ func newHarness(t *testing.T, f fakes, mod func(*config.Config)) *harness {
 	mux.HandleFunc("POST /api/v1/buem/building", func(w http.ResponseWriter, r *http.Request) {
 		captureTarget("buem-building", r)
 		writeReply(w, f.building(h.buildingCalls.Add(1)))
+	})
+	mux.HandleFunc("POST /api/v1/calculate/{code}", func(w http.ResponseWriter, r *http.Request) {
+		captureTarget("ignis-calculate", r)
+		writeReply(w, f.calculate(h.calculateCalls.Add(1)))
 	})
 	mux.HandleFunc("GET /jobs/{id}/status", func(w http.ResponseWriter, _ *http.Request) {
 		writeReply(w, f.status(h.statusCalls.Add(1)))
@@ -273,6 +289,15 @@ func newHarness(t *testing.T, f fakes, mod func(*config.Config)) *harness {
 				URL: target.URL + "/api/v1/buem/building", Method: "POST", Timeout: dur(2 * time.Second),
 				TimeseriesPath: config.RootTimeseriesPath, AttachResolvent: boolPtr(false),
 				APIKey: buemSecret, APIKeyInject: config.InjectHeader, APIKeyHeader: "X-Api-Key",
+				Response: config.Response{Mode: config.ModeDirect},
+			},
+			// The proxy-target exemplar: ignis's calculate endpoint. The
+			// payload is handed through unresolved; the {code} placeholder
+			// is filled from (and stripped out of) the payload.
+			"ignis-calculate": {
+				URL: target.URL + "/api/v1/calculate/{code}", Method: "POST", Timeout: dur(2 * time.Second),
+				Proxy:  true,
+				APIKey: ignisSecret, APIKeyInject: config.InjectHeader, APIKeyHeader: "X-Api-Key",
 				Response: config.Response{Mode: config.ModeDirect},
 			},
 			"meme": {
@@ -498,8 +523,10 @@ func (h *harness) forwarded(label, endpoint string) {
 	h.mu.Lock()
 	body, hit := h.lastForwarded[endpoint]
 	auth := h.lastTargetAuth[endpoint]
+	path := h.lastTargetPath[endpoint]
 	delete(h.lastForwarded, endpoint)
 	delete(h.lastTargetAuth, endpoint)
+	delete(h.lastTargetPath, endpoint)
 	h.mu.Unlock()
 
 	var received any = "«target never called»"
@@ -507,7 +534,7 @@ func (h *harness) forwarded(label, endpoint string) {
 		received = decodeAny(body)
 	}
 	h.record(map[string]any{
-		"step": label, "endpoint": endpoint,
+		"step": label, "endpoint": endpoint, "target_path": path,
 		"target_auth_header": auth, "target_received": received,
 	})
 }
@@ -574,6 +601,7 @@ func (h *harness) countsStep(withPolls bool) map[string]any {
 		"meme_accept_calls":            h.acceptCalls.Load(),
 		"buem_calls":                   h.gatewayCalls.Load(),
 		"buem_building_calls":          h.buildingCalls.Load(),
+		"ignis_calculate_calls":        h.calculateCalls.Load(),
 		"unexpected_upstream_requests": unexpected,
 	}
 	if withPolls {

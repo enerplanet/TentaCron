@@ -104,8 +104,31 @@ A synchronous target — the real BuEM integration via
       mode: direct
 ```
 
+A proxy target — the payload handed through unresolved (ignis's
+calculate endpoint):
+
+```yaml
+  ignis-calculate:
+    url: "https://ignis.example.com/api/v1/calculate/{code}"
+    method: POST
+    api_key: "${IGNIS_API_KEY}"
+    api_key_inject: header
+    api_key_header: X-Api-Key
+    timeout: 60s
+    proxy: true
+    response:
+      mode: direct
+```
+
 Notes:
 
+- `proxy: true` skips resolution entirely: tentacron contributes auth,
+  persistence, the audit trail and retries, and forwards the payload
+  untouched — byte-exact when the URL has no placeholders. Target URLs may
+  carry `{field}` placeholders filled from top-level payload fields (any
+  target, not just proxies); consumed fields are stripped from the
+  forwarded body, since they address the call rather than belong to it.
+  `timeseries_path`/`attach_resolvent` are rejected on a proxy target.
 - `timeseries_path` is a dot-separated path into the payload
   (default `time-series`). MEME spells its registry `model.timeseries`.
   The special value `"."` scans the whole payload — for contracts like

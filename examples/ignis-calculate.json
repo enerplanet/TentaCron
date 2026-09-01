@@ -1,0 +1,9 @@
+{
+  "api_key": "your-tentacron-api-key",
+  "target": "ignis-calculate",
+  "payload": {
+    "code": "DE.N.SFH.04.Gen.ReEx.001.001",
+    "A_ref": { "value": 120, "unit": "m2" },
+    "theta_i": { "value": 20, "unit": "degC" }
+  }
+}

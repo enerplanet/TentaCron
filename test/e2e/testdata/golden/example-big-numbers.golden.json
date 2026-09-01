@@ -36,6 +36,7 @@
     "endpoint": "demo",
     "step": "payload with integers above 2^53 — digits must be exact",
     "target_auth_header": "demo-golden-secret",
+    "target_path": "/run",
     "target_received": {
       "meter_id": 1234567890123456789,
       "scenario": "number-fidelity",
@@ -63,6 +64,7 @@
     "buem_building_calls": 0,
     "buem_calls": 0,
     "demo_calls": 1,
+    "ignis_calculate_calls": 0,
     "meme_accept_calls": 0,
     "meme_result_calls": "not asserted (timing-dependent)",
     "meme_status_calls": "not asserted (timing-dependent)",

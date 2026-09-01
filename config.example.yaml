@@ -92,6 +92,23 @@ targets:
     response:
       mode: direct
 
+  ignis-calculate:
+    # Proxy target: tentacron contributes auth, persistence, audit and
+    # retries but hands the payload through unresolved — no resolvent
+    # scanning. The {code} placeholder is filled from the payload's
+    # top-level "code" field, which is then stripped from the forwarded
+    # body (ignis's overrides schema has no code field); the remaining
+    # payload is the optional TABULA overrides object.
+    url: "https://ignis.example.com/api/v1/calculate/{code}"
+    method: POST
+    api_key: "${IGNIS_API_KEY}"
+    api_key_inject: header
+    api_key_header: X-Api-Key
+    timeout: 60s
+    proxy: true
+    response:
+      mode: direct
+
   demo:
     # Minimal direct-mode target illustrating the default "time-series"
     # array container; the generic example requests point here.

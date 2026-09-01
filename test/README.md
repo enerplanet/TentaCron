@@ -60,7 +60,9 @@ pinned via the captured upstream requests), the real buem-gateway contract
 `timeseries_path: "."` + `attach_resolvent: false`, per-building error
 entries inside a 200 completing the job with the errors as result data,
 never as a job failure, and target composition — a `resolvent-buem` backed
-by the buem-building target feeding a MEME model), GET resolvents against
+by the buem-building target feeding a MEME model), proxy targets (payload
+handed through unresolved, URL `{field}` templating with body stripping —
+the ignis calculate exemplar), GET resolvents against
 the verified weather/city2tabula/ignis contracts (query-parameter and
 path-template mapping frozen as exact request lines, array responses indexed
 via `response_path`), the full validation-

@@ -64,6 +64,21 @@ var exampleScenarios = []scenario{
 		},
 	},
 	{
+		// A proxy target: tentacron contributes auth, persistence, audit
+		// and retries but hands the payload through unresolved — the {code}
+		// field addresses ignis's calculate endpoint via URL templating and
+		// is stripped from the forwarded body (ignis's overrides schema has
+		// no code field).
+		name: "example-ignis-calculate",
+		run: func(t *testing.T, h *harness) {
+			id := h.post("submit examples/ignis-calculate.json", exampleRequest(t, "ignis-calculate.json"), nil)
+			h.await("final state", id)
+			h.forwarded("overrides ignis received (code templated into the path, stripped from the body)", "ignis-calculate")
+			h.events("audit trail (handed through, nothing resolved)", id)
+			h.counts()
+		},
+	},
+	{
 		name: "example-no-resolvents",
 		run: func(t *testing.T, h *harness) {
 			id := h.post("submit examples/no-resolvents.json", exampleRequest(t, "no-resolvents.json"), nil)

@@ -25,6 +25,10 @@ Initial development of the tentacron orchestration and resolvent API.
   as backends (`target` + `payload_field` — target composition, e.g. a BuEM
   run feeding a MEME model), all with TTL series caching keyed by canonical
   parameter hash.
+- Proxy targets (`proxy: true`): the payload is handed through unresolved —
+  byte-exact without URL templating — while tentacron contributes auth,
+  persistence, audit and retries; target URLs support `{field}` placeholders
+  filled from (and stripped out of) the payload's top level.
 - Verified integrations, grounded in upstream sources/OpenAPI: meme
   (async poll: `/jobs/{id}/status`, `queued|running|succeeded|failed`, zip
   bundle), buem-gateway (batch and single-building endpoints, per-building
