@@ -10,6 +10,7 @@ import (
 	"net/url"
 	"regexp"
 	"slices"
+	"strconv"
 	"strings"
 
 	"github.com/enerplanet/tentacron/internal/config"
@@ -163,8 +164,10 @@ func ExtractPath(body []byte, path string) ([]byte, error) {
 	return json.Marshal(v)
 }
 
-// jsonPath navigates a dot-separated path through a JSON object. Numbers are
-// decoded as json.Number so large integer ids survive verbatim.
+// jsonPath navigates a dot-separated path through a JSON document. Numbers
+// are decoded as json.Number so large integer ids survive verbatim. A
+// numeric segment indexes an array — "0" selects the first element of a
+// list response (e.g. city2tabula's building list).
 func jsonPath(body []byte, path string) (any, error) {
 	dec := json.NewDecoder(bytes.NewReader(body))
 	dec.UseNumber()
@@ -174,13 +177,23 @@ func jsonPath(body []byte, path string) (any, error) {
 	}
 	cur := doc
 	for _, seg := range strings.Split(path, ".") {
-		m, ok := cur.(map[string]any)
-		if !ok {
-			return nil, fmt.Errorf("segment %q: not an object", seg)
-		}
-		cur, ok = m[seg]
-		if !ok {
-			return nil, fmt.Errorf("segment %q: not found", seg)
+		switch node := cur.(type) {
+		case map[string]any:
+			var ok bool
+			if cur, ok = node[seg]; !ok {
+				return nil, fmt.Errorf("segment %q: not found", seg)
+			}
+		case []any:
+			idx, err := strconv.Atoi(seg)
+			if err != nil {
+				return nil, fmt.Errorf("segment %q: response is an array, expected a numeric index", seg)
+			}
+			if idx < 0 || idx >= len(node) {
+				return nil, fmt.Errorf("segment %q: index out of range (array has %d elements)", seg, len(node))
+			}
+			cur = node[idx]
+		default:
+			return nil, fmt.Errorf("segment %q: not an object or array", seg)
 		}
 	}
 	return cur, nil

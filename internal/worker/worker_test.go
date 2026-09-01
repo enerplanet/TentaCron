@@ -611,6 +611,63 @@ func TestRootPathTargetWithoutResolventMarker(t *testing.T) {
 	}
 }
 
+// A GET-style resolvent (weather/city2tabula/ignis contracts): the resolvent
+// object maps onto the request URL — path placeholders and query parameters —
+// with no request body, and response_path picks one element out of an array
+// response.
+func TestGETResolventWithArrayResponse(t *testing.T) {
+	cfg := baseConfig(t)
+	var gotPath, gotQuery string
+	var gotLen int
+	var mu sync.Mutex
+	resource := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		mu.Lock()
+		gotPath, gotQuery, gotLen = r.URL.Path, r.URL.RawQuery, len(body)
+		mu.Unlock()
+		_, _ = io.WriteString(w, `[{"object_id":"DEHB01","area_total_wall":214.5},{"object_id":"other"}]`)
+	}))
+	t.Cleanup(resource.Close)
+	target, lastBody := fakeDirectTarget(t, 200, `{"ok":true}`)
+	cfg.Targets["demo"] = directTargetCfg(target.URL)
+	cfg.Resolvents["resolvent-city2tabula"] = config.Resolvent{
+		URL: resource.URL + "/api/v1/buildings", Method: "GET",
+		Timeout: dur(2 * time.Second), CacheTTL: dur(time.Hour),
+		ResponsePath: "0",
+	}
+
+	st := openStore(t)
+	id := createJob(t, st, "demo", `{"time-series":[
+		{"type":"resolvent-city2tabula","country":"germany","osm_ids":["123456","789012"]}
+	]}`, 3)
+	startPool(t, cfg, st)
+
+	job := waitForTerminal(t, st, id)
+	if job.State != store.StateCompleted {
+		t.Fatalf("state = %s, error = %s: %s", job.State, job.ErrorCode, job.ErrorMessage)
+	}
+	mu.Lock()
+	path, query, bodyLen := gotPath, gotQuery, gotLen
+	mu.Unlock()
+	if path != "/api/v1/buildings" || bodyLen != 0 {
+		t.Errorf("path=%s bodyLen=%d, want bodyless GET on the configured path", path, bodyLen)
+	}
+	if query != "country=germany&osm_ids=123456%2C789012" {
+		t.Errorf("query = %q", query)
+	}
+	var fwd map[string]any
+	if err := json.Unmarshal(lastBody(), &fwd); err != nil {
+		t.Fatal(err)
+	}
+	slot := fwd["time-series"].([]any)[0].(map[string]any)
+	if slot["object_id"] != "DEHB01" {
+		t.Errorf("response_path did not select the first array element: %v", slot)
+	}
+	if slot["resolvent"].(map[string]any)["country"] != "germany" {
+		t.Errorf("marker missing: %v", slot)
+	}
+}
+
 // Target composition: a resolvent backed by another configured target — a
 // BuEM simulation feeding the payload of the outer target. The nested call
 // must forward exactly the resolvent's payload_field (as-is, never

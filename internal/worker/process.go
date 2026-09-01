@@ -246,14 +246,16 @@ func (p *Pool) fetchOne(ctx, bg context.Context, f *resolver.Found) (body []byte
 	return body, false, nil
 }
 
-// callResolventBackend performs the outbound call for one resolvent: either
-// a POST to its resource URL, or — for a target-backed resolvent — a forward
-// through the named direct-mode target (tentacron composing its own targets,
-// with the target's url/auth/timeout applying). The payload is the resolvent
-// object itself, or the object under payload_field when configured; it is
-// sent as-is, never re-resolved, so resolvent recursion cannot occur.
+// callResolventBackend performs the outbound call for one resolvent: a call
+// to its resource URL (JSON body for POST-style methods; URL path/query
+// mapping for GET — see upstream.ResolveResolvent), or — for a target-backed
+// resolvent — a forward through the named direct-mode target (tentacron
+// composing its own targets, with the target's url/auth/timeout applying).
+// The payload is the resolvent object itself, or the object under
+// payload_field when configured; it is sent as-is, never re-resolved, so
+// resolvent recursion cannot occur.
 func (p *Pool) callResolventBackend(ctx context.Context, f *resolver.Found, rcfg config.Resolvent) ([]byte, error) {
-	payload := any(f.Object)
+	payload := f.Object
 	if rcfg.PayloadField != "" {
 		nested, ok := f.Object[rcfg.PayloadField].(map[string]any)
 		if !ok {
@@ -262,12 +264,12 @@ func (p *Pool) callResolventBackend(ctx context.Context, f *resolver.Found, rcfg
 		}
 		payload = nested
 	}
-	payloadBytes, err := json.Marshal(payload)
-	if err != nil {
-		return nil, fmt.Errorf("encode resolvent %s: %w", f.Type, err)
-	}
 
 	if rcfg.Target != "" {
+		payloadBytes, err := json.Marshal(payload)
+		if err != nil {
+			return nil, fmt.Errorf("encode resolvent %s: %w", f.Type, err)
+		}
 		tcfg, ok := p.cfg.Targets[rcfg.Target]
 		if !ok {
 			return nil, fmt.Errorf("resolvent %s: backing target %q is no longer configured", f.Type, rcfg.Target)
@@ -278,7 +280,7 @@ func (p *Pool) callResolventBackend(ctx context.Context, f *resolver.Found, rcfg
 		}
 		return res.Body, nil
 	}
-	return p.client.ResolveResolvent(ctx, f.Type, rcfg, payloadBytes)
+	return p.client.ResolveResolvent(ctx, f.Type, rcfg, payload)
 }
 
 // forward sends the resolved payload to the target and either completes the

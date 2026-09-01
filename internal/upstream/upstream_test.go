@@ -320,6 +320,109 @@ func TestExtractPath(t *testing.T) {
 	}
 }
 
+func decodePayload(t *testing.T, s string) map[string]any {
+	t.Helper()
+	dec := json.NewDecoder(strings.NewReader(s))
+	dec.UseNumber() // matches how resolver.Parse decodes real payloads
+	var m map[string]any
+	if err := dec.Decode(&m); err != nil {
+		t.Fatal(err)
+	}
+	return m
+}
+
+func TestBuildResolventURL(t *testing.T) {
+	t.Run("query mapping with fixed params, arrays and numbers", func(t *testing.T) {
+		payload := decodePayload(t, `{"type":"resolvent-weather","provider":"era5-land",
+			"lat":48.831,"lon":12.957,"year":2018,"variables":["T","GHI"]}`)
+		got, err := buildResolventURL("https://w.example.com/v1/weather/point?format=json", payload)
+		if err != nil {
+			t.Fatal(err)
+		}
+		want := "https://w.example.com/v1/weather/point?format=json&lat=48.831&lon=12.957&provider=era5-land&variables=T%2CGHI&year=2018"
+		if got != want {
+			t.Errorf("url = %s\nwant  %s", got, want)
+		}
+	})
+	t.Run("path templating consumes the field", func(t *testing.T) {
+		payload := decodePayload(t, `{"type":"resolvent-ignis","code":"DE.N.SFH.01.Gen.ReEx.001.001"}`)
+		got, err := buildResolventURL("https://i.example.com/api/v1/data/{code}", payload)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got != "https://i.example.com/api/v1/data/DE.N.SFH.01.Gen.ReEx.001.001" {
+			t.Errorf("url = %s", got)
+		}
+	})
+	t.Run("number fidelity above 2^53", func(t *testing.T) {
+		payload := decodePayload(t, `{"type":"resolvent-x","meter":1234567890123456789,"active":true}`)
+		got, err := buildResolventURL("https://x.example.com/q", payload)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !strings.Contains(got, "meter=1234567890123456789") || !strings.Contains(got, "active=true") {
+			t.Errorf("url = %s", got)
+		}
+	})
+	t.Run("missing placeholder field errors", func(t *testing.T) {
+		payload := decodePayload(t, `{"type":"resolvent-ignis","country":"DE"}`)
+		if _, err := buildResolventURL("https://i.example.com/api/v1/data/{code}", payload); err == nil {
+			t.Error("want error for unresolved placeholder")
+		}
+	})
+	t.Run("nested object errors with guidance", func(t *testing.T) {
+		payload := decodePayload(t, `{"type":"resolvent-x","location":{"lat":1}}`)
+		_, err := buildResolventURL("https://x.example.com/q", payload)
+		if err == nil || !strings.Contains(err.Error(), "POST resolvent") {
+			t.Errorf("err = %v, want flat-fields guidance", err)
+		}
+	})
+}
+
+func TestResolveResolventGETSendsNoBody(t *testing.T) {
+	var gotMethod, gotQuery, gotAuth string
+	var gotBody []byte
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotMethod, gotQuery, gotAuth = r.Method, r.URL.RawQuery, r.Header.Get("X-API-Key")
+		gotBody, _ = io.ReadAll(r.Body)
+		_, _ = io.WriteString(w, `{"index":[],"variables":{}}`)
+	}))
+	defer srv.Close()
+
+	rcfg := config.Resolvent{URL: srv.URL + "/point?format=json", Method: http.MethodGet,
+		APIKey: "wkey", APIKeyHeader: "X-API-Key", Timeout: dur(time.Second)}
+	payload := decodePayload(t, `{"type":"resolvent-weather","lat":48.83,"year":2018}`)
+	if _, err := testClient(1<<20).ResolveResolvent(context.Background(), "resolvent-weather", rcfg, payload); err != nil {
+		t.Fatal(err)
+	}
+	if gotMethod != http.MethodGet || len(gotBody) != 0 {
+		t.Errorf("method=%s bodyLen=%d, want bodyless GET", gotMethod, len(gotBody))
+	}
+	if gotQuery != "format=json&lat=48.83&year=2018" {
+		t.Errorf("query = %q", gotQuery)
+	}
+	if gotAuth != "wkey" {
+		t.Errorf("auth = %q", gotAuth)
+	}
+}
+
+func TestExtractPathArrayIndex(t *testing.T) {
+	body := []byte(`[{"object_id":"A","area":30},{"object_id":"B","area":41}]`)
+	got, err := ExtractPath(body, "1")
+	if err != nil || !strings.Contains(string(got), `"object_id":"B"`) {
+		t.Errorf("got %s (err %v)", got, err)
+	}
+	if got, err := ExtractPath(body, "0.object_id"); err != nil || string(got) != `"A"` {
+		t.Errorf("got %s (err %v)", got, err)
+	}
+	if _, err := ExtractPath(body, "2"); err == nil {
+		t.Error("out-of-range index must error")
+	}
+	if _, err := ExtractPath(body, "first"); err == nil {
+		t.Error("non-numeric segment on an array must error")
+	}
+}
+
 func TestPollTargetStatusMatching(t *testing.T) {
 	tests := []struct {
 		name       string
