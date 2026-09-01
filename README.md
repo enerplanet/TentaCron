@@ -25,7 +25,10 @@ Client ──GET /v1/requests/id─    ▼  │
 3. Each resolvent object is sent to its resource API (from `config.yaml`); the
    returned time series **replaces the resolvent in place**, with the original
    object preserved under the new series' `resolvent` key. Identical resolvents
-   are served from a TTL cache instead of re-hitting the resource API.
+   are served from a TTL cache instead of re-hitting the resource API. A
+   resolvent can also be backed by another configured target (e.g. a BuEM
+   simulation feeding a MEME model) — see
+   [docs/configuration.md](docs/configuration.md#target-backed-resolvents-composition).
 4. The resolved payload is forwarded to the target. For async targets
    tentacron extracts the target's job id, polls until it reports done or
    failed, and stores the final result.

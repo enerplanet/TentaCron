@@ -66,6 +66,7 @@ type fakes struct {
 	accept   func(call int64) reply // POST <target>/simulate (the "meme" poll target)
 	poll     func(call int64) reply // GET  <target>/jobs/{id} (status and result fetch)
 	gateway  func(call int64) reply // POST <target>/api/v1/buem/buildings (the real buem contract)
+	building func(call int64) reply // POST <target>/api/v1/buem/building (single building; backs resolvent-buem)
 }
 
 func (f fakes) withDefaults() fakes {
@@ -88,6 +89,13 @@ func (f fakes) withDefaults() fakes {
 			return reply{200, `[{"id":"b-1","buem":{"thermal_load_profile":{"summary":{"heating":{"total":{"value":12345.6,"unit":"kWh"}}}}}}]`, ""}
 		}
 	}
+	if f.building == nil {
+		// The single-building endpoint returns one enriched buem block —
+		// the object shape a target-backed resolvent substitutes from.
+		f.building = func(int64) reply {
+			return reply{200, `{"id":"b-1","buem":{"thermal_load_profile":{"timeseries":{"unit":"kW","timestamps":["2018-01-01T00:00:00Z","2018-01-01T01:00:00Z"],"heating":[19.01,19.16]}},"model_metadata":{"buem_version":"golden"}}}`, ""}
+		}
+	}
 	return f
 }
 
@@ -98,7 +106,7 @@ type harness struct {
 	st  *store.Store
 	api *httptest.Server
 
-	resourceCalls, demoCalls, acceptCalls, pollCalls, gatewayCalls atomic.Int64
+	resourceCalls, demoCalls, acceptCalls, pollCalls, gatewayCalls, buildingCalls atomic.Int64
 
 	mu               sync.Mutex
 	lastForwarded    map[string][]byte // keyed "direct" / "accept"
@@ -167,6 +175,10 @@ func newHarness(t *testing.T, f fakes, mod func(*config.Config)) *harness {
 		captureTarget("buem", r)
 		writeReply(w, f.gateway(h.gatewayCalls.Add(1)))
 	})
+	mux.HandleFunc("POST /api/v1/buem/building", func(w http.ResponseWriter, r *http.Request) {
+		captureTarget("buem-building", r)
+		writeReply(w, f.building(h.buildingCalls.Add(1)))
+	})
 	mux.HandleFunc("GET /jobs/{id}", func(w http.ResponseWriter, _ *http.Request) {
 		writeReply(w, f.poll(h.pollCalls.Add(1)))
 	})
@@ -216,6 +228,14 @@ func newHarness(t *testing.T, f fakes, mod func(*config.Config)) *harness {
 				APIKey:         buemSecret, APIKeyInject: config.InjectHeader, APIKeyHeader: "X-Api-Key",
 				Response: config.Response{Mode: config.ModeDirect},
 			},
+			// The single-building endpoint; backs resolvent-buem so a BuEM
+			// simulation can feed another target's payload.
+			"buem-building": {
+				URL: target.URL + "/api/v1/buem/building", Method: "POST", Timeout: dur(2 * time.Second),
+				TimeseriesPath: config.RootTimeseriesPath, AttachResolvent: boolPtr(false),
+				APIKey:         buemSecret, APIKeyInject: config.InjectHeader, APIKeyHeader: "X-Api-Key",
+				Response: config.Response{Mode: config.ModeDirect},
+			},
 			"meme": {
 				URL: target.URL + "/simulate", Method: "POST", Timeout: dur(2 * time.Second),
 				TimeseriesPath: "model.timeseries",
@@ -235,6 +255,11 @@ func newHarness(t *testing.T, f fakes, mod func(*config.Config)) *harness {
 				APIKeyHeader: "X-API-Key", Timeout: dur(2 * time.Second), CacheTTL: dur(time.Hour)},
 			"resolvent-weather": {URL: resource.URL, Method: "POST", APIKey: resourceSecret,
 				APIKeyHeader: "X-API-Key", Timeout: dur(2 * time.Second), CacheTTL: dur(time.Hour)},
+			// Target composition: resolved by forwarding the resolvent's
+			// "payload" field through the buem-building target and
+			// extracting the load-profile timeseries from the response.
+			"resolvent-buem": {Target: "buem-building", PayloadField: "payload",
+				ResponsePath: "buem.thermal_load_profile.timeseries", CacheTTL: dur(time.Hour)},
 		},
 	}
 	if mod != nil {
@@ -495,6 +520,7 @@ func (h *harness) countsStep(withPolls bool) map[string]any {
 		"demo_calls":                   h.demoCalls.Load(),
 		"meme_accept_calls":            h.acceptCalls.Load(),
 		"buem_calls":                   h.gatewayCalls.Load(),
+		"buem_building_calls":          h.buildingCalls.Load(),
 		"unexpected_upstream_requests": unexpected,
 	}
 	if withPolls {

@@ -46,6 +46,24 @@ var exampleScenarios = []scenario{
 		},
 	},
 	{
+		// Target composition, end to end: a MEME model whose heat-demand
+		// series is produced by a BuEM simulation — resolvent-buem forwards
+		// its "payload" field through the buem-building target (as-is,
+		// never re-resolved), extracts the load-profile timeseries via
+		// response_path, and substitutes it into the MEME registry with the
+		// marker attached (the outer target's policy). The pv_cf resolvent
+		// resolves through a plain resource API in the same run.
+		name: "example-meme-with-buem",
+		run: func(t *testing.T, h *harness) {
+			id := h.post("submit examples/meme-with-buem.json", exampleRequest(t, "meme-with-buem.json"), nil)
+			h.await("final state", id)
+			h.forwarded("nested payload the buem-building target received", "buem-building")
+			h.forwarded("composed payload the meme target received", "meme")
+			h.events("audit trail (two resolvents, one of them a buem run)", id)
+			h.counts()
+		},
+	},
+	{
 		name: "example-no-resolvents",
 		run: func(t *testing.T, h *harness) {
 			id := h.post("submit examples/no-resolvents.json", exampleRequest(t, "no-resolvents.json"), nil)

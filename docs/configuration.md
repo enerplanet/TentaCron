@@ -140,3 +140,39 @@ resolvents:
 
 The whole resolvent object is sent as the request body to this URL; the
 response must be a JSON object and is used verbatim as the time series.
+
+### Target-backed resolvents (composition)
+
+A resolvent can name a configured **target** as its backend instead of a raw
+URL — tentacron composing its own targets, e.g. a BuEM simulation producing
+the heat-demand series of a MEME model:
+
+```yaml
+resolvents:
+  resolvent-buem:
+    target: buem-building                # a configured direct-mode target
+    payload_field: payload               # which resolvent field is the nested payload
+    response_path: "buem.thermal_load_profile.timeseries"
+    cache_ttl: 24h
+```
+
+The resolvent object then carries the nested request under `payload_field`:
+
+```json
+{ "type": "resolvent-buem", "payload": { "id": "b-1", "buem": { "building": …, "weather": … } } }
+```
+
+Rules and semantics:
+
+- `url` and `target` are mutually exclusive; only **direct-mode** targets can
+  back a resolvent (a poll-mode backend would make resolution asynchronous).
+  `method`/`api_key`/`timeout` belong to the backing target and are rejected
+  on the resolvent.
+- The nested payload is forwarded **as-is** — it is never itself scanned for
+  resolvents, so resolvent loops are impossible by construction.
+- `payload_field` selects the resolvent field sent as the nested payload
+  (empty = the whole resolvent object). `response_path` extracts the
+  series-shaped sub-object from the response (empty = whole response). Both
+  also work for URL-backed resolvents.
+- Caching applies as usual: the hash covers the whole resolvent object, so
+  identical nested simulations are served from the series cache.

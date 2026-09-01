@@ -66,6 +66,18 @@ targets:
     response:
       mode: direct
 
+  buem-building:
+    url: "https://buem-gateway.example.com/api/v1/buem/building"
+    method: POST
+    api_key: "${BUEM_API_KEY}"
+    api_key_inject: header
+    api_key_header: X-Api-Key
+    timeout: 300s
+    timeseries_path: "."
+    attach_resolvent: false
+    response:
+      mode: direct
+
 resolvents:
   resolvent-pv1:
     url: "https://pvsim.example.com/v1/generate"
@@ -89,4 +101,11 @@ resolvents:
     api_key: "${WEATHER_API_KEY}"
     api_key_header: X-API-Key
     timeout: 60s
+    cache_ttl: 24h
+
+  resolvent-buem:
+    # See ../config.example.yaml for the annotated entry.
+    target: buem-building
+    payload_field: payload
+    response_path: "buem.thermal_load_profile.timeseries"
     cache_ttl: 24h

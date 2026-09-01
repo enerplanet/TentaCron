@@ -83,6 +83,7 @@
     "step": "second job's audit trail (resolved from cache)"
   },
   {
+    "buem_building_calls": 0,
     "buem_calls": 0,
     "demo_calls": 2,
     "meme_accept_calls": 0,

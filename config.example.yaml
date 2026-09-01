@@ -72,6 +72,22 @@ targets:
     response:
       mode: direct
 
+  buem-building:
+    # buem-gateway's single-building endpoint. Callable directly, and the
+    # backing target of resolvent-buem below: it returns one JSON object,
+    # which is what a resolvent substitution needs (the batch endpoint
+    # returns a list).
+    url: "https://buem-gateway.example.com/api/v1/buem/building"
+    method: POST
+    api_key: "${BUEM_API_KEY}"
+    api_key_inject: header
+    api_key_header: X-Api-Key
+    timeout: 300s
+    timeseries_path: "."
+    attach_resolvent: false
+    response:
+      mode: direct
+
   demo:
     # Minimal direct-mode target illustrating the default "time-series"
     # array container; the generic example requests point here.
@@ -108,4 +124,17 @@ resolvents:
     api_key: "${WEATHER_API_KEY}"
     api_key_header: X-API-Key
     timeout: 60s
+    cache_ttl: 24h
+
+  resolvent-buem:
+    # Target composition: a BuEM simulation feeding another target's payload
+    # (e.g. the heat-demand series of a MEME model). The resolvent object's
+    # "payload" field is forwarded as-is through the buem-building target —
+    # never re-resolved, so resolvent loops cannot occur — and the
+    # load-profile timeseries is extracted from the response. The backing
+    # target's url/auth/timeout apply; identical simulations are served from
+    # the series cache.
+    target: buem-building
+    payload_field: payload
+    response_path: "buem.thermal_load_profile.timeseries"
     cache_ttl: 24h
