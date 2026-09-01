@@ -45,11 +45,12 @@ targets:
     response:
       mode: poll
       poll:
-        id_json_path: "job_id"
-        url_template: "https://meme.example.com/jobs/{id}"
-        status_json_path: "status"
-        done_values: [done, completed]
-        failed_values: [failed, error]
+        id_json_path: "id"
+        url_template: "https://meme.example.com/jobs/{id}/status"
+        status_json_path: "state"
+        done_values: [succeeded]
+        failed_values: [failed]
+        result_url_template: "https://meme.example.com/jobs/{id}"
         interval: 10s
         timeout: 30m
 
@@ -96,12 +97,27 @@ resolvents:
     cache_ttl: 24h
 
   resolvent-weather:
-    url: "https://weather.example.com/v1/weather/resolve"
-    method: POST
+    url: "https://weather.example.com/v1/weather/point?format=json"
+    method: GET
     api_key: "${WEATHER_API_KEY}"
     api_key_header: X-API-Key
     timeout: 60s
     cache_ttl: 24h
+
+  resolvent-city2tabula:
+    url: "https://city2tabula.example.com/api/v1/buildings"
+    method: GET
+    timeout: 60s
+    response_path: "0"
+    cache_ttl: 24h
+
+  resolvent-ignis:
+    url: "https://ignis.example.com/api/v1/data/{code}"
+    method: GET
+    api_key: "${IGNIS_API_KEY}"
+    api_key_header: X-Api-Key
+    timeout: 30s
+    cache_ttl: 168h
 
   resolvent-buem:
     # See ../config.example.yaml for the annotated entry.

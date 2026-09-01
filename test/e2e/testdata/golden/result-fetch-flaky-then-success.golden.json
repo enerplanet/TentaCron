@@ -21,8 +21,9 @@
       "id": "«job-1»",
       "result": {
         "target_response": {
+          "id": "m-golden-1",
           "objective": 1234.5,
-          "status": "done"
+          "state": "succeeded"
         },
         "target_status": 200
       },
@@ -40,7 +41,7 @@
       "received → resolving: claimed by worker",
       "resolving → forwarding: resolved 0 resolvent(s), 0 from cache",
       "forwarding → awaiting_target: target accepted (status 202), polling job m-golden-1",
-      "awaiting_target → completed: target job m-golden-1 finished with status \"done\""
+      "awaiting_target → completed: target job m-golden-1 finished with status \"succeeded\""
     ],
     "step": "audit trail (no scar from the flake)"
   }

@@ -50,7 +50,8 @@
     "buem_calls": 0,
     "demo_calls": 1,
     "meme_accept_calls": 0,
-    "poll_calls": "not asserted (timing-dependent)",
+    "meme_result_calls": "not asserted (timing-dependent)",
+    "meme_status_calls": "not asserted (timing-dependent)",
     "resource_calls": 3,
     "step": "upstream call counts",
     "unexpected_upstream_requests": []

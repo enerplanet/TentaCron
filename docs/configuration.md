@@ -138,8 +138,25 @@ resolvents:
     cache_ttl: 24h                      # falls back to cache.default_ttl
 ```
 
-The whole resolvent object is sent as the request body to this URL; the
-response must be a JSON object and is used verbatim as the time series.
+POST-style resolvents send the whole resolvent object as the request body;
+the response must be a JSON object and is used verbatim as the series.
+
+### GET resolvents (query/path mapping)
+
+With `method: GET` the resolvent object maps onto the request URL instead of
+a body — the contract of the verified weather, city2tabula and ignis APIs:
+
+- `{field}` placeholders in the configured URL are filled from the resolvent
+  object (path-escaped) and consumed — e.g. ignis's
+  `/api/v1/data/{code}`;
+- every remaining field becomes a query parameter, appended to any query
+  fixed in the URL (e.g. `?format=json`); parameters are emitted in sorted
+  order, so outbound URLs are deterministic;
+- arrays of scalars join comma-separated (`variables=T,GHI`,
+  `osm_ids=123,456` — the convention of those APIs); the `type` field is
+  tentacron's marker and never sent; nested objects are an authoring error;
+- `response_path` accepts numeric segments to index array responses —
+  city2tabula's building list resolves one building via `response_path: "0"`.
 
 ### Target-backed resolvents (composition)
 

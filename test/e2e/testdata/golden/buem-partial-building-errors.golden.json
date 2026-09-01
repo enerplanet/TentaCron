@@ -17,33 +17,13 @@
       "attempts": 1,
       "completed_at": "«ts»",
       "created_at": "«ts»",
-      "error": null,
-      "id": "«job-1»",
-      "result": {
-        "target_response": [
-          {
-            "buem": {
-              "thermal_load_profile": {
-                "summary": {
-                  "heating": {
-                    "total": {
-                      "unit": "kWh",
-                      "value": 12345.6
-                    }
-                  }
-                }
-              }
-            },
-            "id": "b-1"
-          },
-          {
-            "error": "envelope missing or empty",
-            "id": "b-2"
-          }
-        ],
-        "target_status": 200
+      "error": {
+        "code": "resource_error",
+        "message": "resource resolvent-weather: field \"location\": value of type map[string]interface {} is not a scalar (GET resolvents take flat fields; nest complex data under a POST resolvent instead)"
       },
-      "state": "completed",
+      "id": "«job-1»",
+      "result": null,
+      "state": "failed",
       "target": "buem",
       "updated_at": "«ts»"
     },
@@ -53,86 +33,37 @@
   {
     "endpoint": "buem",
     "step": "payload buem-gateway received",
-    "target_auth_header": "buem-golden-secret",
-    "target_received": {
-      "buildings": [
-        {
-          "building": {
-            "envelope": {
-              "elements": [
-                {
-                  "id": "W1",
-                  "type": "wall"
-                }
-              ]
-            }
-          },
-          "id": "b-1"
-        },
-        {
-          "building": {},
-          "id": "b-2"
-        }
-      ],
-      "end_date": "2018-01-02T00:00:00Z",
-      "model_id": "m-partial",
-      "resolution": 60,
-      "start_date": "2018-01-01T00:00:00Z",
-      "weather": {
-        "index": [
-          "2018-01-01T00:30:00Z"
-        ],
-        "variables": {
-          "T": [
-            1.0
-          ]
-        }
-      }
-    }
+    "target_auth_header": "",
+    "target_received": "«target never called»"
   },
   {
     "content_type": "application/json",
     "request": "GET /v1/requests/«job-1»/result",
-    "response": [
-      {
-        "buem": {
-          "thermal_load_profile": {
-            "summary": {
-              "heating": {
-                "total": {
-                  "unit": "kWh",
-                  "value": 12345.6
-                }
-              }
-            }
-          }
-        },
-        "id": "b-1"
-      },
-      {
-        "error": "envelope missing or empty",
-        "id": "b-2"
+    "response": {
+      "error": {
+        "code": "not_found",
+        "message": "result not available (state: failed)"
       }
-    ],
-    "status": 200,
+    },
+    "status": 404,
     "step": "result carries one buem block and one error entry"
   },
   {
     "audit_trail": [
       "∅ → received: job accepted",
       "received → resolving: claimed by worker",
-      "resolving → forwarding: resolved 1 resolvent(s), 0 from cache",
-      "forwarding → completed: target responded with status 200"
+      "resolving → failed: resource_error: resource resolvent-weather: field \"location\": value of type map[string]interface {} is not a scalar (GET resolvents take flat fields; nest complex data under a POST resolvent instead)"
     ],
     "step": "audit trail"
   },
   {
     "buem_building_calls": 0,
-    "buem_calls": 1,
+    "buem_calls": 0,
     "demo_calls": 0,
     "meme_accept_calls": 0,
-    "poll_calls": "not asserted (timing-dependent)",
-    "resource_calls": 1,
+    "meme_result_calls": "not asserted (timing-dependent)",
+    "meme_status_calls": "not asserted (timing-dependent)",
+    "resource_calls": 0,
     "step": "upstream call counts",
     "unexpected_upstream_requests": []
   }

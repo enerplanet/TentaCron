@@ -47,6 +47,12 @@
     "step": "final state"
   },
   {
+    "resource_get_requests": [
+      "GET /point?format=json\u0026lat=48.831\u0026lon=12.957\u0026provider=era5-land\u0026use_case=solar\u0026year=2018"
+    ],
+    "step": "exact weather point query sent"
+  },
+  {
     "endpoint": "buem",
     "step": "payload buem-gateway received (weather substituted, marker-free)",
     "target_auth_header": "buem-golden-secret",
@@ -130,7 +136,8 @@
     "buem_calls": 1,
     "demo_calls": 0,
     "meme_accept_calls": 0,
-    "poll_calls": "not asserted (timing-dependent)",
+    "meme_result_calls": "not asserted (timing-dependent)",
+    "meme_status_calls": "not asserted (timing-dependent)",
     "resource_calls": 1,
     "step": "upstream call counts",
     "unexpected_upstream_requests": []

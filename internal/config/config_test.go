@@ -389,7 +389,8 @@ targets:
 func TestLoadFullExample(t *testing.T) {
 	for _, v := range []string{
 		"TENTACRON_KEY_FRONTEND", "TENTACRON_KEY_BATCH",
-		"MEME_API_KEY", "BUEM_API_KEY", "PV1_API_KEY", "WIND_API_KEY", "WEATHER_API_KEY",
+		"MEME_API_KEY", "BUEM_API_KEY", "PV1_API_KEY", "WIND_API_KEY",
+		"WEATHER_API_KEY", "IGNIS_API_KEY",
 	} {
 		t.Setenv(v, "test-"+v)
 	}
@@ -417,15 +418,37 @@ func TestLoadFullExample(t *testing.T) {
 	if rb.Target != "buem-building" || rb.PayloadField != "payload" || rb.ResponsePath == "" {
 		t.Errorf("resolvent-buem must be backed by the buem-building target: %+v", rb)
 	}
+	// The meme poll block mirrors meme's verified contract: id in "id",
+	// status at /jobs/{id}/status with a "state" of queued|running|
+	// succeeded|failed, the zip bundle at /jobs/{id}.
 	meme := cfg.Targets["meme"]
 	if meme.Response.Mode != ModePoll {
 		t.Errorf("meme response mode = %q, want poll", meme.Response.Mode)
 	}
-	if meme.Response.Poll.ResultURLTemplate != meme.Response.Poll.URLTemplate {
-		t.Errorf("result_url_template should default to url_template")
+	poll := meme.Response.Poll
+	if poll.IDJSONPath != "id" || poll.StatusJSONPath != "state" {
+		t.Errorf("meme poll paths = %q/%q, want id/state", poll.IDJSONPath, poll.StatusJSONPath)
+	}
+	if len(poll.DoneValues) != 1 || poll.DoneValues[0] != "succeeded" {
+		t.Errorf("meme done_values = %v, want [succeeded]", poll.DoneValues)
+	}
+	if !strings.HasSuffix(poll.URLTemplate, "/jobs/{id}/status") ||
+		!strings.HasSuffix(poll.ResultURLTemplate, "/jobs/{id}") {
+		t.Errorf("meme poll urls = %q / %q", poll.URLTemplate, poll.ResultURLTemplate)
 	}
 	if meme.TimeseriesPath != "model.timeseries" {
 		t.Errorf("meme timeseries_path = %q", meme.TimeseriesPath)
+	}
+	// GET resolvents against the verified weather/city2tabula/ignis APIs.
+	if w := cfg.Resolvents["resolvent-weather"]; w.Method != "GET" || !strings.Contains(w.URL, "format=json") {
+		t.Errorf("resolvent-weather = %+v, want GET point query with format=json", w)
+	}
+	if c := cfg.Resolvents["resolvent-city2tabula"]; c.Method != "GET" || c.ResponsePath != "0" || c.APIKey != "" {
+		t.Errorf("resolvent-city2tabula = %+v", c)
+	}
+	if i := cfg.Resolvents["resolvent-ignis"]; i.Method != "GET" ||
+		!strings.Contains(i.URL, "{code}") || i.APIKeyHeader != "X-Api-Key" {
+		t.Errorf("resolvent-ignis = %+v", i)
 	}
 	if got := cfg.Resolvents["resolvent-pv1"].CacheTTL.Std(); got != 24*time.Hour {
 		t.Errorf("pv1 cache_ttl = %v, want 24h", got)

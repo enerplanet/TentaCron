@@ -21,8 +21,9 @@
       "id": "«job-1»",
       "result": {
         "target_response": {
+          "id": "m-golden-1",
           "objective": 1234.5,
-          "status": "done"
+          "state": "succeeded"
         },
         "target_status": 200
       },
@@ -120,7 +121,7 @@
       "received → resolving: claimed by worker",
       "resolving → forwarding: resolved 1 resolvent(s), 0 from cache",
       "forwarding → awaiting_target: target accepted (status 202), polling job m-golden-1",
-      "awaiting_target → completed: target job m-golden-1 finished with status \"done\""
+      "awaiting_target → completed: target job m-golden-1 finished with status \"succeeded\""
     ],
     "step": "audit trail"
   },
@@ -129,7 +130,8 @@
     "buem_calls": 0,
     "demo_calls": 0,
     "meme_accept_calls": 1,
-    "poll_calls": "not asserted (timing-dependent)",
+    "meme_result_calls": "not asserted (timing-dependent)",
+    "meme_status_calls": "not asserted (timing-dependent)",
     "resource_calls": 1,
     "step": "upstream call counts",
     "unexpected_upstream_requests": []

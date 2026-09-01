@@ -21,8 +21,9 @@
       "id": "«job-1»",
       "result": {
         "target_response": {
+          "id": "m-golden-1",
           "objective": 1234.5,
-          "status": "done"
+          "state": "succeeded"
         },
         "target_status": 200
       },

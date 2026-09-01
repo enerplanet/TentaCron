@@ -49,7 +49,8 @@ make build
 # 2. Configure — copy the reference config and export the referenced secrets
 cp config.example.yaml config.yaml
 export TENTACRON_KEY_FRONTEND=dev-key TENTACRON_KEY_BATCH=dev-key2 \
-       MEME_API_KEY=… BUEM_API_KEY=… PV1_API_KEY=… WIND_API_KEY=… WEATHER_API_KEY=…
+       MEME_API_KEY=… BUEM_API_KEY=… PV1_API_KEY=… WIND_API_KEY=… \
+       WEATHER_API_KEY=… IGNIS_API_KEY=…
 
 # 3. Run
 ./bin/tentacron -config config.yaml

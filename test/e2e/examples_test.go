@@ -21,15 +21,15 @@ var exampleScenarios = []scenario{
 	},
 	{
 		// The real buem-gateway contract: the weather resolvent at the
-		// payload root is substituted by the exact {index, variables} block
-		// the gateway requires — no tentacron marker, buildings untouched.
+		// payload root is resolved via the weather point-query GET (fields
+		// mapped to query parameters) and substituted by the exact
+		// {index, variables} block the gateway requires — no tentacron
+		// marker, buildings untouched.
 		name: "example-buem-buildings",
-		fakes: fakes{resource: func(int64) reply {
-			return reply{200, `{"index":["2018-01-01T00:30:00Z","2018-01-01T01:30:00Z"],"variables":{"T":[1.0,1.2],"GHI":[0.0,12.5]}}`, ""}
-		}},
 		run: func(t *testing.T, h *harness) {
 			id := h.post("submit examples/buem-buildings.json", exampleRequest(t, "buem-buildings.json"), nil)
 			h.await("final state", id)
+			h.resourceRequests("exact weather point query sent")
 			h.forwarded("payload buem-gateway received (weather substituted, marker-free)", "buem")
 			h.events("audit trail", id)
 			h.counts()

@@ -159,6 +159,25 @@ var resolutionScenarios = []scenario{
 			h.events("audit trail", id)
 		},
 	},
+	{
+		// GET resolvents against the verified city2tabula and ignis
+		// contracts: object fields map onto query parameters and the {code}
+		// path template, and response_path "0" selects the single matched
+		// building out of city2tabula's list response. The frozen request
+		// lines are the proof of the URL mapping.
+		name: "get-resolvents-city2tabula-ignis",
+		run: func(t *testing.T, h *harness) {
+			payload := `{"time-series":[
+				{"type":"resolvent-city2tabula","country":"germany","osm_ids":["123456","789012"]},
+				{"type":"resolvent-ignis","code":"DE.N.SFH.04.Gen.ReEx.001.001"}
+			]}`
+			id := h.post("submit payload with city2tabula and ignis resolvents", requestBody("demo", payload), nil)
+			h.await("final state", id)
+			h.resourceRequests("exact GET requests the resource APIs received")
+			h.forwarded("building attributes and TABULA data substituted", "demo")
+			h.counts()
+		},
+	},
 }
 
 var targetProtocolScenarios = []scenario{
@@ -193,8 +212,8 @@ var targetProtocolScenarios = []scenario{
 	},
 	{
 		name: "target-job-failed",
-		fakes: fakes{poll: func(int64) reply {
-			return reply{200, `{"status":"failed","reason":"solver exploded"}`, ""}
+		fakes: fakes{status: func(int64) reply {
+			return reply{200, `{"id":"m-golden-1","state":"failed","reason":"solver exploded"}`, ""}
 		}},
 		run: func(t *testing.T, h *harness) {
 			id := h.post("submit", requestBody("meme", `{"model":{"timeseries":{}}}`), nil)
@@ -206,15 +225,11 @@ var targetProtocolScenarios = []scenario{
 		// A transient 500 on one status poll leaves no scar: the next tick
 		// completes the job as if nothing happened.
 		name: "poll-status-flaky-then-done",
-		fakes: fakes{poll: func(call int64) reply {
-			switch call {
-			case 1:
+		fakes: fakes{status: func(call int64) reply {
+			if call == 1 {
 				return reply{500, `{"error":"blip"}`, ""}
-			case 2:
-				return reply{200, `{"status":"done"}`, ""}
-			default:
-				return reply{200, `{"status":"done","objective":1234.5}`, ""}
 			}
+			return reply{200, `{"id":"m-golden-1","state":"succeeded"}`, ""}
 		}},
 		run: func(t *testing.T, h *harness) {
 			id := h.post("submit", requestBody("meme", `{"model":{"timeseries":{}}}`), nil)
@@ -226,15 +241,11 @@ var targetProtocolScenarios = []scenario{
 		// A transient 500 on the result fetch parks the job for the next
 		// tick, which fetches successfully.
 		name: "result-fetch-flaky-then-success",
-		fakes: fakes{poll: func(call int64) reply {
-			switch call {
-			case 1, 3:
-				return reply{200, `{"status":"done"}`, ""}
-			case 2:
+		fakes: fakes{result: func(call int64) reply {
+			if call == 1 {
 				return reply{500, `{"error":"blip"}`, ""}
-			default:
-				return reply{200, `{"status":"done","objective":1234.5}`, ""}
 			}
+			return reply{200, `{"id":"m-golden-1","state":"succeeded","objective":1234.5}`, ""}
 		}},
 		run: func(t *testing.T, h *harness) {
 			id := h.post("submit", requestBody("meme", `{"model":{"timeseries":{}}}`), nil)
@@ -244,7 +255,7 @@ var targetProtocolScenarios = []scenario{
 	},
 	{
 		name:  "poll-deadline-exceeded",
-		fakes: fakes{poll: func(int64) reply { return reply{200, `{"status":"running"}`, ""} }},
+		fakes: fakes{status: func(int64) reply { return reply{200, `{"id":"m-golden-1","state":"running"}`, ""} }},
 		mod: func(cfg *config.Config) {
 			meme := cfg.Targets["meme"]
 			meme.Response.Poll.Timeout = config.Duration(50 * time.Millisecond)
@@ -272,7 +283,7 @@ var targetProtocolScenarios = []scenario{
 	{
 		// The documented awaiting_target state, observed mid-flight.
 		name:  "awaiting-target-mid-flight",
-		fakes: fakes{poll: func(int64) reply { return reply{200, `{"status":"running"}`, ""} }},
+		fakes: fakes{status: func(int64) reply { return reply{200, `{"id":"m-golden-1","state":"running"}`, ""} }},
 		mod: func(cfg *config.Config) {
 			meme := cfg.Targets["meme"]
 			meme.Response.Poll.Timeout = config.Duration(60 * time.Second)
@@ -300,7 +311,7 @@ var targetProtocolScenarios = []scenario{
 		// rejected when it carries URL metacharacters.
 		name: "unsafe-job-id",
 		fakes: fakes{accept: func(int64) reply {
-			return reply{202, `{"job_id":"x/../../admin?full=1"}`, ""}
+			return reply{202, `{"id":"x/../../admin?full=1","state":"queued"}`, ""}
 		}},
 		run: func(t *testing.T, h *harness) {
 			id := h.post("submit", requestBody("meme", `{"model":{"timeseries":{}}}`), nil)
@@ -311,7 +322,7 @@ var targetProtocolScenarios = []scenario{
 	{
 		// A permanently broken status endpoint fails the job fast.
 		name:  "poll-status-404",
-		fakes: fakes{poll: func(int64) reply { return reply{404, `{"error":"no such job"}`, ""} }},
+		fakes: fakes{status: func(int64) reply { return reply{404, `{"error":"no such job"}`, ""} }},
 		run: func(t *testing.T, h *harness) {
 			id := h.post("submit", requestBody("meme", `{"model":{"timeseries":{}}}`), nil)
 			h.await("final state (status endpoint permanently broken)", id)
@@ -320,19 +331,9 @@ var targetProtocolScenarios = []scenario{
 	},
 	{
 		name: "result-fetch-404",
-		fakes: fakes{poll: func(call int64) reply {
-			if call == 1 {
-				return reply{200, `{"status":"done"}`, ""}
-			}
+		fakes: fakes{result: func(int64) reply {
 			return reply{404, `{"error":"result purged"}`, ""}
 		}},
-		// A wide poll interval so a second tick can never overlap the
-		// first one's in-flight fetch and race the recorded error text.
-		mod: func(cfg *config.Config) {
-			meme := cfg.Targets["meme"]
-			meme.Response.Poll.Interval = config.Duration(500 * time.Millisecond)
-			cfg.Targets["meme"] = meme
-		},
 		run: func(t *testing.T, h *harness) {
 			id := h.post("submit", requestBody("meme", `{"model":{"timeseries":{}}}`), nil)
 			h.await("final state (result gone at the target)", id)
@@ -342,10 +343,7 @@ var targetProtocolScenarios = []scenario{
 		// A binary (zip) result is stored as a file and streamed via
 		// /result with its content type.
 		name: "binary-result-file",
-		fakes: fakes{poll: func(call int64) reply {
-			if call == 1 {
-				return reply{200, `{"status":"done"}`, ""}
-			}
+		fakes: fakes{result: func(int64) reply {
 			return reply{200, "PK\x03\x04golden-bundle-bytes", "application/zip"}
 		}},
 		run: func(t *testing.T, h *harness) {

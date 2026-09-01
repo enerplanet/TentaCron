@@ -47,12 +47,16 @@ targets:
     response:
       mode: poll # meme /simulate is async: 202 + job id
       poll:
-        id_json_path: "job_id" # where the job id sits in the 202 body
-        url_template: "https://meme.example.com/jobs/{id}"
-        status_json_path: "status"
-        done_values: [done, completed]
-        failed_values: [failed, error]
-        # result_url_template defaults to url_template
+        # Verified against meme's handler code: the accept response carries
+        # {"id": ..., "state": "queued", "status_url": "/jobs/{id}/status",
+        # "result_url": "/jobs/{id}"}; states are queued|running|succeeded|
+        # failed; the result is a zip bundle (409 until finished).
+        id_json_path: "id"
+        url_template: "https://meme.example.com/jobs/{id}/status"
+        status_json_path: "state"
+        done_values: [succeeded]
+        failed_values: [failed]
+        result_url_template: "https://meme.example.com/jobs/{id}"
         interval: 10s
         timeout: 30m
 
@@ -116,15 +120,39 @@ resolvents:
     cache_ttl: 24h
 
   resolvent-weather:
-    # Resolves a weather placeholder into the {index, variables} block
-    # buem-gateway requires — the shape enerplanet/weather serves. Point it
-    # at a POST/JSON adapter in front of your weather source.
-    url: "https://weather.example.com/v1/weather/resolve"
-    method: POST
+    # enerplanet/weather's point-query API. A GET resolvent: the object's
+    # fields become query parameters (provider, lat, lon, year, and use_case
+    # or variables: [T, GHI]); format=json is fixed here so the response is
+    # the {index, variables} block buem-gateway requires.
+    url: "https://weather.example.com/v1/weather/point?format=json"
+    method: GET
     api_key: "${WEATHER_API_KEY}"
     api_key_header: X-API-Key
     timeout: 60s
     cache_ttl: 24h
+
+  resolvent-city2tabula:
+    # THD-Spatial-AI/city2tabula: geometric building attributes and the
+    # TABULA variant classification from 3D city models. GET with the
+    # resolvent's fields as query parameters (country plus osm_ids or an
+    # xmin/ymin/xmax/ymax bbox); the API returns a list, so response_path
+    # "0" selects the matched building. No API key per its spec.
+    url: "https://city2tabula.example.com/api/v1/buildings"
+    method: GET
+    timeout: 60s
+    response_path: "0"
+    cache_ttl: 24h
+
+  resolvent-ignis:
+    # THD-Spatial-AI/ignis: the raw TABULA parameter set for a variant code
+    # (e.g. city2tabula's tabula_variant_code). The {code} placeholder in the
+    # URL is filled from the resolvent object's "code" field.
+    url: "https://ignis.example.com/api/v1/data/{code}"
+    method: GET
+    api_key: "${IGNIS_API_KEY}"
+    api_key_header: X-Api-Key # checked by ignis's reverse proxy
+    timeout: 30s
+    cache_ttl: 168h # TABULA typology data is effectively static
 
   resolvent-buem:
     # Target composition: a BuEM simulation feeding another target's payload

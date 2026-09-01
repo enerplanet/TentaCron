@@ -32,6 +32,7 @@ services:
       - PV1_API_KEY=${PV1_API_KEY:?set in environment/.env.dev|prod}
       - WIND_API_KEY=${WIND_API_KEY:?set in environment/.env.dev|prod}
       - WEATHER_API_KEY=${WEATHER_API_KEY:?set in environment/.env.dev|prod}
+      - IGNIS_API_KEY=${IGNIS_API_KEY:?set in environment/.env.dev|prod}
     volumes:
       - ..:/src
       - go-build:/root/.cache/go-build

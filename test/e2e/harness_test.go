@@ -16,6 +16,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"maps"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -59,28 +60,54 @@ type reply struct {
 
 // fakes scripts the upstream servers per scenario; the call argument counts
 // per endpoint, starting at 1, so behavior like "fail twice, then succeed"
-// stays deterministic. Nil fields use the happy-path default.
+// stays deterministic. Nil fields use the happy-path default. The meme
+// endpoints speak meme's verified vocabulary (id/state, queued|running|
+// succeeded|failed, status and result on separate routes) so goldens never
+// teach a wrong contract.
 type fakes struct {
-	resource func(call int64) reply // POST <resource>/   (all resolvent types share it)
-	direct   func(call int64) reply // POST <target>/run  (the "demo" direct target)
-	accept   func(call int64) reply // POST <target>/simulate (the "meme" poll target)
-	poll     func(call int64) reply // GET  <target>/jobs/{id} (status and result fetch)
-	gateway  func(call int64) reply // POST <target>/api/v1/buem/buildings (the real buem contract)
-	building func(call int64) reply // POST <target>/api/v1/buem/building (single building; backs resolvent-buem)
+	resource    func(call int64) reply              // POST <resource>/ (POST-style resolvents)
+	resourceGET func(path string, call int64) reply // GET <resource>/... (weather/city2tabula/ignis-style)
+	direct      func(call int64) reply              // POST <target>/run  (the "demo" direct target)
+	accept      func(call int64) reply              // POST <target>/simulate (the "meme" poll target)
+	status      func(call int64) reply              // GET  <target>/jobs/{id}/status
+	result      func(call int64) reply              // GET  <target>/jobs/{id} (result fetch)
+	gateway     func(call int64) reply              // POST <target>/api/v1/buem/buildings (the real buem contract)
+	building    func(call int64) reply              // POST <target>/api/v1/buem/building (single building; backs resolvent-buem)
 }
+
+const weatherBody = `{"index":["2018-01-01T00:30:00Z","2018-01-01T01:30:00Z"],"variables":{"T":[1.0,1.2],"GHI":[0.0,12.5]}}`
 
 func (f fakes) withDefaults() fakes {
 	if f.resource == nil {
 		f.resource = func(int64) reply { return reply{200, defaultSeries, ""} }
 	}
+	if f.resourceGET == nil {
+		// Route by path so concurrent fetches stay deterministic: each GET
+		// resolvent's default reply mirrors its real API's response shape.
+		f.resourceGET = func(path string, _ int64) reply {
+			switch {
+			case strings.HasPrefix(path, "/point"):
+				return reply{200, weatherBody, ""}
+			case strings.HasPrefix(path, "/buildings"):
+				return reply{200, `[{"object_id":"DEHB01AL3AU0004T","number_of_storeys":2,"area_total_wall":214.5,"area_total_roof":98.2,"tabula_variant_code":"DE.N.SFH.04.Gen.ReEx.001.001"}]`, ""}
+			case strings.HasPrefix(path, "/data/"):
+				return reply{200, `{"country":"DE","variant_code":"DE.N.SFH.04.Gen.ReEx.001.001","expected_q_h_nd":112.4,"tabula_data":{"u_wall":1.6,"u_roof":1.2}}`, ""}
+			default:
+				return reply{404, `{"error":"unknown resource path"}`, ""}
+			}
+		}
+	}
 	if f.direct == nil {
 		f.direct = func(int64) reply { return reply{200, `{"ok":true}`, ""} }
 	}
 	if f.accept == nil {
-		f.accept = func(int64) reply { return reply{202, `{"job_id":"m-golden-1"}`, ""} }
+		f.accept = func(int64) reply { return reply{202, `{"id":"m-golden-1","state":"queued"}`, ""} }
 	}
-	if f.poll == nil {
-		f.poll = func(int64) reply { return reply{200, `{"status":"done","objective":1234.5}`, ""} }
+	if f.status == nil {
+		f.status = func(int64) reply { return reply{200, `{"id":"m-golden-1","state":"succeeded"}`, ""} }
+	}
+	if f.result == nil {
+		f.result = func(int64) reply { return reply{200, `{"id":"m-golden-1","state":"succeeded","objective":1234.5}`, ""} }
 	}
 	if f.gateway == nil {
 		// One result entry per building, in request order — buem-gateway's
@@ -106,14 +133,15 @@ type harness struct {
 	st  *store.Store
 	api *httptest.Server
 
-	resourceCalls, demoCalls, acceptCalls, pollCalls, gatewayCalls, buildingCalls atomic.Int64
+	resourceCalls, demoCalls, acceptCalls, statusCalls, resultCalls, gatewayCalls, buildingCalls atomic.Int64
 
 	mu               sync.Mutex
-	lastForwarded    map[string][]byte // keyed "direct" / "accept"
+	lastForwarded    map[string][]byte // keyed by target name
 	lastTargetAuth   map[string]string // X-API-Key seen per endpoint
 	lastResourceAuth string
 	lastResourceBody []byte
-	unexpected       []string // any upstream request the fakes did not script
+	resourceGETs     map[string]string // path -> "GET path?query" of the last GET per path
+	unexpected       []string          // any upstream request the fakes did not script
 
 	steps []map[string]any
 	ids   []string // job ids in discovery order -> «job-N»
@@ -138,20 +166,28 @@ func newHarness(t *testing.T, f fakes, mod func(*config.Config)) *harness {
 		t:              t,
 		lastForwarded:  map[string][]byte{},
 		lastTargetAuth: map[string]string{},
+		resourceGETs:   map[string]string{},
 	}
 
 	resource := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodPost || r.URL.Path != "/" {
+		switch {
+		case r.Method == http.MethodPost && r.URL.Path == "/":
+			body, _ := io.ReadAll(r.Body)
+			h.mu.Lock()
+			h.lastResourceAuth = r.Header.Get("X-API-Key")
+			h.lastResourceBody = body
+			h.mu.Unlock()
+			writeReply(w, f.resource(h.resourceCalls.Add(1)))
+		case r.Method == http.MethodGet:
+			h.mu.Lock()
+			h.lastResourceAuth = r.Header.Get("X-API-Key")
+			h.resourceGETs[r.URL.Path] = "GET " + r.URL.RequestURI()
+			h.mu.Unlock()
+			writeReply(w, f.resourceGET(r.URL.Path, h.resourceCalls.Add(1)))
+		default:
 			h.noteUnexpected(r)
 			w.WriteHeader(http.StatusNotFound)
-			return
 		}
-		body, _ := io.ReadAll(r.Body)
-		h.mu.Lock()
-		h.lastResourceAuth = r.Header.Get("X-API-Key")
-		h.lastResourceBody = body
-		h.mu.Unlock()
-		writeReply(w, f.resource(h.resourceCalls.Add(1)))
 	}))
 	t.Cleanup(resource.Close)
 
@@ -179,8 +215,11 @@ func newHarness(t *testing.T, f fakes, mod func(*config.Config)) *harness {
 		captureTarget("buem-building", r)
 		writeReply(w, f.building(h.buildingCalls.Add(1)))
 	})
+	mux.HandleFunc("GET /jobs/{id}/status", func(w http.ResponseWriter, _ *http.Request) {
+		writeReply(w, f.status(h.statusCalls.Add(1)))
+	})
 	mux.HandleFunc("GET /jobs/{id}", func(w http.ResponseWriter, _ *http.Request) {
-		writeReply(w, f.poll(h.pollCalls.Add(1)))
+		writeReply(w, f.result(h.resultCalls.Add(1)))
 	})
 	// Catch-all tripwire: traffic the fakes did not script (an escaped job
 	// id rewriting the poll path, a wrong method, an unforeseen extra call)
@@ -225,7 +264,7 @@ func newHarness(t *testing.T, f fakes, mod func(*config.Config)) *harness {
 			"buem": {
 				URL: target.URL + "/api/v1/buem/buildings", Method: "POST", Timeout: dur(2 * time.Second),
 				TimeseriesPath: config.RootTimeseriesPath, AttachResolvent: boolPtr(false),
-				APIKey:         buemSecret, APIKeyInject: config.InjectHeader, APIKeyHeader: "X-Api-Key",
+				APIKey: buemSecret, APIKeyInject: config.InjectHeader, APIKeyHeader: "X-Api-Key",
 				Response: config.Response{Mode: config.ModeDirect},
 			},
 			// The single-building endpoint; backs resolvent-buem so a BuEM
@@ -233,17 +272,20 @@ func newHarness(t *testing.T, f fakes, mod func(*config.Config)) *harness {
 			"buem-building": {
 				URL: target.URL + "/api/v1/buem/building", Method: "POST", Timeout: dur(2 * time.Second),
 				TimeseriesPath: config.RootTimeseriesPath, AttachResolvent: boolPtr(false),
-				APIKey:         buemSecret, APIKeyInject: config.InjectHeader, APIKeyHeader: "X-Api-Key",
+				APIKey: buemSecret, APIKeyInject: config.InjectHeader, APIKeyHeader: "X-Api-Key",
 				Response: config.Response{Mode: config.ModeDirect},
 			},
 			"meme": {
 				URL: target.URL + "/simulate", Method: "POST", Timeout: dur(2 * time.Second),
 				TimeseriesPath: "model.timeseries",
 				APIKey:         memeSecret, APIKeyInject: config.InjectBodyField, APIKeyField: "api_key",
+				// meme's verified poll contract: id in "id", status at
+				// /jobs/{id}/status with state queued|running|succeeded|
+				// failed, the result bundle at /jobs/{id}.
 				Response: config.Response{Mode: config.ModePoll, Poll: &config.Poll{
-					IDJSONPath: "job_id", URLTemplate: target.URL + "/jobs/{id}",
+					IDJSONPath: "id", URLTemplate: target.URL + "/jobs/{id}/status",
 					ResultURLTemplate: target.URL + "/jobs/{id}",
-					StatusJSONPath:    "status", DoneValues: []string{"done"}, FailedValues: []string{"failed"},
+					StatusJSONPath:    "state", DoneValues: []string{"succeeded"}, FailedValues: []string{"failed"},
 					Interval: dur(10 * time.Millisecond), Timeout: dur(2 * time.Second),
 				}},
 			},
@@ -253,8 +295,17 @@ func newHarness(t *testing.T, f fakes, mod func(*config.Config)) *harness {
 				APIKeyHeader: "X-API-Key", Timeout: dur(2 * time.Second), CacheTTL: dur(time.Hour)},
 			"resolvent-wind": {URL: resource.URL, Method: "POST", APIKey: resourceSecret,
 				APIKeyHeader: "X-API-Key", Timeout: dur(2 * time.Second), CacheTTL: dur(time.Hour)},
-			"resolvent-weather": {URL: resource.URL, Method: "POST", APIKey: resourceSecret,
-				APIKeyHeader: "X-API-Key", Timeout: dur(2 * time.Second), CacheTTL: dur(time.Hour)},
+			// GET resolvents against the verified weather/city2tabula/ignis
+			// contracts: object fields map onto query parameters and path
+			// placeholders.
+			"resolvent-weather": {URL: resource.URL + "/point?format=json", Method: "GET",
+				APIKey: resourceSecret, APIKeyHeader: "X-API-Key",
+				Timeout: dur(2 * time.Second), CacheTTL: dur(time.Hour)},
+			"resolvent-city2tabula": {URL: resource.URL + "/buildings", Method: "GET",
+				Timeout: dur(2 * time.Second), CacheTTL: dur(time.Hour), ResponsePath: "0"},
+			"resolvent-ignis": {URL: resource.URL + "/data/{code}", Method: "GET",
+				APIKey: resourceSecret, APIKeyHeader: "X-Api-Key",
+				Timeout: dur(2 * time.Second), CacheTTL: dur(time.Hour)},
 			// Target composition: resolved by forwarding the resolvent's
 			// "payload" field through the buem-building target and
 			// extracting the load-profile timeseries from the response.
@@ -497,15 +548,17 @@ func (h *harness) events(label, id string) {
 }
 
 // counts records how often each upstream endpoint was hit, plus the tripwire
-// list of unscripted requests (frozen empty in every golden). poll_calls is
-// load-dependent (overlapping ticks) and deliberately not asserted here.
+// list of unscripted requests (frozen empty in every golden). The status and
+// result counts are load-dependent (overlapping poll ticks) and deliberately
+// not asserted here.
 func (h *harness) counts() {
 	h.record(h.countsStep(false))
 }
 
-// countsWithPolls additionally asserts the numeric poll count. Only valid in
-// scenarios where the job structurally never enters awaiting_target — there
-// zero polls is guaranteed, whereas elsewhere the count depends on timing.
+// countsWithPolls additionally asserts the numeric status/result counts.
+// Only valid in scenarios where the job structurally never enters
+// awaiting_target — there zero polls is guaranteed, whereas elsewhere the
+// counts depend on timing.
 func (h *harness) countsWithPolls() {
 	h.record(h.countsStep(true))
 }
@@ -524,11 +577,26 @@ func (h *harness) countsStep(withPolls bool) map[string]any {
 		"unexpected_upstream_requests": unexpected,
 	}
 	if withPolls {
-		step["poll_calls"] = h.pollCalls.Load()
+		step["meme_status_calls"] = h.statusCalls.Load()
+		step["meme_result_calls"] = h.resultCalls.Load()
 	} else {
-		step["poll_calls"] = "not asserted (timing-dependent)"
+		step["meme_status_calls"] = "not asserted (timing-dependent)"
+		step["meme_result_calls"] = "not asserted (timing-dependent)"
 	}
 	return step
+}
+
+// resourceRequests records the exact GET request line each resource path
+// received (sorted by path) — the frozen proof of the query-parameter and
+// path-template mapping.
+func (h *harness) resourceRequests(label string) {
+	h.mu.Lock()
+	lines := make([]string, 0, len(h.resourceGETs))
+	for _, path := range slices.Sorted(maps.Keys(h.resourceGETs)) {
+		lines = append(lines, h.resourceGETs[path])
+	}
+	h.mu.Unlock()
+	h.record(map[string]any{"step": label, "resource_get_requests": lines})
 }
 
 // --- normalization and comparison ------------------------------------------
