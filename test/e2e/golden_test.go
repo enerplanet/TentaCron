@@ -160,6 +160,23 @@ var resolutionScenarios = []scenario{
 		},
 	},
 	{
+		// Both resolvents fail concurrently; the frozen error message names
+		// the FIRST one in document order — attribution is deterministic,
+		// never the scheduling race of whichever failure landed first.
+		name: "multi-resolvent-failure-attribution",
+		fakes: fakes{resource: func(int64) reply {
+			return reply{400, `{"error":"bad params"}`, ""}
+		}},
+		run: func(t *testing.T, h *harness) {
+			payload := `{"time-series":[
+				{"type":"resolvent-pv1","site":"a"},
+				{"type":"resolvent-wind","site":"b"}
+			]}`
+			id := h.post("submit payload whose resolvents both fail", requestBody("demo", payload), nil)
+			h.await("final state (error names the first resolvent)", id)
+		},
+	},
+	{
 		// GET resolvents against the verified city2tabula and ignis
 		// contracts: object fields map onto query parameters and the {code}
 		// path template, and response_path "0" selects the single matched

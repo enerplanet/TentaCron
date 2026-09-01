@@ -103,6 +103,10 @@ targets:
       mode: direct
 
 resolvents:
+  # resolvent-pv1 and resolvent-wind are ILLUSTRATIVE entries showing the
+  # classic POST contract (whole resolvent object as JSON body, JSON series
+  # back); no real PV/wind profile service is wired yet — point them at
+  # yours. The entries below them are verified integrations.
   resolvent-pv1:
     url: "https://pvsim.example.com/v1/generate"
     method: POST
@@ -146,7 +150,9 @@ resolvents:
   resolvent-ignis:
     # THD-Spatial-AI/ignis: the raw TABULA parameter set for a variant code
     # (e.g. city2tabula's tabula_variant_code). The {code} placeholder in the
-    # URL is filled from the resolvent object's "code" field.
+    # URL is filled from the resolvent object's "code" field. Its /match
+    # endpoint (variants/{country_iso2}/match?type=…&period=…) is equally
+    # configurable as another GET resolvent if you classify from type/period.
     url: "https://ignis.example.com/api/v1/data/{code}"
     method: GET
     api_key: "${IGNIS_API_KEY}"

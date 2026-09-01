@@ -80,6 +80,7 @@ targets:
       mode: direct
 
 resolvents:
+  # pv1/wind are illustrative POST entries; see ../config.example.yaml.
   resolvent-pv1:
     url: "https://pvsim.example.com/v1/generate"
     method: POST

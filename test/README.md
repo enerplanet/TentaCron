@@ -9,11 +9,12 @@ make test           # vet + full suite: unit, integration, golden E2E (seconds)
 make test-race      # race detector, shuffled order
 make e2e            # golden end-to-end corpus only, verbose
 make golden-update  # accept an INTENDED behavior change
+make live           # one real request through real upstreams (env-gated)
 ```
 
-Every tier runs on the host in seconds — no Docker, no network, no external
-services. The whole suite is part of plain `go test ./...`, so CI always runs
-all of it.
+Every tier except `live` runs on the host in seconds — no Docker, no
+network, no external services — and is part of plain `go test ./...`, so CI
+always runs all of it (the live tier self-skips without its env vars).
 
 ## The layers, bottom to top
 
@@ -76,6 +77,23 @@ that keeps published examples true to the contract.
 diff → if the change is intended, `make golden-update` and review the golden
 diff in `git diff` like any other code change.
 
+### 3. Live tier ([`test/live`](live), env-gated)
+
+One real request through **real upstreams**: boots the full stack from an
+operator-supplied config (real URLs, real credentials via `${ENV}`
+interpolation; the job store lives in a temp dir), sends one request file,
+and follows the job to a terminal state, logging every state transition, the
+audit trail, and the result. The go-to answer for "does my config actually
+work against the deployed meme/buem/weather?":
+
+```bash
+TENTACRON_LIVE_CONFIG=./config.yaml \
+TENTACRON_LIVE_REQUEST=./examples/buem-buildings.json \
+make live                              # TENTACRON_LIVE_TIMEOUT=30m for slow runs
+```
+
+Without both variables the tier skips instantly, so it never touches CI.
+
 ## Why there is no meme container tier
 
 meme's own E2E runs real solvers in a container because meme's job *is* the
@@ -84,7 +102,6 @@ generic accept/status/result HTTP protocol described entirely by its YAML
 config, and the golden corpus exercises that protocol — including MEME-style
 async polling — with deterministic fakes. A real meme container would test
 meme's solver stack, not tentacron, and would make golden transcripts
-non-reproducible. If a live integration check against a running meme is ever
-wanted, add an env-gated test (`TENTACRON_LIVE_TARGET=…`) pointing a config
-at the real service — no code change needed, the poll protocol is
-config-driven.
+non-reproducible. The env-gated [live tier](#3-live-tier-testlive-env-gated)
+covers the "does the real deployment answer" question with one real request,
+without ever entering CI or the golden corpus.

@@ -11,7 +11,7 @@ GO   ?= go
 ROOT := ..
 
 .DEFAULT_GOAL := test
-.PHONY: test test-race e2e golden-update help
+.PHONY: test test-race e2e golden-update live help
 
 test: ## Vet + the full host suite (unit, integration, golden E2E)
 	cd $(ROOT) && $(GO) vet ./... && $(GO) test ./...
@@ -25,6 +25,9 @@ e2e: ## Golden end-to-end corpus only, verbose
 golden-update: ## Regenerate the golden files after an intended behavior change
 	cd $(ROOT) && $(GO) test ./test/e2e -update -count=1
 	cd $(ROOT) && $(GO) test ./test/e2e -count=1
+
+live: ## One real request through real upstreams (TENTACRON_LIVE_CONFIG + TENTACRON_LIVE_REQUEST)
+	cd $(ROOT) && $(GO) test -v -count=1 -timeout 30m ./test/live
 
 help: ## Show this help
 	@grep -hE '^[a-zA-Z0-9_-]+:.*?## .*$$' $(MAKEFILE_LIST) \
