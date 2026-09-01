@@ -611,6 +611,37 @@ func TestRootPathTargetWithoutResolventMarker(t *testing.T) {
 	}
 }
 
+// A proxy target hands the payload through unresolved: resolvent-looking
+// objects stay untouched, no resource API is called, and without URL
+// templating the forwarded bytes equal the original payload exactly.
+func TestProxyTargetHandsPayloadThrough(t *testing.T) {
+	cfg := baseConfig(t)
+	resource, calls := fakeResource(t, 0)
+	target, lastBody := fakeDirectTarget(t, 200, `{"ok":true}`)
+	cfg.Resolvents["resolvent-pv1"] = resolventCfg(resource.URL)
+	cfg.Targets["passthrough"] = config.Target{
+		URL: target.URL, Method: "POST", Timeout: dur(2 * time.Second),
+		Proxy: true, APIKeyInject: config.InjectNone,
+		Response: config.Response{Mode: config.ModeDirect},
+	}
+
+	payload := `{"zeta": 1, "time-series": [{"type": "resolvent-pv1", "lat": 48.83}]}`
+	st := openStore(t)
+	id := createJob(t, st, "passthrough", payload, 3)
+	startPool(t, cfg, st)
+
+	job := waitForTerminal(t, st, id)
+	if job.State != store.StateCompleted {
+		t.Fatalf("state = %s, error = %s: %s", job.State, job.ErrorCode, job.ErrorMessage)
+	}
+	if got := string(lastBody()); got != payload {
+		t.Errorf("payload not byte-exact:\n got %s\nwant %s", got, payload)
+	}
+	if calls.Load() != 0 {
+		t.Errorf("resource called %d times; a proxy target must not resolve", calls.Load())
+	}
+}
+
 // When several resolvents fail concurrently, the reported error must name
 // the first failing resolvent in document order — not whichever failure
 // happened to arrive first on the results channel (a scheduling race that

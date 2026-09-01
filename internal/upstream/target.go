@@ -34,34 +34,80 @@ func authHeaders(tcfg config.Target) map[string]string {
 
 // ForwardToTarget sends the resolved payload to the target API. The target's
 // API key is injected into the outbound bytes only — stored payloads stay
-// credential-free.
+// credential-free. {field} placeholders in the target URL are filled from
+// the payload's top-level fields (ignis-style path parameters); consumed
+// fields are stripped from the forwarded body, since they address the call
+// rather than belong to it. A target with neither placeholders nor
+// body-field injection forwards the payload byte-exact.
 func (c *Client) ForwardToTarget(ctx context.Context, name string, tcfg config.Target, payload []byte) (*ForwardResult, error) {
 	op := "target " + name
 	headers := authHeaders(tcfg)
 	outbound := payload
-	if tcfg.APIKeyInject == config.InjectBodyField {
-		// Inject via RawMessage so nested values pass through byte-for-byte:
-		// a full decode into map[string]any would round large integers
-		// through float64 and silently corrupt model data.
+	callURL := tcfg.URL
+
+	// Both rewrites work on map[string]json.RawMessage so nested values pass
+	// through byte-for-byte: a decode into map[string]any would round large
+	// integers through float64 and silently corrupt model data.
+	templated := placeholderPattern.MatchString(tcfg.URL)
+	if templated || tcfg.APIKeyInject == config.InjectBodyField {
 		var doc map[string]json.RawMessage
 		if err := json.Unmarshal(payload, &doc); err != nil {
-			return nil, &Error{Op: op, Transient: false, Err: fmt.Errorf("payload not an object for key injection: %w", err)}
+			return nil, &Error{Op: op, Transient: false, Err: fmt.Errorf("payload not an object for url templating or key injection: %w", err)}
 		}
-		keyJSON, err := json.Marshal(tcfg.APIKey)
-		if err != nil {
-			return nil, &Error{Op: op, Transient: false, Err: err}
+		if templated {
+			var err error
+			if callURL, err = fillTargetURL(tcfg.URL, doc); err != nil {
+				return nil, &Error{Op: op, Transient: false, Err: err}
+			}
 		}
-		doc[tcfg.APIKeyField] = keyJSON
+		if tcfg.APIKeyInject == config.InjectBodyField {
+			keyJSON, err := json.Marshal(tcfg.APIKey)
+			if err != nil {
+				return nil, &Error{Op: op, Transient: false, Err: err}
+			}
+			doc[tcfg.APIKeyField] = keyJSON
+		}
+		var err error
 		if outbound, err = json.Marshal(doc); err != nil {
 			return nil, &Error{Op: op, Transient: false, Err: err}
 		}
 	}
 
-	status, body, err := c.do(ctx, op, tcfg.Method, tcfg.URL, outbound, headers, tcfg.Timeout.Std())
+	status, body, err := c.do(ctx, op, tcfg.Method, callURL, outbound, headers, tcfg.Timeout.Std())
 	if err != nil {
 		return nil, err
 	}
 	return &ForwardResult{Status: status, Body: body}, nil
+}
+
+// fillTargetURL replaces {field} placeholders with the path-escaped value of
+// the payload's top-level field — a JSON string (unquoted) or number — and
+// deletes consumed fields from doc.
+func fillTargetURL(rawURL string, doc map[string]json.RawMessage) (string, error) {
+	var missing []string
+	filled := placeholderPattern.ReplaceAllStringFunc(rawURL, func(match string) string {
+		field := match[1 : len(match)-1]
+		raw, ok := doc[field]
+		if !ok {
+			missing = append(missing, field)
+			return match
+		}
+		var s string
+		if err := json.Unmarshal(raw, &s); err != nil {
+			var n json.Number
+			if err := json.Unmarshal(raw, &n); err != nil {
+				missing = append(missing, field)
+				return match
+			}
+			s = n.String()
+		}
+		delete(doc, field)
+		return url.PathEscape(s)
+	})
+	if len(missing) > 0 {
+		return "", fmt.Errorf("url placeholder(s) %v need string or number fields at the payload's top level", missing)
+	}
+	return filled, nil
 }
 
 // PollStatus is the outcome of one poll tick against the target's job.

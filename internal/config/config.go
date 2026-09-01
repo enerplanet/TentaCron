@@ -122,8 +122,15 @@ type Target struct {
 	// validation rejects unknown keys (e.g. buem-gateway forwarding to
 	// BuEM's GeoJSON validator); the audit store keeps full traceability
 	// either way.
-	AttachResolvent *bool    `yaml:"attach_resolvent"`
-	Response        Response `yaml:"response"`
+	AttachResolvent *bool `yaml:"attach_resolvent"`
+	// Proxy hands the payload through unresolved: no resolvent scanning,
+	// no substitution — tentacron contributes auth, persistence, audit and
+	// retries only. Without URL placeholders the payload is forwarded
+	// byte-exact; {field} placeholders in the URL are filled from top-level
+	// payload fields, which are then stripped from the forwarded body
+	// (they address the call, they are not payload).
+	Proxy    bool     `yaml:"proxy"`
+	Response Response `yaml:"response"`
 }
 
 // Response describes how a target reports its result.
@@ -272,12 +279,16 @@ func (t *Target) applyDefaults() {
 	if t.Method == "" {
 		t.Method = "POST"
 	}
-	if t.TimeseriesPath == "" {
-		t.TimeseriesPath = "time-series"
-	}
-	if t.AttachResolvent == nil {
-		attach := true
-		t.AttachResolvent = &attach
+	// Resolution knobs have no meaning on a proxy target; defaulting them
+	// would only mislead the operator (and validation rejects explicit ones).
+	if !t.Proxy {
+		if t.TimeseriesPath == "" {
+			t.TimeseriesPath = "time-series"
+		}
+		if t.AttachResolvent == nil {
+			attach := true
+			t.AttachResolvent = &attach
+		}
 	}
 	setDur(&t.Timeout, 60*time.Second)
 	if t.APIKeyInject == "" {

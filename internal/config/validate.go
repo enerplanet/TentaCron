@@ -58,6 +58,9 @@ func (c *Config) Validate() error {
 		if t.APIKeyInject != InjectNone && t.APIKey == "" {
 			fail("%s.api_key: required when api_key_inject is %q", p, t.APIKeyInject)
 		}
+		if t.Proxy && (t.TimeseriesPath != "" || t.AttachResolvent != nil) {
+			fail("%s: timeseries_path/attach_resolvent have no effect on a proxy target", p)
+		}
 		switch t.Response.Mode {
 		case ModeDirect:
 		case ModePoll:

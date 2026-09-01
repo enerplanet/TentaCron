@@ -296,6 +296,64 @@ func pollTargetCfg(base string) config.Target {
 	}
 }
 
+// Target URL templating: {field} placeholders are filled from top-level
+// payload fields, which are then stripped from the forwarded body — and a
+// target without placeholders or body injection forwards bytes verbatim.
+func TestForwardToTargetURLTemplating(t *testing.T) {
+	var gotPath string
+	var gotBody []byte
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotPath = r.URL.Path
+		gotBody, _ = io.ReadAll(r.Body)
+		_, _ = io.WriteString(w, `{"q_h_nd":112.4}`)
+	}))
+	defer srv.Close()
+
+	tcfg := config.Target{
+		URL: srv.URL + "/api/v1/calculate/{code}", Method: "POST",
+		Timeout: dur(time.Second), APIKeyInject: config.InjectNone,
+	}
+	payload := []byte(`{"code":"DE.N.SFH.01.Gen.ReEx.001.001","A_ref":{"value":120,"unit":"m2"},"meter":1234567890123456789}`)
+	if _, err := testClient(1<<20).ForwardToTarget(context.Background(), "ignis-calculate", tcfg, payload); err != nil {
+		t.Fatal(err)
+	}
+	if gotPath != "/api/v1/calculate/DE.N.SFH.01.Gen.ReEx.001.001" {
+		t.Errorf("path = %s", gotPath)
+	}
+	if strings.Contains(string(gotBody), `"code"`) {
+		t.Errorf("consumed field not stripped from body: %s", gotBody)
+	}
+	if !strings.Contains(string(gotBody), "1234567890123456789") {
+		t.Errorf("nested bytes must pass through verbatim: %s", gotBody)
+	}
+
+	// Missing placeholder field is a permanent authoring error.
+	if _, err := testClient(1<<20).ForwardToTarget(context.Background(), "ignis-calculate", tcfg,
+		[]byte(`{"A_ref":1}`)); err == nil || IsTransient(err) {
+		t.Errorf("missing placeholder field: err = %v, want permanent error", err)
+	}
+}
+
+func TestForwardWithoutRewritesIsByteExact(t *testing.T) {
+	var gotBody []byte
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotBody, _ = io.ReadAll(r.Body)
+		_, _ = io.WriteString(w, `{}`)
+	}))
+	defer srv.Close()
+
+	tcfg := config.Target{URL: srv.URL, Method: "POST", Timeout: dur(time.Second), APIKeyInject: config.InjectNone}
+	// Deliberately unusual key order and spacing: only byte-exact
+	// forwarding preserves it.
+	payload := []byte(`{"zeta": 1,  "alpha": {"b":2,"a":1}}`)
+	if _, err := testClient(1<<20).ForwardToTarget(context.Background(), "proxy", tcfg, payload); err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(gotBody, payload) {
+		t.Errorf("body rewritten: %s", gotBody)
+	}
+}
+
 func TestExtractPath(t *testing.T) {
 	body := []byte(`{"id":"b-1","buem":{"thermal_load_profile":{"timeseries":{"unit":"kW","meter":1234567890123456789,"heating":[19.0,19.1]}}}}`)
 

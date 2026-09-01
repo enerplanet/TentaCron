@@ -351,6 +351,19 @@ targets:
 			wantErr: `overlap on ["finished"]`,
 		},
 		{
+			name: "proxy target with resolution knobs",
+			yaml: `
+auth:
+  api_keys: [{name: t, key: k}]
+targets:
+  ignis-calculate:
+    url: "https://ignis.example.com/api/v1/calculate/{code}"
+    proxy: true
+    timeseries_path: "time-series"
+`,
+			wantErr: "no effect on a proxy target",
+		},
+		{
 			name: "resolvent bad prefix",
 			yaml: `
 auth:
@@ -410,6 +423,9 @@ func TestLoadFullExample(t *testing.T) {
 	}
 	if _, ok := cfg.Targets["demo"]; !ok {
 		t.Error("demo target missing — the generic examples point at it")
+	}
+	if ic := cfg.Targets["ignis-calculate"]; !ic.Proxy || !strings.Contains(ic.URL, "{code}") {
+		t.Errorf("ignis-calculate must be a proxy target with a {code} url template: %+v", ic)
 	}
 	if _, ok := cfg.Resolvents["resolvent-weather"]; !ok {
 		t.Error("resolvent-weather missing — buem payloads resolve weather through it")

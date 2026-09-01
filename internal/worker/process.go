@@ -78,6 +78,20 @@ func (p *Pool) processNew(ctx, bg context.Context, job *store.Job) {
 		return
 	}
 
+	if tcfg.Proxy {
+		// A proxy target hands the payload through unresolved — even objects
+		// that look like resolvents stay untouched. Storing the payload as
+		// resolved_payload keeps the audit trail's shape identical to a
+		// resolved job's.
+		if err := p.store.SetResolved(bg, job.ID, job.Payload, "proxy target: payload handed through unresolved"); err != nil {
+			p.logger.Error("persist proxied payload failed", "job_id", job.ID, "error", err)
+			return
+		}
+		p.logger.Info("payload handed through unresolved", "job_id", job.ID, "target", job.Target)
+		p.forward(ctx, bg, job, tcfg, job.Payload)
+		return
+	}
+
 	root, err := resolver.Parse(job.Payload)
 	if err != nil {
 		p.failJob(bg, job, errInvalidPayload, err.Error())
