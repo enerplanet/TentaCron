@@ -611,6 +611,39 @@ func TestRootPathTargetWithoutResolventMarker(t *testing.T) {
 	}
 }
 
+// When several resolvents fail concurrently, the reported error must name
+// the first failing resolvent in document order — not whichever failure
+// happened to arrive first on the results channel (a scheduling race that
+// would make error messages and goldens flip between runs).
+func TestConcurrentFailureAttributionIsDeterministic(t *testing.T) {
+	cfg := baseConfig(t)
+	resource, _ := fakeResource(t, 1<<30) // every call fails with 500
+	target, _ := fakeDirectTarget(t, 200, `{"ok":true}`)
+	cfg.Resolvents["resolvent-pv1"] = resolventCfg(resource.URL)
+	cfg.Resolvents["resolvent-wind"] = resolventCfg(resource.URL)
+	cfg.Targets["demo"] = directTargetCfg(target.URL)
+
+	st := openStore(t)
+	ids := make([]string, 6)
+	for i := range ids {
+		ids[i] = createJob(t, st, "demo", `{"time-series":[
+			{"type":"resolvent-pv1","site":"first-in-document-order"},
+			{"type":"resolvent-wind","site":"second"}
+		]}`, 1)
+	}
+	startPool(t, cfg, st)
+
+	for _, id := range ids {
+		job := waitForTerminal(t, st, id)
+		if job.State != store.StateFailed {
+			t.Fatalf("state = %s, want failed", job.State)
+		}
+		if !strings.Contains(job.ErrorMessage, "resolvent-pv1") {
+			t.Errorf("error must name the first resolvent in document order, got: %s", job.ErrorMessage)
+		}
+	}
+}
+
 // A GET-style resolvent (weather/city2tabula/ignis contracts): the resolvent
 // object maps onto the request URL — path placeholders and query parameters —
 // with no request body, and response_path picks one element out of an array

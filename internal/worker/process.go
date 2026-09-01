@@ -142,8 +142,14 @@ func (p *Pool) processNew(ctx, bg context.Context, job *store.Job) {
 // fetchAll retrieves the time series for every unique resolvent hash, from
 // cache when possible, otherwise from the resource APIs. A fixed worker set
 // bounds goroutines — not just concurrent HTTP calls — so a payload with tens
-// of thousands of resolvents cannot spawn a goroutine each. The first error
-// cancels the remaining work.
+// of thousands of resolvents cannot spawn a goroutine each.
+//
+// On the first error no new fetches start, but in-flight calls run to
+// completion (their series still land in the cache, keeping retries cheap).
+// Deliberately no cancellation: aborting a sibling would turn its genuine
+// failure into a cancellation, making it a scheduling race which resolvent
+// the job's error names. Because feeding follows document order, the first
+// failing resolvent in document order always records its true error.
 func (p *Pool) fetchAll(ctx, bg context.Context, found []*resolver.Found) (map[string][]byte, int, error) {
 	seen := map[string]bool{}
 	unique := make([]*resolver.Found, 0, len(found))
@@ -154,8 +160,6 @@ func (p *Pool) fetchAll(ctx, bg context.Context, found []*resolver.Found) (map[s
 		}
 	}
 
-	fctx, cancel := context.WithCancel(ctx)
-	defer cancel()
 	type result struct {
 		hash   string
 		body   []byte
@@ -163,6 +167,7 @@ func (p *Pool) fetchAll(ctx, bg context.Context, found []*resolver.Found) (map[s
 		err    error
 	}
 	results := make(chan result, len(unique))
+	stop := make(chan struct{})
 
 	feed := make(chan *resolver.Found)
 	go func() {
@@ -170,15 +175,17 @@ func (p *Pool) fetchAll(ctx, bg context.Context, found []*resolver.Found) (map[s
 		for _, f := range unique {
 			select {
 			case feed <- f:
-			case <-fctx.Done():
-				results <- result{hash: f.Hash, err: fctx.Err()}
+			case <-stop:
+				results <- result{hash: f.Hash, err: fmt.Errorf("fetch skipped after another resolvent failed: %w", context.Canceled)}
+			case <-ctx.Done():
+				results <- result{hash: f.Hash, err: ctx.Err()}
 			}
 		}
 	}()
 	for range min(p.cfg.Worker.ResolventConcurrency, len(unique)) {
 		go func() {
 			for f := range feed {
-				body, cached, err := p.fetchOne(fctx, bg, f)
+				body, cached, err := p.fetchOne(ctx, bg, f)
 				results <- result{hash: f.Hash, body: body, cached: cached, err: err}
 			}
 		}()
@@ -186,18 +193,18 @@ func (p *Pool) fetchAll(ctx, bg context.Context, found []*resolver.Found) (map[s
 
 	// Collect exactly len(unique) results: each unique resolvent is either
 	// handed to a worker (which always sends one result) or reported as
-	// cancelled by the feeder, so this loop always drains and cannot deadlock.
+	// skipped by the feeder, so this loop always drains and cannot deadlock.
 	seriesByHash := make(map[string][]byte, len(unique))
+	errByHash := map[string]error{}
 	cachedCount := 0
-	var firstErr error
 	for range unique {
 		r := <-results
 		switch {
 		case r.err != nil:
-			if firstErr == nil {
-				firstErr = r.err
-				cancel()
+			if len(errByHash) == 0 {
+				close(stop)
 			}
+			errByHash[r.hash] = r.err
 		default:
 			seriesByHash[r.hash] = r.body
 			if r.cached {
@@ -205,10 +212,32 @@ func (p *Pool) fetchAll(ctx, bg context.Context, found []*resolver.Found) (map[s
 			}
 		}
 	}
-	if firstErr != nil {
-		return nil, 0, firstErr
+	if len(errByHash) > 0 {
+		return nil, 0, pickResolveError(unique, errByHash)
 	}
 	return seriesByHash, cachedCount, nil
+}
+
+// pickResolveError chooses which of several fetch failures the job reports:
+// the first genuine error in document order. Skips and cancellations (both
+// context-flavored) only surface when nothing failed for a real reason —
+// e.g. the job timeout fired — and then retryOrFail treats them as
+// transient, parking the job for a clean retry.
+func pickResolveError(unique []*resolver.Found, errByHash map[string]error) error {
+	var fallback error
+	for _, f := range unique {
+		err := errByHash[f.Hash]
+		if err == nil {
+			continue
+		}
+		if !isContextErr(err) {
+			return err
+		}
+		if fallback == nil {
+			fallback = err
+		}
+	}
+	return fallback
 }
 
 func (p *Pool) fetchOne(ctx, bg context.Context, f *resolver.Found) (body []byte, cached bool, err error) {
