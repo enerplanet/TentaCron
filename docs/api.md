@@ -6,6 +6,22 @@ All requests and responses are JSON. Errors always use one shape:
 { "error": { "code": "unknown_target", "message": "target \"buem2\" is not configured" } }
 ```
 
+## Authentication
+
+Clients authenticate with a named key from `auth.api_keys`:
+
+- `POST /v1/requests` reads the key from the body's `api_key` field. It is
+  compared in constant time, never stored and never forwarded.
+- Every `GET /v1/requests…` endpoint reads it from the `X-API-Key` header
+  and answers `401 unauthorized` when it is missing or unknown.
+- The key's name identifies the client in logs (`client`) and scopes its
+  idempotency keys. It does **not** partition visibility: any valid key can
+  read any request. Health endpoints are unauthenticated.
+
+Every response carries an `X-Request-ID` header — echoed from the request
+when supplied, generated otherwise — which is also the `request_id` field of
+the corresponding log line.
+
 ## POST /v1/requests
 
 Submit a request for orchestration.
@@ -16,21 +32,24 @@ Submit a request for orchestration.
 |---|---|---|
 | `api_key` | string | A client key from `auth.api_keys`. Never stored or forwarded. |
 | `target` | string | Target workflow name from the `targets` config, e.g. `meme`. |
-| `payload` | object | The body to resolve and forward to the target. |
+| `payload` | object | The body to resolve and forward to the target. Must be a JSON object. |
 
 **Headers**
 
 - `Content-Type: application/json` (required)
 - `Idempotency-Key` (optional) — scoped to the authenticated client.
   Resubmitting the identical request (same target and payload) with the same
-  key returns the original request id instead of creating a duplicate;
-  reusing the key with a *different* request is rejected with `409`.
+  key returns `202` with the original request id and its *current* state
+  (possibly already `completed`) instead of creating a duplicate; reusing
+  the key with a *different* target or payload is rejected with `409`.
+  Another client may use the same key value independently.
 
 **Responses**
 
 - `202 Accepted` — `{ "id": "…", "state": "received", "links": { "self": "/v1/requests/…" } }`
-- `400 invalid_json` / `missing_field` — malformed body (including trailing
-  data after the JSON object) or missing field
+- `400 invalid_json` — body is not valid JSON, has trailing data after the
+  JSON object, or `payload` is not a JSON object
+- `400 missing_field` — `api_key`, `target` or `payload` absent (or `null`)
 - `401 unauthorized` — unknown api key
 - `409 idempotency_conflict` — `Idempotency-Key` already used with a
   different target or payload
@@ -38,9 +57,10 @@ Submit a request for orchestration.
 - `415 unsupported_media_type` — `Content-Type: application/json` is required
 - `422 unknown_target` — target not configured
 
-## GET /v1/requests/{id}
+Validation happens in that order: an unknown target is only reported once
+the key has been accepted.
 
-Authenticated via the `X-API-Key` header.
+## GET /v1/requests/{id}
 
 ```json
 {
@@ -59,29 +79,41 @@ Authenticated via the `X-API-Key` header.
 
 - `state` is one of `received`, `resolving`, `forwarding`, `awaiting_target`,
   `completed`, `failed`.
-- Small JSON results are embedded as `result.target_response`; large or binary
-  results (e.g. a MEME bundle) are referenced as `result.href` +
-  `result.content_type`.
+- `attempts` counts processing attempts (resolution + forwarding); it is
+  incremented when a worker claims the job, so a crash mid-attempt still
+  counts.
+- `target_job_id` appears once a poll-mode target accepted the job;
+  `completed_at` once the job is terminal (completed *or* failed).
+- `result` is `null` until the job is `completed`. JSON results up to
+  256 KiB are embedded as `result.target_response`; larger or non-JSON
+  results (e.g. a MEME zip bundle) are stored as files and referenced as
+  `result.href` + `result.content_type`. `target_status` is the HTTP status
+  of the target's final response (`200` for a fetched poll result).
 - Failed jobs carry `error.code`/`error.message`; job-level codes are
   `invalid_payload`, `unknown_target`, `unknown_resolvent`, `resource_error`,
   `invalid_resource_response`, `target_error`, `target_job_failed`,
-  `target_timeout`, `max_attempts_exceeded`, `internal`.
+  `target_timeout`, `max_attempts_exceeded`, `internal`. Messages that quote
+  an upstream response have every configured downstream credential redacted
+  and are truncated to 512 bytes. See
+  [Operations → Failure handling](operations.md#failure-handling) for which
+  situation produces which code.
 
 `404 not_found` for unknown ids.
 
 ## GET /v1/requests/{id}/result
 
-Streams the stored result with its recorded content type. Available once the
-request is `completed`; `404` otherwise.
+Serves the stored result once the request is `completed`: an inline JSON
+result as `application/json`, a result file streamed with its recorded
+content type (e.g. `application/zip`). `404 not_found` while the job is not
+completed, when it completed without a result body, or after the result was
+pruned by retention.
 
 ## GET /v1/requests
 
-List recent requests, newest first. Authenticated via the `X-API-Key` header,
-exactly like `GET /v1/requests/{id}` — the same applies to
-`GET /v1/requests/{id}/result`. Query parameters: `state` (filter by job
-state) and `limit` (default 50, max 200); invalid values answer
-`400 invalid_parameter` (unknown state filter, or limit not a positive
-integer).
+List recent requests, newest first. Query parameters: `state` (filter by job
+state) and `limit` (default 50, max 200 — larger values are capped); invalid
+values answer `400 invalid_parameter` (unknown state filter, or limit not a
+positive integer). Items have the same shape as `GET /v1/requests/{id}`.
 
 ```json
 { "items": [ { "id": "…", "state": "failed", "error": { "code": "target_timeout", "message": "…" } } ] }
@@ -92,3 +124,5 @@ integer).
 - `GET /healthz` — liveness, always `200` while the process runs.
 - `GET /readyz` — `200` once migrations ran and the database answers,
   `503` otherwise.
+
+Any other route answers `404 not_found` in the standard error shape.

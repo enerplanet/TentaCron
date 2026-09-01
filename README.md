@@ -2,17 +2,18 @@
 
 Tentacron is an orchestration and *resolvent* API for renewable-energy modelling
 workflows. It accepts a model payload that still contains **resolvent objects**
-(placeholders such as `"type": "resolvent-pv1"` describing a PV plant or wind
-turbine), resolves each of them into a real time series by calling the
-configured resource APIs, and forwards the completed payload to a target
-service such as [MEME](https://github.com/enerplanet/meme) or [BuEM](https://github.com/enerplanet/buem-gateway) — polling
-async targets until their job finishes and storing the final result.
+(placeholders such as `"type": "resolvent-pv1"` describing a PV plant, a wind
+turbine or a weather query), resolves each of them into a real time series by
+calling the configured resource APIs, and forwards the completed payload to a
+target service such as [MEME](https://github.com/enerplanet/meme) or
+[BuEM](https://github.com/enerplanet/buem-gateway) — polling async targets
+until their job finishes and storing the final result.
 
 ```
-Client ──POST /v1/requests──▶ tentacron ──▶ resource APIs (PV, wind, …)
+Client ──POST /v1/requests──▶ tentacron ──▶ resource APIs (PV, wind, weather, …)
         ◀──202 {id}──────────    │  ▲              resolvent → time series
 Client ──GET /v1/requests/id─    ▼  │
-        ◀──state / result────  target API (meme, buem, …) ── poll until done
+        ◀──state / result────  target API (meme, buem, ignis, …) ── poll until done
 ```
 
 ## How it works
@@ -22,16 +23,20 @@ Client ──GET /v1/requests/id─    ▼  │
 2. A worker finds every object with a `type` starting `resolvent-` inside the
    payload's time-series container (location configurable per target, e.g.
    `model.timeseries` for MEME, the payload root for BuEM's weather block).
-3. Each resolvent object is sent to its resource API (from `config.yaml`); the
-   returned time series **replaces the resolvent in place**, with the original
-   object preserved under the new series' `resolvent` key. Identical resolvents
-   are served from a TTL cache instead of re-hitting the resource API. A
-   resolvent can also be backed by another configured target (e.g. a BuEM
-   simulation feeding a MEME model) — see
-   [docs/configuration.md](docs/configuration.md#target-backed-resolvents-composition).
+3. Each resolvent object is resolved through its configured backend; the
+   returned series **replaces the resolvent in place**, with the original
+   object preserved under the new series' `resolvent` key (switchable off for
+   schema-strict targets). A backend is a POST resource API (the object is
+   the request body), a GET resource API (the object's fields become query
+   parameters and `{field}` path segments — the weather, city2tabula and
+   ignis contracts), or another configured target (a BuEM simulation feeding
+   a MEME model). Identical resolvents are served from a TTL cache instead of
+   re-hitting the backend.
 4. The resolved payload is forwarded to the target. For async targets
    tentacron extracts the target's job id, polls until it reports done or
-   failed, and stores the final result.
+   failed, and stores the final result. A **proxy target** skips steps 2–3 and
+   hands the payload through untouched — tentacron still contributes auth,
+   persistence, the audit trail and retries.
 5. `GET /v1/requests/{id}` reports the state machine
    (`received → resolving → forwarding → awaiting_target → completed|failed`),
    the result (inline JSON or a downloadable file), and any error. Every
@@ -39,6 +44,25 @@ Client ──GET /v1/requests/id─    ▼  │
 
 Failed upstream calls retry with exponential backoff; interrupted jobs are
 recovered on restart; polling resumes without re-submitting the target job.
+
+## Integrations
+
+[`config.example.yaml`](config.example.yaml) wires the services below. The
+verified entries are grounded in the upstream sources/OpenAPI and exercised
+by the golden E2E suite; replace the example hosts with your deployments.
+
+| Config entry | Kind | Service |
+|---|---|---|
+| `targets.meme` | async target (poll `/jobs/{id}/status`, zip bundle result) | [meme](https://github.com/enerplanet/meme) `POST /simulate` |
+| `targets.buem` | direct target, weather resolved at the payload root | [buem-gateway](https://github.com/enerplanet/buem-gateway) `POST /api/v1/buem/buildings` |
+| `targets.buem-building` | direct target, also backs `resolvent-buem` | buem-gateway `POST /api/v1/buem/building` |
+| `targets.ignis-calculate` | proxy target, `{code}` templated into the URL | [ignis](https://github.com/THD-Spatial-AI/ignis) `POST /api/v1/calculate/{code}` |
+| `targets.demo` | direct target for the generic examples | illustrative |
+| `resolvents.resolvent-weather` | GET resolvent (point query → `{index, variables}`) | [weather](https://github.com/enerplanet/weather) |
+| `resolvents.resolvent-city2tabula` | GET resolvent, list response indexed via `response_path: "0"` | [city2tabula](https://github.com/THD-Spatial-AI/city2tabula) |
+| `resolvents.resolvent-ignis` | GET resolvent, `{code}` templated into the path | ignis `GET /api/v1/data/{code}` |
+| `resolvents.resolvent-buem` | target-backed resolvent (BuEM run feeding another model) | buem-gateway via `buem-building` |
+| `resolvents.resolvent-pv1`, `resolvent-wind` | POST resolvents (object as body) | illustrative — point at your profile services |
 
 ## Quickstart
 
@@ -96,21 +120,24 @@ make -C environment shell ENV=dev   # interactive shell (go / make / sqlite3)
 |---|---|
 | `POST /v1/requests` | Submit `{api_key, target, payload}`; returns `202` + id. Supports an `Idempotency-Key` header. |
 | `GET /v1/requests/{id}` | State, attempts, result (inline JSON or `result.href`), error. Auth: `X-API-Key`. |
-| `GET /v1/requests/{id}/result` | Streams a stored result file (e.g. a MEME bundle). |
-| `GET /v1/requests?state=failed&limit=50` | List recent requests. |
+| `GET /v1/requests/{id}/result` | Streams a stored result (inline JSON or a result file such as a MEME bundle). Auth: `X-API-Key`. |
+| `GET /v1/requests?state=failed&limit=50` | List recent requests, newest first. Auth: `X-API-Key`. |
 | `GET /healthz`, `GET /readyz` | Liveness / readiness. |
 
 See [docs/api.md](docs/api.md) for the full reference,
-[docs/configuration.md](docs/configuration.md) for every config key, and
-[docs/architecture.md](docs/architecture.md) for the design.
+[docs/configuration.md](docs/configuration.md) for every config key,
+[docs/architecture.md](docs/architecture.md) for the design and
+[docs/operations.md](docs/operations.md) for deployment and failure handling.
 
 ## Development
 
 ```bash
 make test           # unit + integration + golden E2E tests
-make test-race      # with race detector (CI mode)
+make test-race      # with race detector, shuffled order (CI mode)
+make cover          # coverage summary
 make e2e            # golden end-to-end corpus only, verbose
 make golden-update  # accept an intended behavior change
+make live           # one real request through real upstreams (env-gated)
 make lint           # go vet + golangci-lint
 make run            # build and run with config.example.yaml
 ```
