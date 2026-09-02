@@ -1,21 +1,21 @@
 # Contributing
 
-Thank you for taking the time to contribute to **[PROJECT_NAME]**.
+Thank you for taking the time to contribute to **tentacron**.
 
-This project welcomes contributions such as bug reports, feature requests, documentation improvements, code changes, and general feedback.
-
-Please read this guide before opening an issue or submitting a pull request.
+This project welcomes contributions such as bug reports, feature requests,
+documentation improvements, code changes, and general feedback. Please read
+this guide before opening an issue or submitting a pull request.
 
 ## Code of Conduct
 
-By participating in this project, you agree to follow the rules and expectations described in the [Code of Conduct](CODE_OF_CONDUCT.md).
+By participating in this project, you agree to follow the rules and
+expectations described in the [Code of Conduct](CODE_OF_CONDUCT.md).
 
 ## Ways to Contribute
 
-You can contribute in different ways, including:
-
 - Reporting bugs
-- Requesting features or improvements
+- Requesting features or improvements (a new target or resolvent backend,
+  for example)
 - Improving documentation
 - Fixing issues
 - Reviewing pull requests
@@ -23,172 +23,122 @@ You can contribute in different ways, including:
 
 ## Before You Start
 
-Before creating a new issue or pull request, please:
-
-- Read the `README.md` to understand the project purpose and setup
-- Check existing issues and pull requests to avoid duplicates
-- Make sure your idea/request is relevant to the project scope
-- Use the issue templates (if available)
+- Read the [README](README.md) for the project purpose and quickstart, and
+  [docs/architecture.md](docs/architecture.md) for the design.
+- Check existing issues and pull requests to avoid duplicates.
+- Use the issue templates.
 
 ## Reporting Bugs and Requesting Changes
 
-Use the project issue tracker for bug reports, feature requests, and documentation issues.
+Use the issue tracker at
+<https://github.com/enerplanet/tentacron/issues> for bug reports, feature
+requests and documentation issues. When reporting a bug, include:
 
-- **Issue tracker:** [INSERT_ISSUE_TRACKER_URL]
-- **Discussions / Questions (optional):** [INSERT_DISCUSSION_URL_OR_REMOVE]
-
-When reporting an issue, please include:
-
-- What you expected to happen
-- What actually happened
-- Steps to reproduce the issue
-- Screenshots/logs/error messages (if applicable)
-- Environment details (OS, browser, version, etc., if relevant)
+- What you expected to happen and what actually happened
+- The request body you sent (with the `api_key` removed) and the relevant
+  target/resolvent entries of your config (credentials redacted)
+- The job's state, `error.code`/`error.message` from `GET /v1/requests/{id}`
+  and, if possible, its audit trail (`job_events`, see
+  [docs/operations.md](docs/operations.md#inspecting-state))
+- Relevant log lines (API keys are never logged; upstream excerpts are
+  already redacted)
+- The tentacron version/commit and Go version
 
 ## Development Workflow
 
-The exact setup steps may differ by project. Please check the `README.md` and project documentation for installation and development instructions.
-
-### 1) Fork and clone the repository (if applicable)
-
-If you do not have direct write access, fork the repository first, then clone your fork:
+### 1) Clone the repository
 
 ```bash
-git clone [REPOSITORY_URL]
-cd [REPOSITORY_DIRECTORY]
+git clone https://github.com/enerplanet/tentacron.git
+cd tentacron
 ```
 
-If you have direct write access, clone the main repository instead.
+Fork first if you do not have write access.
 
-### 2) Create a branch for your change
+### 2) Create a branch
 
-Create a dedicated branch for your bugfix, feature, or documentation update:
+Branch names follow the org-wide
+[branch naming convention](docs/getting-started/branch-naming.md) and are
+linted on every pull request:
 
 ```bash
-git checkout -b type/short-description
+git checkout -b feat/short-description
 ```
 
-Examples:
-
-- `fix/login-validation`
-- `feat/export-yaml`
-- `docs/readme-setup`
+Examples: `fix/poll-deadline-race`, `feat/resolvent-ignis-match`,
+`docs/configuration-defaults`.
 
 ### 3) Make your changes
 
-Keep changes focused and small where possible. If your change is large, consider splitting it into multiple pull requests.
+Keep changes focused and small where possible. Go >= 1.25 is required
+(`go.mod`); the containerized environment in [environment/](environment/)
+provides the toolchain if you prefer not to install it.
 
-### 4) Test your changes (if applicable)
+### 4) Test your changes
 
-Before submitting a pull request:
+```bash
+make lint           # go vet + golangci-lint (CI runs the same)
+make test           # unit, integration and golden E2E suites
+make test-race      # what CI runs: race detector, shuffled order
+```
 
-- Run relevant tests
-- Check linting/formatting tools (if used)
-- Verify the project still builds/runs locally
-- Update documentation if your change affects usage or behaviour
+The golden end-to-end corpus under [test/e2e](test/e2e) freezes the
+observable behaviour of the whole service. A behaviour change shows up as a
+transcript diff; when the change is intended, run `make golden-update` and
+review the golden diff like any other code. Every file in
+[examples/](examples/) is executed by that suite as well — keep them in
+sync with the contract. The test pyramid is described in
+[test/README.md](test/README.md).
+
+Update the documentation (`README.md`, `docs/`, `config.example.yaml`,
+`CHANGELOG.md`) whenever your change affects usage or behaviour.
 
 ### 5) Commit your changes
 
-Use clear commit messages that explain what changed.
+Commit messages follow
+[Conventional Commits](docs/getting-started/commit-conventions.md) and are
+linted on every pull request:
 
 ```bash
-git add .
-git commit -m "Short summary of the change"
+git commit -m "feat(resolver): support nested containers"
 ```
 
-For larger changes, include a more descriptive commit message when needed.
-
-### 6) Push your branch
+### 6) Push and open a pull request
 
 ```bash
 git push -u origin <your-branch-name>
 ```
 
-### 7) Open a pull request
-
-Create a pull request against the appropriate branch (usually `main` unless the project uses a different workflow).
-
-In your pull request description, include:
-
-- What changed
-- Why it changed
-- Any screenshots (for UI changes)
-- Testing notes
-- Related issue(s), if applicable (e.g. `Closes #123`)
+Open the pull request against `main`. Describe what changed and why, add
+testing notes (which suites you ran, whether goldens were regenerated), and
+link related issues (e.g. `Closes #123`). CI must pass: lint, the race
+suite, the build, and the branch/commit linters.
 
 ## Pull Request Checklist
 
-Before submitting a pull request, check:
-
 - [ ] The change is relevant and scoped appropriately
-- [ ] I tested my changes (if applicable)
-- [ ] I updated documentation (if applicable)
-- [ ] I followed the project coding/style conventions (if applicable)
-- [ ] I checked for sensitive information (keys, credentials, private data)
-- [ ] I linked related issues (if applicable)
-
-## Commit Message Guidance (Recommended)
-
-Keep commit messages clear and specific.
-
-Good examples:
-
-- `Fix CSV upload validation for empty headers`
-- `Add YAML export button to model builder`
-- `Update installation steps in README`
-
-Avoid vague messages such as:
-
-- `fix`
-- `changes`
-- `update stuff`
+- [ ] `make lint` and `make test-race` pass locally
+- [ ] Golden files were regenerated only for intended behaviour changes
+- [ ] Documentation and `CHANGELOG.md` are updated where applicable
+- [ ] No credentials or private data are included (config examples use
+      `${ENV}` references)
+- [ ] Related issues are linked
 
 ## Documentation Contributions
 
-Documentation improvements are welcome and valuable.
-
-If you are updating docs:
-
-- Keep wording clear and practical
-- Prefer short examples where useful
-- Check links and commands
-- Match the style used in existing documentation
-
-## Project-Specific Notes (Template Placeholder)
-
-Replace or remove this section in project repositories.
-
-Examples of what may go here:
-
-- Setup links (Windows/Linux/Docker)
-- Testing commands (`npm test`, `pytest`, `go test ./...`)
-- Branching strategy
-- Review/approval rules
-- CI requirements
-- Changelog policy
+Documentation lives in [docs/](docs/) (published with MkDocs, see
+[docs/getting-started/documentation-setup.md](docs/getting-started/documentation-setup.md))
+plus the folder READMEs. Keep wording clear and practical, prefer short
+examples, check links and commands, and match the style of the existing
+pages.
 
 ## Licensing of Contributions
 
-By contributing to this project, you confirm that:
-
-- your contribution is your own work (or you have the right to submit it), and
-- you agree that your contribution will be licensed under the same license as this repository.
+By contributing to this project, you confirm that your contribution is your
+own work (or you have the right to submit it), and you agree that it will
+be licensed under the same [MIT license](LICENSE) as this repository.
 
 ## Need Help?
 
-If you are unsure where to start, open an issue or discussion and ask. Maintainers can help point you in the right direction.
-
----
-
-## Maintainer Note (Template)
-
-> [!CAUTION]
-> This file is a template. Replace placeholders such as:
-
-- `[PROJECT_NAME]`
-- `[INSERT_ISSUE_TRACKER_URL]`
-- `[INSERT_DISCUSSION_URL_OR_REMOVE]`
-- `[REPOSITORY_URL]`
-- `[REPOSITORY_DIRECTORY]`
-
-Remove sections that do not apply to your project.
+If you are unsure where to start, open an issue and ask. Maintainers can
+help point you in the right direction.

@@ -1,17 +1,21 @@
-# CITATION.cff — Update this file with your project's citation information.
+# CITATION.cff — citation metadata for tentacron.
 # See https://citation-file-format.github.io/ for the full specification.
 
 cff-version: 1.2.0
-title: "Project Title"
+title: "Tentacron"
 message: "If you use this software, please cite it as below."
 type: software
+abstract: >-
+  Orchestration and resolvent API for renewable-energy modelling workflows:
+  resolves resolvent placeholders in model payloads into time series via
+  configured resource APIs and forwards the completed payload to target
+  services such as MEME and BuEM, polling asynchronous jobs to completion.
 authors:
-  - family-names: "Last Name"
-    given-names: "First Name"
-    orcid: "https://orcid.org/0000-0000-0000-0000"
+  - family-names: "Weber"
+    given-names: "Andreas Willibald"
     affiliation: "BigGeoData & Spatial AI, Technische Hochschule Deggendorf"
-repository-code: "https://github.com/THD-Spatial-AI/github-template"
-url: "https://THD-Spatial-AI.github.io/github-template"
+repository-code: "https://github.com/enerplanet/tentacron"
+url: "https://enerplanet.github.io/tentacron"
 license: MIT
 version: "0.1.0"
-date-released: "2026-01-01"
+date-released: "2026-09-04"
