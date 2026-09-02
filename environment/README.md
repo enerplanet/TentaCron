@@ -56,7 +56,7 @@ directly (source the env file first).
 | `CONFIG` | `environment/config.yaml` | `environment/config.yaml` | config file the API loads | compose → root `make run` |
 | `IMAGE_TAG` | `tentacron-env:dev` | `tentacron-env:prod` | image tag | compose |
 | `TENTACRON_KEY_*` | dev placeholders | **change-me** | client keys tentacron accepts | config |
-| `MEME_API_KEY` … `WIND_API_KEY` | dev placeholders | **change-me** | credentials for downstream services | config |
+| `MEME_API_KEY`, `BUEM_API_KEY`, `PV1_API_KEY`, `WIND_API_KEY`, `WEATHER_API_KEY`, `IGNIS_API_KEY` | dev placeholders | **change-me** | credentials tentacron presents to the downstream services (meme, buem-gateway, the PV/wind profile services, weather, ignis) | config |
 
 Select one with `ENV=` on any of this folder's Make targets (defaults to
 `dev`):
@@ -86,7 +86,15 @@ with `ENV=staging`.
 - [`config.yaml`](config.yaml) in this folder mirrors
   [`config.example.yaml`](../config.example.yaml) but takes its listen port
   and all credentials from the env file. The target/resource URLs still point
-  at example hosts — replace them with your real MEME/buem/resource endpoints.
+  at example hosts — replace them with your real meme, buem-gateway, weather,
+  city2tabula, ignis and profile-service endpoints. The compose file marks
+  every credential variable as required, so a new `${VAR}` reference in the
+  config needs a matching line in both env files and in
+  [`docker-compose.yml`](docker-compose.yml).
 - The `api` service writes its SQLite database and result files to
   `/src/data` (the bind mount), which is gitignored. The container runs as
   root, so `data/` contents created via docker are root-owned on the host.
+- `make -C environment test` runs the host suite (unit, integration, golden
+  E2E) inside the container; the env-gated live tier is a host-side
+  `make live` with `TENTACRON_LIVE_CONFIG`/`TENTACRON_LIVE_REQUEST` set
+  (see [test/README.md](../test/README.md)).
