@@ -82,32 +82,55 @@ func (c *Client) ForwardToTarget(ctx context.Context, name string, tcfg config.T
 
 // fillTargetURL replaces {field} placeholders with the path-escaped value of
 // the payload's top-level field — a JSON string (unquoted) or number — and
-// deletes consumed fields from doc.
+// deletes consumed fields from doc. A placeholder may repeat; null, booleans
+// and containers never fill one.
 func fillTargetURL(rawURL string, doc map[string]json.RawMessage) (string, error) {
 	var missing []string
+	consumed := map[string]bool{}
 	filled := placeholderPattern.ReplaceAllStringFunc(rawURL, func(match string) string {
 		field := match[1 : len(match)-1]
-		raw, ok := doc[field]
+		s, ok := scalarFromRaw(doc[field])
 		if !ok {
-			missing = append(missing, field)
+			if !slices.Contains(missing, field) {
+				missing = append(missing, field)
+			}
 			return match
 		}
-		var s string
-		if err := json.Unmarshal(raw, &s); err != nil {
-			var n json.Number
-			if err := json.Unmarshal(raw, &n); err != nil {
-				missing = append(missing, field)
-				return match
-			}
-			s = n.String()
-		}
-		delete(doc, field)
+		consumed[field] = true
 		return url.PathEscape(s)
 	})
 	if len(missing) > 0 {
 		return "", fmt.Errorf("url placeholder(s) %v need string or number fields at the payload's top level", missing)
 	}
+	for field := range consumed {
+		delete(doc, field)
+	}
 	return filled, nil
+}
+
+// scalarFromRaw renders a raw JSON string or number for use in a URL.
+// Anything else — absent, null, booleans, objects, arrays — is rejected:
+// json.Unmarshal would happily decode "null" into an empty string and
+// silently produce an empty path segment.
+func scalarFromRaw(raw json.RawMessage) (string, bool) {
+	if len(raw) == 0 {
+		return "", false
+	}
+	switch {
+	case raw[0] == '"':
+		var s string
+		if err := json.Unmarshal(raw, &s); err != nil {
+			return "", false
+		}
+		return s, true
+	case raw[0] == '-' || (raw[0] >= '0' && raw[0] <= '9'):
+		var n json.Number
+		if err := json.Unmarshal(raw, &n); err != nil {
+			return "", false
+		}
+		return n.String(), true
+	}
+	return "", false
 }
 
 // PollStatus is the outcome of one poll tick against the target's job.

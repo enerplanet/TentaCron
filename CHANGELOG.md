@@ -8,6 +8,13 @@ follow [SemVer](https://semver.org/) once the first release is tagged.
 
 Initial development of the tentacron orchestration and resolvent API.
 
+### Fixed
+
+- Target URL templating: a `null` payload field no longer fills a `{field}`
+  placeholder with an empty path segment, and a placeholder used twice in
+  one URL is filled both times (the first substitution used to consume the
+  field before the second lookup).
+
 ### Added
 
 - Async job API: `POST /v1/requests` (202 + id, idempotency keys scoped per
