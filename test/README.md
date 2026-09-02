@@ -65,15 +65,17 @@ handed through unresolved, URL `{field}` templating with body stripping —
 the ignis calculate exemplar), GET resolvents against
 the verified weather/city2tabula/ignis contracts (query-parameter and
 path-template mapping frozen as exact request lines, array responses indexed
-via `response_path`), the full validation-
-error surface, idempotency replay/conflict/cross-client scoping, cross-client
-read visibility, and list ordering. Every counts step also freezes an
+via `response_path`), the full validation-error surface, idempotency
+replay/conflict/cross-client scoping, cross-client read visibility, and list
+ordering. Every counts step also freezes an
 `unexpected_upstream_requests` tripwire (always empty), so any unscripted
 outbound request becomes a golden diff, and a corpus gate fails on stale
 golden files whose scenario no longer exists.
 [`e2e/examples_test.go`](e2e/examples_test.go) additionally runs every
 payload in [`examples/`](../examples) through the stack — the drift gate
-that keeps published examples true to the contract.
+that keeps published examples true to the contract. Adding an example means
+adding the file, a scenario there, and running `make golden-update` once to
+freeze its transcript.
 
 **Workflow:** change behavior → `make test` fails with a readable transcript
 diff → if the change is intended, `make golden-update` and review the golden

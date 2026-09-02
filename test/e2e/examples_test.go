@@ -46,6 +46,22 @@ var exampleScenarios = []scenario{
 		},
 	},
 	{
+		// GET resolvents against the verified city2tabula and ignis
+		// contracts, in a name→object registry: country/osm_ids map onto
+		// query parameters (arrays joined comma-separated), {code} onto
+		// ignis's path, and city2tabula's list response is indexed via
+		// response_path "0". The frozen request lines prove the mapping.
+		name: "example-city2tabula-ignis",
+		run: func(t *testing.T, h *harness) {
+			id := h.post("submit examples/city2tabula-ignis.json", exampleRequest(t, "city2tabula-ignis.json"), nil)
+			h.await("final state", id)
+			h.resourceRequests("exact GET requests the resource APIs received")
+			h.forwarded("building attributes and TABULA data substituted into the registry", "demo")
+			h.events("audit trail", id)
+			h.counts()
+		},
+	},
+	{
 		// Target composition, end to end: a MEME model whose heat-demand
 		// series is produced by a BuEM simulation — resolvent-buem forwards
 		// its "payload" field through the buem-building target (as-is,

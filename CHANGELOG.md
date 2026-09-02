@@ -42,7 +42,7 @@ Initial development of the tentacron orchestration and resolvent API.
   deterministic multi-failure attribution, refused redirects, credential
   redaction in error excerpts, response size caps, SSRF-safe config-only
   URLs, validated target job ids.
-- Test pyramid: unit and integration suites, a 37-scenario deterministic
+- Test pyramid: unit and integration suites, a 39-scenario deterministic
   golden end-to-end corpus with tested example requests (`examples/`), and
   an env-gated live tier (`make live`) for real-upstream verification.
 - Containerized build/test environment (`environment/`, meme-style) and

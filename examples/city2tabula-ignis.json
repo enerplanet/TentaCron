@@ -1,0 +1,18 @@
+{
+  "api_key": "your-tentacron-api-key",
+  "target": "demo",
+  "payload": {
+    "scenario": "building-typology-lookup",
+    "time-series": {
+      "building_attributes": {
+        "type": "resolvent-city2tabula",
+        "country": "germany",
+        "osm_ids": ["123456", "789012"]
+      },
+      "tabula_parameters": {
+        "type": "resolvent-ignis",
+        "code": "DE.N.SFH.04.Gen.ReEx.001.001"
+      }
+    }
+  }
+}
