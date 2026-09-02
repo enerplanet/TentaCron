@@ -395,9 +395,6 @@ var targetProtocolScenarios = []scenario{
 		// "fixed" into a target_error later.
 		name: "buem-partial-building-errors",
 		fakes: fakes{
-			resource: func(int64) reply {
-				return reply{200, `{"index":["2018-01-01T00:30:00Z"],"variables":{"T":[1.0]}}`, ""}
-			},
 			gateway: func(int64) reply {
 				return reply{200, `[` +
 					`{"id":"b-1","buem":{"thermal_load_profile":{"summary":{"heating":{"total":{"value":12345.6,"unit":"kWh"}}}}}},` +
@@ -405,10 +402,13 @@ var targetProtocolScenarios = []scenario{
 			},
 		},
 		run: func(t *testing.T, h *harness) {
+			// The weather resolvent uses the flat point-query fields of the
+			// GET contract; a nested location object would fail the job
+			// before the gateway is ever reached (see get-resolvent-nested-object).
 			payload := `{
 				"start_date": "2018-01-01T00:00:00Z", "end_date": "2018-01-02T00:00:00Z",
 				"resolution": 60, "model_id": "m-partial",
-				"weather": {"type": "resolvent-weather", "location": {"lat": 48.83, "lon": 12.95}},
+				"weather": {"type": "resolvent-weather", "provider": "era5-land", "lat": 48.83, "lon": 12.95, "year": 2018, "use_case": "solar"},
 				"buildings": [
 					{"id": "b-1", "building": {"envelope": {"elements": [{"id": "W1", "type": "wall"}]}}},
 					{"id": "b-2", "building": {}}
