@@ -1,0 +1,53 @@
+[
+  {
+    "request": "POST /v1/requests",
+    "response": {
+      "id": "«job-1»",
+      "links": {
+        "self": "/v1/requests/«job-1»"
+      },
+      "state": "received"
+    },
+    "status": 202,
+    "step": "submit with a resolvent whose response_path does not match"
+  },
+  {
+    "request": "GET /v1/requests/{id}",
+    "response": {
+      "attempts": 1,
+      "completed_at": "«ts»",
+      "created_at": "«ts»",
+      "error": {
+        "code": "invalid_resource_response",
+        "message": "resource resolvent-city2tabula response has no \"0.tabula.missing\" (segment \"tabula\": not found): resource response is not a JSON object"
+      },
+      "id": "«job-1»",
+      "result": null,
+      "state": "failed",
+      "target": "demo",
+      "updated_at": "«ts»"
+    },
+    "status": 200,
+    "step": "final state"
+  },
+  {
+    "audit_trail": [
+      "∅ → received: job accepted",
+      "received → resolving: claimed by worker",
+      "resolving → failed: invalid_resource_response: resource resolvent-city2tabula response has no \"0.tabula.missing\" (segment \"tabula\": not found): resource response is not a JSON object"
+    ],
+    "step": "audit trail"
+  },
+  {
+    "buem_building_calls": 0,
+    "buem_calls": 0,
+    "demo_calls": 0,
+    "ignis_calculate_calls": 0,
+    "meme_accept_calls": 0,
+    "meme_result_calls": 0,
+    "meme_status_calls": 0,
+    "resource_calls": 1,
+    "step": "upstream call counts",
+    "unexpected_upstream_requests": []
+  }
+]

@@ -737,6 +737,7 @@ func allScenarios() []scenario {
 	all = append(all, resolutionScenarios...)
 	all = append(all, targetProtocolScenarios...)
 	all = append(all, apiContractScenarios...)
+	all = append(all, edgeScenarios...)
 	return all
 }
 
