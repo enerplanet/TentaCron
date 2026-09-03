@@ -230,41 +230,10 @@ func expandEnv(s string) (string, error) {
 }
 
 func (c *Config) applyDefaults() {
-	if c.Server.Addr == "" {
-		c.Server.Addr = ":8080"
-	}
-	setDur(&c.Server.ReadTimeout, 10*time.Second)
-	setDur(&c.Server.WriteTimeout, 30*time.Second)
-	setDur(&c.Server.ShutdownGrace, 20*time.Second)
-	if c.Server.MaxBodyBytes == 0 {
-		c.Server.MaxBodyBytes = 10 << 20
-	}
-
-	if c.Storage.Path == "" {
-		c.Storage.Path = "./data/tentacron.db"
-	}
-	if c.Storage.ResultsDir == "" {
-		c.Storage.ResultsDir = "./data/results"
-	}
-	setDur(&c.Storage.Retention, 720*time.Hour)
-
-	if c.Worker.Count == 0 {
-		c.Worker.Count = 4
-	}
-	if c.Worker.ResolventConcurrency == 0 {
-		c.Worker.ResolventConcurrency = 4
-	}
-	setDur(&c.Worker.PollInterval, 2*time.Second)
-	if c.Worker.MaxAttempts == 0 {
-		c.Worker.MaxAttempts = 5
-	}
-	setDur(&c.Worker.BackoffBase, 2*time.Second)
-	setDur(&c.Worker.BackoffMax, 60*time.Second)
-	setDur(&c.Worker.JobTimeout, 5*time.Minute)
-
-	setDur(&c.Cache.DefaultTTL, 6*time.Hour)
-	setDur(&c.Cache.CleanupInterval, 15*time.Minute)
-
+	c.Server.applyDefaults()
+	c.Storage.applyDefaults()
+	c.Worker.applyDefaults()
+	c.Cache.applyDefaults()
 	for name, t := range c.Targets {
 		t.applyDefaults()
 		c.Targets[name] = t
@@ -275,22 +244,78 @@ func (c *Config) applyDefaults() {
 	}
 }
 
+func (s *Server) applyDefaults() {
+	if s.Addr == "" {
+		s.Addr = ":8080"
+	}
+	setDur(&s.ReadTimeout, 10*time.Second)
+	setDur(&s.WriteTimeout, 30*time.Second)
+	setDur(&s.ShutdownGrace, 20*time.Second)
+	if s.MaxBodyBytes == 0 {
+		s.MaxBodyBytes = 10 << 20
+	}
+}
+
+func (s *Storage) applyDefaults() {
+	if s.Path == "" {
+		s.Path = "./data/tentacron.db"
+	}
+	if s.ResultsDir == "" {
+		s.ResultsDir = "./data/results"
+	}
+	setDur(&s.Retention, 720*time.Hour)
+}
+
+func (w *Worker) applyDefaults() {
+	if w.Count == 0 {
+		w.Count = 4
+	}
+	if w.ResolventConcurrency == 0 {
+		w.ResolventConcurrency = 4
+	}
+	setDur(&w.PollInterval, 2*time.Second)
+	if w.MaxAttempts == 0 {
+		w.MaxAttempts = 5
+	}
+	setDur(&w.BackoffBase, 2*time.Second)
+	setDur(&w.BackoffMax, 60*time.Second)
+	setDur(&w.JobTimeout, 5*time.Minute)
+}
+
+func (c *Cache) applyDefaults() {
+	setDur(&c.DefaultTTL, 6*time.Hour)
+	setDur(&c.CleanupInterval, 15*time.Minute)
+}
+
 func (t *Target) applyDefaults() {
 	if t.Method == "" {
 		t.Method = "POST"
 	}
-	// Resolution knobs have no meaning on a proxy target; defaulting them
-	// would only mislead the operator (and validation rejects explicit ones).
-	if !t.Proxy {
-		if t.TimeseriesPath == "" {
-			t.TimeseriesPath = "time-series"
-		}
-		if t.AttachResolvent == nil {
-			attach := true
-			t.AttachResolvent = &attach
-		}
-	}
 	setDur(&t.Timeout, 60*time.Second)
+	t.applyResolutionDefaults()
+	t.applyAuthDefaults()
+	t.applyResponseDefaults()
+}
+
+// applyResolutionDefaults fills the resolution knobs. A proxy target gets
+// none: they have no meaning there, defaulting them would only mislead the
+// operator, and validation rejects explicit ones.
+func (t *Target) applyResolutionDefaults() {
+	if t.Proxy {
+		return
+	}
+	if t.TimeseriesPath == "" {
+		t.TimeseriesPath = "time-series"
+	}
+	if t.AttachResolvent == nil {
+		attach := true
+		t.AttachResolvent = &attach
+	}
+}
+
+// applyAuthDefaults derives the injection mode from whether a key is set,
+// then the field or header name for that mode.
+func (t *Target) applyAuthDefaults() {
 	if t.APIKeyInject == "" {
 		if t.APIKey == "" {
 			t.APIKeyInject = InjectNone
@@ -304,16 +329,20 @@ func (t *Target) applyDefaults() {
 	if t.APIKeyInject == InjectHeader && t.APIKeyHeader == "" {
 		t.APIKeyHeader = "X-API-Key"
 	}
+}
+
+func (t *Target) applyResponseDefaults() {
 	if t.Response.Mode == "" {
 		t.Response.Mode = ModeDirect
 	}
-	if t.Response.Mode == ModePoll && t.Response.Poll != nil {
-		p := t.Response.Poll
-		setDur(&p.Interval, 10*time.Second)
-		setDur(&p.Timeout, 30*time.Minute)
-		if p.ResultURLTemplate == "" {
-			p.ResultURLTemplate = p.URLTemplate
-		}
+	if t.Response.Mode != ModePoll || t.Response.Poll == nil {
+		return
+	}
+	p := t.Response.Poll
+	setDur(&p.Interval, 10*time.Second)
+	setDur(&p.Timeout, 30*time.Minute)
+	if p.ResultURLTemplate == "" {
+		p.ResultURLTemplate = p.URLTemplate
 	}
 }
 
