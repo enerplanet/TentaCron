@@ -31,3 +31,13 @@ jobs:
         run: go test -race -shuffle=on ./...
       - name: Build
         run: CGO_ENABLED=0 go build -trimpath ./cmd/tentacron
+
+  fuzz:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.25"
+      - name: Fuzz smoke (10s per target)
+        run: make fuzz FUZZTIME=10s

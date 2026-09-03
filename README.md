@@ -137,6 +137,8 @@ make test-race      # with race detector, shuffled order (CI mode)
 make cover          # coverage summary
 make e2e            # golden end-to-end corpus only, verbose
 make golden-update  # accept an intended behavior change
+make fuzz           # every fuzz target for 20s (FUZZTIME=…); seeds run in make test
+make stress         # race detector, shuffled, repeated (STRESS_COUNT=…)
 make live           # one real request through real upstreams (env-gated)
 make lint           # go vet + golangci-lint
 make run            # build and run with config.example.yaml

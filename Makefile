@@ -6,7 +6,7 @@ CONFIG   ?= config.example.yaml
 # Containerized build/test/run lives in environment/ (make -C environment help);
 # the test pyramid (golden E2E corpus, tiers) is documented in test/README.md.
 
-.PHONY: build test test-race cover lint run tidy clean e2e golden-update live
+.PHONY: build test test-race cover lint run tidy clean e2e golden-update fuzz stress live
 
 build:
 	CGO_ENABLED=0 go build -trimpath -ldflags "$(LDFLAGS)" -o bin/$(BINARY) ./cmd/$(BINARY)
@@ -33,6 +33,12 @@ e2e:
 
 golden-update:
 	$(MAKE) -C test golden-update
+
+fuzz:
+	$(MAKE) -C test fuzz
+
+stress:
+	$(MAKE) -C test stress
 
 live:
 	$(MAKE) -C test live

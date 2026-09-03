@@ -9,6 +9,8 @@ make test           # vet + full suite: unit, integration, golden E2E (seconds)
 make test-race      # race detector, shuffled order
 make e2e            # golden end-to-end corpus only, verbose
 make golden-update  # accept an INTENDED behavior change
+make fuzz           # every fuzz target for FUZZTIME (default 20s) each
+make stress         # race detector, shuffled, repeated STRESS_COUNT times
 make live           # one real request through real upstreams (env-gated)
 ```
 
@@ -30,6 +32,21 @@ Live next to their packages:
 | `internal/upstream` | error classification, redirect refusal, credential redaction, job-id validation, size caps |
 | `internal/api` | every 4xx path, idempotency replay, result serving |
 | `internal/worker` | full pipeline against `httptest` fakes: retries, cache, recovery, shutdown parking, poll deadlines |
+
+Each package also carries an `*_edge_test.go` file: the boundary and
+failure cases that the happy paths above do not reach — config validation
+corners, URL-mapping edge cases, poll-mode failure branches, claim and list
+semantics, API input boundaries, and worker concurrency bounds.
+
+### 1b. Fuzz targets (`internal/resolver`, `internal/upstream`)
+
+Go-native fuzzers for the parsers that face untrusted input: the payload
+walker and substitution engine, the GET query/path mapper, target URL
+templating, dot-path navigation, job-id extraction, and the error-excerpt
+redaction. Their seed corpora run as ordinary tests in `make test`; `make
+fuzz` (and a CI smoke job) mutate them for `FUZZTIME` each. A crash found
+by fuzzing is written to `testdata/fuzz/<Target>/` — commit it, it becomes a
+regression test.
 
 ### 2. Golden end-to-end corpus ([`test/e2e`](e2e), the regression tripwire)
 
@@ -79,7 +96,13 @@ freeze its transcript.
 
 **Workflow:** change behavior → `make test` fails with a readable transcript
 diff → if the change is intended, `make golden-update` and review the golden
-diff in `git diff` like any other code change.
+diff in `git diff` like any other code change. Read a regenerated golden
+before accepting it: a scenario whose comment promises one outcome while
+its transcript freezes another is a silent gap, not a passing test.
+
+**Flakiness hunt:** `make stress` runs everything under the race detector,
+shuffled, `STRESS_COUNT` times; the goldens and the timing-sensitive worker
+tests are expected to survive it unchanged.
 
 ### 3. Live tier ([`test/live`](live), env-gated)
 

@@ -49,8 +49,11 @@ Initial development of the tentacron orchestration and resolvent API.
   deterministic multi-failure attribution, refused redirects, credential
   redaction in error excerpts, response size caps, SSRF-safe config-only
   URLs, validated target job ids.
-- Test pyramid: unit and integration suites, a 39-scenario deterministic
-  golden end-to-end corpus with tested example requests (`examples/`), and
-  an env-gated live tier (`make live`) for real-upstream verification.
+- Test pyramid: unit and integration suites with per-package edge-case
+  files, Go-native fuzz targets for every parser facing untrusted input
+  (`make fuzz`, CI smoke job), a 45-scenario deterministic golden
+  end-to-end corpus with tested example requests (`examples/`), a
+  race/shuffle stress entry point (`make stress`), and an env-gated live
+  tier (`make live`) for real-upstream verification.
 - Containerized build/test environment (`environment/`, meme-style) and
   mkdocs documentation (architecture, API, configuration, operations).
