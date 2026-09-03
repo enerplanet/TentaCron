@@ -187,7 +187,9 @@ func TestE2EHappyPathThroughAPI(t *testing.T) {
 	if status != http.StatusAccepted {
 		t.Fatalf("POST status = %d: %s", status, body)
 	}
-	var accepted struct{ ID string `json:"id"` }
+	var accepted struct {
+		ID string `json:"id"`
+	}
 	if err := json.Unmarshal(body, &accepted); err != nil || accepted.ID == "" {
 		t.Fatalf("accept body: %s", body)
 	}
@@ -235,7 +237,9 @@ func TestE2EUnknownResolventSurfacesError(t *testing.T) {
 	if status != http.StatusAccepted {
 		t.Fatalf("POST status = %d: %s", status, body)
 	}
-	var accepted struct{ ID string `json:"id"` }
+	var accepted struct {
+		ID string `json:"id"`
+	}
 	_ = json.Unmarshal(body, &accepted)
 
 	final := waitState(t, stack.api.URL, accepted.ID, "failed")
