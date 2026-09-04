@@ -57,16 +57,31 @@ var placeholderPattern = regexp.MustCompile(`\{([A-Za-z0-9_]+)\}`)
 //   - parameters are appended in sorted field order, so the produced URL —
 //     and anything derived from it (logs, goldens) — is deterministic.
 func buildResolventURL(rawURL string, payload map[string]any) (string, error) {
+	templated, consumed, err := fillPathPlaceholders(rawURL, payload)
+	if err != nil {
+		return "", err
+	}
+	u, err := url.Parse(templated)
+	if err != nil {
+		return "", fmt.Errorf("resolvent url: %w", err)
+	}
+	q := u.Query()
+	if err := addQueryFields(q, payload, consumed); err != nil {
+		return "", err
+	}
+	u.RawQuery = q.Encode()
+	return u.String(), nil
+}
+
+// fillPathPlaceholders replaces every {field} placeholder with the
+// path-escaped scalar value of that field and reports the consumed fields
+// (the type marker counts as consumed: it is never sent).
+func fillPathPlaceholders(rawURL string, payload map[string]any) (string, map[string]bool, error) {
 	consumed := map[string]bool{"type": true}
 	var missing []string
-	templated := placeholderPattern.ReplaceAllStringFunc(rawURL, func(match string) string {
+	filled := placeholderPattern.ReplaceAllStringFunc(rawURL, func(match string) string {
 		field := match[1 : len(match)-1]
-		v, ok := payload[field]
-		if !ok {
-			missing = append(missing, field)
-			return match
-		}
-		s, err := scalarString(v)
+		s, err := scalarString(payload[field])
 		if err != nil {
 			missing = append(missing, field)
 			return match
@@ -75,26 +90,25 @@ func buildResolventURL(rawURL string, payload map[string]any) (string, error) {
 		return url.PathEscape(s)
 	})
 	if len(missing) > 0 {
-		return "", fmt.Errorf("url placeholder(s) %v need scalar resolvent fields", missing)
+		return "", nil, fmt.Errorf("url placeholder(s) %v need scalar resolvent fields", missing)
 	}
+	return filled, consumed, nil
+}
 
-	u, err := url.Parse(templated)
-	if err != nil {
-		return "", fmt.Errorf("resolvent url: %w", err)
-	}
-	q := u.Query()
+// addQueryFields sets every unconsumed field as a query parameter, in
+// sorted order so the outbound URL is deterministic.
+func addQueryFields(q url.Values, payload map[string]any, consumed map[string]bool) error {
 	for _, field := range slices.Sorted(maps.Keys(payload)) {
 		if consumed[field] {
 			continue
 		}
 		s, err := queryString(payload[field])
 		if err != nil {
-			return "", fmt.Errorf("field %q: %w", field, err)
+			return fmt.Errorf("field %q: %w", field, err)
 		}
 		q.Set(field, s)
 	}
-	u.RawQuery = q.Encode()
-	return u.String(), nil
+	return nil
 }
 
 func scalarString(v any) (string, error) {

@@ -41,43 +41,59 @@ func authHeaders(tcfg config.Target) map[string]string {
 // body-field injection forwards the payload byte-exact.
 func (c *Client) ForwardToTarget(ctx context.Context, name string, tcfg config.Target, payload []byte) (*ForwardResult, error) {
 	op := "target " + name
-	headers := authHeaders(tcfg)
-	outbound := payload
-	callURL := tcfg.URL
-
-	// Both rewrites work on map[string]json.RawMessage so nested values pass
-	// through byte-for-byte: a decode into map[string]any would round large
-	// integers through float64 and silently corrupt model data.
-	templated := placeholderPattern.MatchString(tcfg.URL)
-	if templated || tcfg.APIKeyInject == config.InjectBodyField {
-		var doc map[string]json.RawMessage
-		if err := json.Unmarshal(payload, &doc); err != nil {
-			return nil, &Error{Op: op, Transient: false, Err: fmt.Errorf("payload not an object for url templating or key injection: %w", err)}
-		}
-		if templated {
-			var err error
-			if callURL, err = fillTargetURL(tcfg.URL, doc); err != nil {
-				return nil, &Error{Op: op, Transient: false, Err: err}
-			}
-		}
-		if tcfg.APIKeyInject == config.InjectBodyField {
-			keyJSON, err := json.Marshal(tcfg.APIKey)
-			if err != nil {
-				return nil, &Error{Op: op, Transient: false, Err: err}
-			}
-			doc[tcfg.APIKeyField] = keyJSON
-		}
-		var err error
-		if outbound, err = json.Marshal(doc); err != nil {
-			return nil, &Error{Op: op, Transient: false, Err: err}
-		}
+	callURL, outbound, err := prepareOutbound(tcfg, payload)
+	if err != nil {
+		return nil, &Error{Op: op, Transient: false, Err: err}
 	}
-
-	status, body, err := c.do(ctx, op, tcfg.Method, callURL, outbound, headers, tcfg.Timeout.Std())
+	status, body, err := c.do(ctx, op, tcfg.Method, callURL, outbound, authHeaders(tcfg), tcfg.Timeout.Std())
 	if err != nil {
 		return nil, err
 	}
 	return &ForwardResult{Status: status, Body: body}, nil
+}
+
+// prepareOutbound applies the two rewrites a target may need — URL
+// templating and body-field key injection — and returns the call URL and
+// body. Without either, the payload goes out byte-exact. Both rewrites work
+// on map[string]json.RawMessage so nested values pass through byte-for-byte:
+// a decode into map[string]any would round large integers through float64
+// and silently corrupt model data.
+func prepareOutbound(tcfg config.Target, payload []byte) (callURL string, body []byte, err error) {
+	templated := placeholderPattern.MatchString(tcfg.URL)
+	inject := tcfg.APIKeyInject == config.InjectBodyField
+	if !templated && !inject {
+		return tcfg.URL, payload, nil
+	}
+	var doc map[string]json.RawMessage
+	if err := json.Unmarshal(payload, &doc); err != nil || doc == nil {
+		return "", nil, fmt.Errorf("payload not an object for url templating or key injection: %w", errNotObject(err))
+	}
+	callURL = tcfg.URL
+	if templated {
+		if callURL, err = fillTargetURL(tcfg.URL, doc); err != nil {
+			return "", nil, err
+		}
+	}
+	if inject {
+		keyJSON, err := json.Marshal(tcfg.APIKey)
+		if err != nil {
+			return "", nil, err
+		}
+		doc[tcfg.APIKeyField] = keyJSON
+	}
+	if body, err = json.Marshal(doc); err != nil {
+		return "", nil, err
+	}
+	return callURL, body, nil
+}
+
+// errNotObject names the decode failure, or the fact that a valid "null"
+// decoded into no object at all.
+func errNotObject(err error) error {
+	if err != nil {
+		return err
+	}
+	return errors.New("got null instead of an object")
 }
 
 // fillTargetURL replaces {field} placeholders with the path-escaped value of
