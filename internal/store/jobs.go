@@ -87,50 +87,70 @@ const jobColumns = `id, client, idempotency_key, target, state, attempts, max_at
 
 type rowScanner interface{ Scan(dest ...any) error }
 
+// jobRow is the scan target for jobColumns: nullable columns land in
+// sql.Null* fields and are folded into the job by toJob.
+type jobRow struct {
+	job                                   Job
+	idem, nextAt, targetJobID, pollDL     sql.NullString
+	resultPath, resultCT, errCode, errMsg sql.NullString
+	createdAt, updatedAt, completedAt     sql.NullString
+	targetStatus                          sql.NullInt64
+}
+
 func scanJob(r rowScanner) (*Job, error) {
-	var (
-		j                                     Job
-		idem, nextAt, targetJobID, pollDL     sql.NullString
-		resultPath, resultCT, errCode, errMsg sql.NullString
-		createdAt, updatedAt, completedAt     sql.NullString
-		targetStatus                          sql.NullInt64
-	)
-	err := r.Scan(&j.ID, &j.Client, &idem, &j.Target, &j.State, &j.Attempts, &j.MaxAttempts,
-		&nextAt, &j.Payload, &j.ResolvedPayload, &targetJobID, &pollDL,
-		&targetStatus, &j.TargetResponse, &resultPath, &resultCT,
-		&errCode, &errMsg, &createdAt, &updatedAt, &completedAt)
+	var row jobRow
+	j := &row.job
+	err := r.Scan(&j.ID, &j.Client, &row.idem, &j.Target, &j.State, &j.Attempts, &j.MaxAttempts,
+		&row.nextAt, &j.Payload, &j.ResolvedPayload, &row.targetJobID, &row.pollDL,
+		&row.targetStatus, &j.TargetResponse, &row.resultPath, &row.resultCT,
+		&row.errCode, &row.errMsg, &row.createdAt, &row.updatedAt, &row.completedAt)
 	if err != nil {
 		return nil, err
 	}
-	j.IdempotencyKey = idem.String
-	j.TargetJobID = targetJobID.String
-	j.ResultPath = resultPath.String
-	j.ResultContentType = resultCT.String
-	j.ErrorCode = errCode.String
-	j.ErrorMessage = errMsg.String
-	if targetStatus.Valid {
-		v := int(targetStatus.Int64)
+	return row.toJob()
+}
+
+// toJob folds the nullable columns into the job and parses its timestamps.
+func (row *jobRow) toJob() (*Job, error) {
+	j := &row.job
+	j.IdempotencyKey = row.idem.String
+	j.TargetJobID = row.targetJobID.String
+	j.ResultPath = row.resultPath.String
+	j.ResultContentType = row.resultCT.String
+	j.ErrorCode = row.errCode.String
+	j.ErrorMessage = row.errMsg.String
+	if row.targetStatus.Valid {
+		v := int(row.targetStatus.Int64)
 		j.TargetStatus = &v
+	}
+	if err := row.parseTimes(j); err != nil {
+		return nil, err
+	}
+	return j, nil
+}
+
+func (row *jobRow) parseTimes(j *Job) error {
+	var err error
+	if j.CreatedAt, err = parseTS(row.createdAt.String); err != nil {
+		return fmt.Errorf("job %s: bad created_at: %w", j.ID, err)
+	}
+	if j.UpdatedAt, err = parseTS(row.updatedAt.String); err != nil {
+		return fmt.Errorf("job %s: bad updated_at: %w", j.ID, err)
 	}
 	for _, p := range []struct {
 		src sql.NullString
 		dst **time.Time
-	}{{nextAt, &j.NextAttemptAt}, {pollDL, &j.PollDeadline}, {completedAt, &j.CompletedAt}} {
-		if p.src.Valid {
-			t, err := parseTS(p.src.String)
-			if err != nil {
-				return nil, fmt.Errorf("job %s: bad timestamp %q: %w", j.ID, p.src.String, err)
-			}
-			*p.dst = &t
+	}{{row.nextAt, &j.NextAttemptAt}, {row.pollDL, &j.PollDeadline}, {row.completedAt, &j.CompletedAt}} {
+		if !p.src.Valid {
+			continue
 		}
+		t, err := parseTS(p.src.String)
+		if err != nil {
+			return fmt.Errorf("job %s: bad timestamp %q: %w", j.ID, p.src.String, err)
+		}
+		*p.dst = &t
 	}
-	if j.CreatedAt, err = parseTS(createdAt.String); err != nil {
-		return nil, fmt.Errorf("job %s: bad created_at: %w", j.ID, err)
-	}
-	if j.UpdatedAt, err = parseTS(updatedAt.String); err != nil {
-		return nil, fmt.Errorf("job %s: bad updated_at: %w", j.ID, err)
-	}
-	return &j, nil
+	return nil
 }
 
 // CreateJob inserts a new job in state "received" and records the accept
@@ -157,47 +177,53 @@ func (s *Store) createJobOnce(ctx context.Context, j *Job) (created bool, stored
 	if err != nil {
 		return false, nil, err
 	}
-	defer func() {
-		if err != nil {
-			_ = tx.Rollback()
+	if err := insertJob(ctx, tx, j, now); err != nil {
+		_ = tx.Rollback()
+		if isIdempotencyViolation(err) {
+			return s.replayIdempotent(ctx, j)
 		}
-	}()
+		return false, nil, fmt.Errorf("insert job: %w", err)
+	}
+	if err := appendEventTx(ctx, tx, j.ID, "", StateReceived, "job accepted", now); err != nil {
+		_ = tx.Rollback()
+		return false, nil, err
+	}
+	if err := tx.Commit(); err != nil {
+		return false, nil, err
+	}
+	j.State, j.CreatedAt, j.UpdatedAt = StateReceived, now, now
+	return true, j, nil
+}
 
+func insertJob(ctx context.Context, tx *sql.Tx, j *Job, now time.Time) error {
 	var idem any
 	if j.IdempotencyKey != "" {
 		idem = j.IdempotencyKey
 	}
-	_, err = tx.ExecContext(ctx, `INSERT INTO jobs
+	_, err := tx.ExecContext(ctx, `INSERT INTO jobs
 		(id, client, idempotency_key, target, state, attempts, max_attempts, payload, created_at, updated_at)
 		VALUES (?, ?, ?, ?, ?, 0, ?, ?, ?, ?)`,
 		j.ID, j.Client, idem, j.Target, StateReceived, j.MaxAttempts, j.Payload, ts(now), ts(now))
+	return err
+}
+
+// isIdempotencyViolation matches SQLite's stable message for the partial
+// unique index on (client, idempotency_key).
+func isIdempotencyViolation(err error) bool {
+	return strings.Contains(err.Error(), "jobs.idempotency_key")
+}
+
+// replayIdempotent settles a key collision: the stored job is returned when
+// the request is identical, ErrIdempotencyConflict otherwise.
+func (s *Store) replayIdempotent(ctx context.Context, j *Job) (bool, *Job, error) {
+	existing, err := s.GetJobByIdempotency(ctx, j.Client, j.IdempotencyKey)
 	if err != nil {
-		// SQLite's stable message for the partial unique index on (client, idempotency_key).
-		if strings.Contains(err.Error(), "jobs.idempotency_key") {
-			// Roll back explicitly: the deferred rollback only fires when err
-			// is non-nil, and the successful lookup below returns err == nil.
-			_ = tx.Rollback()
-			existing, gerr := s.GetJobByIdempotency(ctx, j.Client, j.IdempotencyKey)
-			if gerr != nil {
-				return false, nil, gerr
-			}
-			if existing.Target != j.Target || !bytes.Equal(existing.Payload, j.Payload) {
-				return false, nil, fmt.Errorf("key %q: %w", j.IdempotencyKey, ErrIdempotencyConflict)
-			}
-			return false, existing, nil
-		}
-		return false, nil, fmt.Errorf("insert job: %w", err)
-	}
-	if err = appendEventTx(ctx, tx, j.ID, "", StateReceived, "job accepted", now); err != nil {
 		return false, nil, err
 	}
-	if err = tx.Commit(); err != nil {
-		return false, nil, err
+	if existing.Target != j.Target || !bytes.Equal(existing.Payload, j.Payload) {
+		return false, nil, fmt.Errorf("key %q: %w", j.IdempotencyKey, ErrIdempotencyConflict)
 	}
-	j.State = StateReceived
-	j.CreatedAt = now
-	j.UpdatedAt = now
-	return true, j, nil
+	return false, existing, nil
 }
 
 // GetJob fetches one job by id. It returns ErrNotFound if no such job exists.
@@ -563,21 +589,50 @@ func (s *Store) transition(ctx context.Context, id, fromState, toState, detail s
 			_ = tx.Rollback()
 		}
 	}()
-
-	var current string
-	if err = tx.QueryRowContext(ctx, `SELECT state FROM jobs WHERE id = ?`, id).Scan(&current); err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
-			err = ErrNotFound
-		}
+	current, err := currentState(ctx, tx, id)
+	if err != nil {
 		return err
 	}
+	if err = checkTransition(id, current, fromState, toState); err != nil {
+		return err
+	}
+	query, args := buildUpdate(id, toState, now, build)
+	if _, err = tx.ExecContext(ctx, query, args...); err != nil {
+		return fmt.Errorf("update job %s: %w", id, err)
+	}
+	if err = appendEventTx(ctx, tx, id, current, toState, detail, now); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
+// currentState reads the job's state inside the transaction; a missing job
+// is ErrNotFound.
+func currentState(ctx context.Context, tx *sql.Tx, id string) (string, error) {
+	var current string
+	err := tx.QueryRowContext(ctx, `SELECT state FROM jobs WHERE id = ?`, id).Scan(&current)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", ErrNotFound
+	}
+	return current, err
+}
+
+// checkTransition enforces the two rules every transition obeys: terminal
+// states are final, and an expected fromState must match.
+func checkTransition(id, current, fromState, toState string) error {
 	if (current == StateCompleted || current == StateFailed) && current != toState {
 		return fmt.Errorf("job %s: cannot leave %s for %s: %w", id, current, toState, ErrTerminalState)
 	}
 	if fromState != anyState && current != fromState {
 		return fmt.Errorf("job %s: cannot transition %s -> %s (state is %s)", id, fromState, toState, current)
 	}
+	return nil
+}
 
+// buildUpdate assembles a transition's UPDATE: state and updated_at plus the
+// caller's extra columns. The clause strings are compile-time constants;
+// every value is a bound parameter.
+func buildUpdate(id, toState string, now time.Time, build func(*updateBuilder)) (string, []any) {
 	b := &updateBuilder{}
 	b.set("state = ?", toState)
 	b.set("updated_at = ?", ts(now))
@@ -587,12 +642,5 @@ func (s *Store) transition(ctx context.Context, id, fromState, toState, detail s
 	args := make([]any, 0, len(b.args)+1)
 	args = append(args, b.args...)
 	args = append(args, id)
-	// The clause strings are compile-time constants; all values are bound parameters.
-	if _, err = tx.ExecContext(ctx, `UPDATE jobs SET `+strings.Join(b.clauses, ", ")+` WHERE id = ?`, args...); err != nil { //nolint:gosec // G202: constant clauses, bound values
-		return fmt.Errorf("update job %s: %w", id, err)
-	}
-	if err = appendEventTx(ctx, tx, id, current, toState, detail, now); err != nil {
-		return err
-	}
-	return tx.Commit()
+	return `UPDATE jobs SET ` + strings.Join(b.clauses, ", ") + ` WHERE id = ?`, args
 }
