@@ -67,6 +67,12 @@ func (p *Pool) process(ctx context.Context, job *store.Job) {
 	}
 }
 
+// failure is a permanent job failure together with its API error code.
+type failure struct {
+	code string
+	err  error
+}
+
 // processNew runs the resolve → forward pipeline for a freshly claimed job.
 // ctx bounds the job's upstream I/O (job timeout, shutdown); bg is the
 // uncancellable bookkeeping context from process — every store write below
@@ -77,80 +83,124 @@ func (p *Pool) processNew(ctx, bg context.Context, job *store.Job) {
 		p.failJob(bg, job, errUnknownTarget, fmt.Sprintf("target %q is no longer configured", job.Target))
 		return
 	}
-
 	if tcfg.Proxy {
-		// A proxy target hands the payload through unresolved — even objects
-		// that look like resolvents stay untouched. Storing the payload as
-		// resolved_payload keeps the audit trail's shape identical to a
-		// resolved job's.
-		if err := p.store.SetResolved(bg, job.ID, job.Payload, "proxy target: payload handed through unresolved"); err != nil {
-			p.logger.Error("persist proxied payload failed", "job_id", job.ID, "error", err)
-			return
-		}
-		p.logger.Info("payload handed through unresolved", "job_id", job.ID, "target", job.Target)
-		p.forward(ctx, bg, job, tcfg, job.Payload)
+		p.handThrough(ctx, bg, job, tcfg)
 		return
 	}
+	root, found, fail := p.locateResolvents(job.Payload, tcfg)
+	if fail != nil {
+		p.failJob(bg, job, fail.code, fail.err.Error())
+		return
+	}
+	seriesByHash, cached, err := p.fetchAll(ctx, bg, found)
+	if err != nil {
+		p.failResolution(bg, job, err)
+		return
+	}
+	resolved, fail := p.substitute(job.ID, root, found, seriesByHash, attachResolvent(tcfg))
+	if fail != nil {
+		p.failJob(bg, job, fail.code, fail.err.Error())
+		return
+	}
+	p.forwardResolved(ctx, bg, job, tcfg, resolved, len(found), cached)
+}
 
-	root, err := resolver.Parse(job.Payload)
-	if err != nil {
-		p.failJob(bg, job, errInvalidPayload, err.Error())
+// handThrough forwards a proxy target's payload unresolved — even objects
+// that look like resolvents stay untouched. Storing the payload as
+// resolved_payload keeps the audit trail's shape identical to a resolved
+// job's.
+func (p *Pool) handThrough(ctx, bg context.Context, job *store.Job, tcfg config.Target) {
+	if err := p.store.SetResolved(bg, job.ID, job.Payload, "proxy target: payload handed through unresolved"); err != nil {
+		p.logger.Error("persist proxied payload failed", "job_id", job.ID, "error", err)
 		return
 	}
-	// The "." sentinel scans the whole payload (resolver treats "" as
-	// root-scan; the config layer reserves "" for "use the default path").
-	path := tcfg.TimeseriesPath
-	if path == config.RootTimeseriesPath {
-		path = ""
-	}
-	found, err := resolver.Find(root, path)
+	p.logger.Info("payload handed through unresolved", "job_id", job.ID, "target", job.Target)
+	p.forward(ctx, bg, job, tcfg, job.Payload)
+}
+
+// locateResolvents parses the payload and collects its resolvent objects,
+// refusing unknown types before any HTTP call.
+func (p *Pool) locateResolvents(payload []byte, tcfg config.Target) (map[string]any, []*resolver.Found, *failure) {
+	root, err := resolver.Parse(payload)
 	if err != nil {
-		p.failJob(bg, job, errInvalidPayload, err.Error())
-		return
+		return nil, nil, &failure{errInvalidPayload, err}
+	}
+	found, err := resolver.Find(root, containerPath(tcfg))
+	if err != nil {
+		return nil, nil, &failure{errInvalidPayload, err}
 	}
 	for _, typ := range resolver.DistinctTypes(found) {
 		if _, ok := p.cfg.Resolvents[typ]; !ok {
-			p.failJob(bg, job, errUnknownResolvent, fmt.Sprintf("no resolvent config for type %q", typ))
-			return
+			return nil, nil, &failure{errUnknownResolvent, fmt.Errorf("no resolvent config for type %q", typ)}
 		}
 	}
+	return root, found, nil
+}
 
-	seriesByHash, cached, err := p.fetchAll(ctx, bg, found)
-	if err != nil {
-		if errors.Is(err, errBadResourceBody) {
-			p.failJob(bg, job, errInvalidResource, err.Error())
-			return
-		}
-		p.retryOrFail(bg, job, errResourceError, err)
+// containerPath translates the "." sentinel into the resolver's root scan:
+// the resolver treats "" as root, while the config layer reserves "" for
+// "use the default path".
+func containerPath(tcfg config.Target) string {
+	if tcfg.TimeseriesPath == config.RootTimeseriesPath {
+		return ""
+	}
+	return tcfg.TimeseriesPath
+}
+
+// attachResolvent reports the target's marker policy. nil means "not
+// configured": config.Load defaults it to true, but a hand-built config
+// (tests, embedders) must get the same default.
+func attachResolvent(tcfg config.Target) bool {
+	return tcfg.AttachResolvent == nil || *tcfg.AttachResolvent
+}
+
+// failResolution maps a fetch error onto the job outcome: a malformed
+// resource body is the permanent invalid_resource_response, anything else
+// goes through the retry classification as a resource_error.
+func (p *Pool) failResolution(bg context.Context, job *store.Job, err error) {
+	if errors.Is(err, errBadResourceBody) {
+		p.failJob(bg, job, errInvalidResource, err.Error())
 		return
 	}
-	// nil means "not configured": config.Load defaults it to true, but a
-	// hand-built config (tests, embedders) must get the same default.
-	attach := tcfg.AttachResolvent == nil || *tcfg.AttachResolvent
+	p.retryOrFail(bg, job, errResourceError, err)
+}
+
+// substitute splices every fetched series into its slot and re-encodes the
+// document.
+func (p *Pool) substitute(jobID string, root map[string]any, found []*resolver.Found, seriesByHash map[string][]byte, attach bool) ([]byte, *failure) {
 	for _, f := range found {
 		warnings, err := f.Substitute(seriesByHash[f.Hash], attach)
 		if err != nil {
-			p.failJob(bg, job, errInvalidResource, err.Error())
-			return
+			return nil, &failure{errInvalidResource, err}
 		}
 		for _, w := range warnings {
-			p.logger.Warn("resolvent substitution warning", "job_id", job.ID, "warning", w)
+			p.logger.Warn("resolvent substitution warning", "job_id", jobID, "warning", w)
 		}
 	}
-
 	resolved, err := resolver.Marshal(root)
 	if err != nil {
-		p.failJob(bg, job, errInternal, "re-encode resolved payload: "+err.Error())
-		return
+		return nil, &failure{errInternal, fmt.Errorf("re-encode resolved payload: %w", err)}
 	}
-	detail := fmt.Sprintf("resolved %d resolvent(s), %d from cache", len(found), cached)
+	return resolved, nil
+}
+
+// forwardResolved persists the resolved payload and hands it to the target.
+func (p *Pool) forwardResolved(ctx, bg context.Context, job *store.Job, tcfg config.Target, resolved []byte, count, cached int) {
+	detail := fmt.Sprintf("resolved %d resolvent(s), %d from cache", count, cached)
 	if err := p.store.SetResolved(bg, job.ID, resolved, detail); err != nil {
 		p.logger.Error("persist resolved payload failed", "job_id", job.ID, "error", err)
 		return
 	}
-	p.logger.Info("payload resolved", "job_id", job.ID, "resolvents", len(found), "cached", cached)
-
+	p.logger.Info("payload resolved", "job_id", job.ID, "resolvents", count, "cached", cached)
 	p.forward(ctx, bg, job, tcfg, resolved)
+}
+
+// fetchResult is one resolvent fetch outcome, keyed by parameter hash.
+type fetchResult struct {
+	hash   string
+	body   []byte
+	cached bool
+	err    error
 }
 
 // fetchAll retrieves the time series for every unique resolvent hash, from
@@ -165,6 +215,19 @@ func (p *Pool) processNew(ctx, bg context.Context, job *store.Job) {
 // the job's error names. Because feeding follows document order, the first
 // failing resolvent in document order always records its true error.
 func (p *Pool) fetchAll(ctx, bg context.Context, found []*resolver.Found) (map[string][]byte, int, error) {
+	unique := uniqueByHash(found)
+	results := make(chan fetchResult, len(unique))
+	stop := make(chan struct{})
+	feed := feedResolvents(ctx, unique, stop, results)
+	for range min(p.cfg.Worker.ResolventConcurrency, len(unique)) {
+		go p.fetchLoop(ctx, bg, feed, results)
+	}
+	return collectFetches(unique, results, stop)
+}
+
+// uniqueByHash keeps the first occurrence of each parameter hash, in
+// document order.
+func uniqueByHash(found []*resolver.Found) []*resolver.Found {
 	seen := map[string]bool{}
 	unique := make([]*resolver.Found, 0, len(found))
 	for _, f := range found {
@@ -173,16 +236,14 @@ func (p *Pool) fetchAll(ctx, bg context.Context, found []*resolver.Found) (map[s
 			unique = append(unique, f)
 		}
 	}
+	return unique
+}
 
-	type result struct {
-		hash   string
-		body   []byte
-		cached bool
-		err    error
-	}
-	results := make(chan result, len(unique))
-	stop := make(chan struct{})
-
+// feedResolvents hands resolvents to the fetchers in document order. Once
+// stop closes (a sibling failed) or ctx ends, the remaining resolvents are
+// reported as skipped instead, so the collector always receives exactly one
+// result per unique resolvent.
+func feedResolvents(ctx context.Context, unique []*resolver.Found, stop <-chan struct{}, results chan<- fetchResult) <-chan *resolver.Found {
 	feed := make(chan *resolver.Found)
 	go func() {
 		defer close(feed)
@@ -190,46 +251,49 @@ func (p *Pool) fetchAll(ctx, bg context.Context, found []*resolver.Found) (map[s
 			select {
 			case feed <- f:
 			case <-stop:
-				results <- result{hash: f.Hash, err: fmt.Errorf("fetch skipped after another resolvent failed: %w", context.Canceled)}
+				results <- fetchResult{hash: f.Hash, err: fmt.Errorf("fetch skipped after another resolvent failed: %w", context.Canceled)}
 			case <-ctx.Done():
-				results <- result{hash: f.Hash, err: ctx.Err()}
+				results <- fetchResult{hash: f.Hash, err: ctx.Err()}
 			}
 		}
 	}()
-	for range min(p.cfg.Worker.ResolventConcurrency, len(unique)) {
-		go func() {
-			for f := range feed {
-				body, cached, err := p.fetchOne(ctx, bg, f)
-				results <- result{hash: f.Hash, body: body, cached: cached, err: err}
-			}
-		}()
-	}
+	return feed
+}
 
-	// Collect exactly len(unique) results: each unique resolvent is either
-	// handed to a worker (which always sends one result) or reported as
-	// skipped by the feeder, so this loop always drains and cannot deadlock.
+// fetchLoop is one bounded fetcher: it resolves resolvents from feed until
+// the feed closes, sending exactly one result per resolvent.
+func (p *Pool) fetchLoop(ctx, bg context.Context, feed <-chan *resolver.Found, results chan<- fetchResult) {
+	for f := range feed {
+		body, cached, err := p.fetchOne(ctx, bg, f)
+		results <- fetchResult{hash: f.Hash, body: body, cached: cached, err: err}
+	}
+}
+
+// collectFetches drains exactly len(unique) results — each unique resolvent
+// is either fetched by a worker or reported as skipped by the feeder, so the
+// loop cannot deadlock — and closes stop on the first error.
+func collectFetches(unique []*resolver.Found, results <-chan fetchResult, stop chan<- struct{}) (map[string][]byte, int, error) {
 	seriesByHash := make(map[string][]byte, len(unique))
 	errByHash := map[string]error{}
-	cachedCount := 0
+	cached := 0
 	for range unique {
 		r := <-results
-		switch {
-		case r.err != nil:
+		if r.err != nil {
 			if len(errByHash) == 0 {
 				close(stop)
 			}
 			errByHash[r.hash] = r.err
-		default:
-			seriesByHash[r.hash] = r.body
-			if r.cached {
-				cachedCount++
-			}
+			continue
+		}
+		seriesByHash[r.hash] = r.body
+		if r.cached {
+			cached++
 		}
 	}
 	if len(errByHash) > 0 {
 		return nil, 0, pickResolveError(unique, errByHash)
 	}
-	return seriesByHash, cachedCount, nil
+	return seriesByHash, cached, nil
 }
 
 // pickResolveError chooses which of several fetch failures the job reports:

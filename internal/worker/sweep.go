@@ -23,24 +23,42 @@ func (p *Pool) sweeperLoop(ctx context.Context) {
 }
 
 func (p *Pool) sweep(ctx context.Context) {
-	if n, err := p.store.PurgeExpiredSeries(ctx); err != nil {
+	p.purgeExpiredSeries(ctx)
+	p.rescueStuckJobs(ctx)
+	p.pruneRetention(ctx)
+}
+
+func (p *Pool) purgeExpiredSeries(ctx context.Context) {
+	n, err := p.store.PurgeExpiredSeries(ctx)
+	if err != nil {
 		p.logger.Error("series cache purge failed", "error", err)
-	} else if n > 0 {
+		return
+	}
+	if n > 0 {
 		p.logger.Info("purged expired cached series", "count", n)
 	}
+}
 
-	// A failed bookkeeping write leaves a job in resolving/forwarding with no
-	// schedule — unclaimable forever. Anything untouched for well over a full
-	// processing attempt cannot still be in flight; requeue it.
-	stuckCutoff := time.Now().Add(-2 * p.cfg.Worker.JobTimeout.Std())
-	if n, err := p.store.RescueStuck(ctx, stuckCutoff); err != nil {
+// rescueStuckJobs requeues jobs a failed bookkeeping write left in
+// resolving/forwarding with no schedule — unclaimable forever otherwise.
+// Anything untouched for well over a full processing attempt cannot still
+// be in flight.
+func (p *Pool) rescueStuckJobs(ctx context.Context) {
+	cutoff := time.Now().Add(-2 * p.cfg.Worker.JobTimeout.Std())
+	n, err := p.store.RescueStuck(ctx, cutoff)
+	if err != nil {
 		p.logger.Error("stuck job rescue failed", "error", err)
-	} else if n > 0 {
+		return
+	}
+	if n > 0 {
 		p.logger.Warn("rescued stuck jobs", "count", n)
 	}
+}
 
-	// Retention: remove result files before their rows — a crash in between
-	// leaves rows for the next sweep to retry, never orphaned files.
+// pruneRetention removes terminal jobs past the retention window. Result
+// files go before their rows: a crash in between leaves rows for the next
+// sweep to retry, never orphaned files.
+func (p *Pool) pruneRetention(ctx context.Context) {
 	cutoff := time.Now().Add(-p.cfg.Storage.Retention.Std())
 	ids, paths, err := p.store.TerminalBefore(ctx, cutoff)
 	if err != nil {
