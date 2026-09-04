@@ -50,37 +50,38 @@ func run() error {
 	nudge := make(chan struct{}, 1)
 	client := upstream.New(cfg.Server.MaxBodyBytes, cfg.UpstreamSecrets())
 	pool := worker.New(cfg, st, client, logger, nudge)
-	server := api.New(cfg, st, logger, nudge)
+	httpServer := newHTTPServer(cfg, api.New(cfg, st, logger, nudge).Handler())
+	return serve(cfg, logger, httpServer, pool)
+}
 
-	httpServer := &http.Server{
+func newHTTPServer(cfg *config.Config, handler http.Handler) *http.Server {
+	return &http.Server{
 		Addr:              cfg.Server.Addr,
-		Handler:           server.Handler(),
+		Handler:           handler,
 		ReadTimeout:       cfg.Server.ReadTimeout.Std(),
 		ReadHeaderTimeout: cfg.Server.ReadTimeout.Std(), // deliberately the same knob; no separate header timeout in the config
 		WriteTimeout:      cfg.Server.WriteTimeout.Std(),
 	}
+}
 
+// serve runs the worker pool and the HTTP server until a shutdown signal or
+// a fatal server error, then stops them in the documented order: HTTP
+// drains first, workers are cancelled afterwards.
+func serve(cfg *config.Config, logger *slog.Logger, httpServer *http.Server, pool *worker.Pool) error {
 	rootCtx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 	// workerCtx is deliberately not derived from rootCtx: on shutdown the
 	// workers must keep finishing in-flight jobs while the HTTP server
 	// drains, and are only cancelled explicitly afterwards (or immediately
-	// on a fatal server error; see the shutdown sequence below).
+	// on a fatal server error).
 	workerCtx, cancelWorkers := context.WithCancel(context.Background())
 	defer cancelWorkers()
-
 	poolDone := make(chan struct{})
 	go func() {
 		defer close(poolDone)
 		pool.Run(workerCtx)
 	}()
-
-	serverErr := make(chan error, 1)
-	go func() {
-		if err := httpServer.ListenAndServe(); !errors.Is(err, http.ErrServerClosed) {
-			serverErr <- err
-		}
-	}()
+	serverErr := listenAndServe(httpServer)
 	logger.Info("tentacron started", "version", version, "addr", cfg.Server.Addr,
 		"targets", len(cfg.Targets), "resolvents", len(cfg.Resolvents))
 
@@ -92,17 +93,33 @@ func run() error {
 		<-poolDone
 		return err
 	}
-
-	// Drain HTTP first, then stop workers: in-flight jobs abort their
-	// upstream calls and park themselves back to "received" for a clean
-	// retry after restart.
-	shutCtx, cancel := context.WithTimeout(context.Background(), cfg.Server.ShutdownGrace.Std())
-	defer cancel()
-	if err := httpServer.Shutdown(shutCtx); err != nil {
-		logger.Warn("http shutdown incomplete", "error", err)
-	}
+	drainHTTP(cfg, logger, httpServer)
 	cancelWorkers()
 	<-poolDone
 	logger.Info("tentacron stopped")
 	return nil
+}
+
+// listenAndServe starts the HTTP server and reports a fatal listen error on
+// the returned channel; a clean Shutdown is not an error.
+func listenAndServe(srv *http.Server) <-chan error {
+	errc := make(chan error, 1)
+	go func() {
+		if err := srv.ListenAndServe(); !errors.Is(err, http.ErrServerClosed) {
+			errc <- err
+		}
+	}()
+	return errc
+}
+
+// drainHTTP stops accepting requests and waits out in-flight ones within the
+// grace window. Workers are cancelled by the caller afterwards: in-flight
+// jobs abort their upstream calls and park themselves back to "received"
+// for a clean retry after restart.
+func drainHTTP(cfg *config.Config, logger *slog.Logger, srv *http.Server) {
+	ctx, cancel := context.WithTimeout(context.Background(), cfg.Server.ShutdownGrace.Std())
+	defer cancel()
+	if err := srv.Shutdown(ctx); err != nil {
+		logger.Warn("http shutdown incomplete", "error", err)
+	}
 }
