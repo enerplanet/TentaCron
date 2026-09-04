@@ -15,7 +15,14 @@ linters:
     - gosec
     - misspell
     - gocritic
+    - funlen
   settings:
+    funlen:
+      # Production functions stay short and single-purpose; table-driven
+      # tests are exempt below because their length is data, not logic.
+      lines: 50
+      statements: 40
+      ignore-comments: true
     errcheck:
       exclude-functions:
         - (io.Closer).Close
@@ -30,3 +37,4 @@ linters:
       - path: _test\.go
         linters:
           - gosec
+          - funlen
