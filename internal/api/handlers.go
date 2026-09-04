@@ -31,49 +31,68 @@ type createResponse struct {
 // the client error response itself when the request is unusable.
 func (s *Server) decodeCreateRequest(w http.ResponseWriter, r *http.Request) (createRequest, bool) {
 	var req createRequest
-	// The header is required, as documented: mime.ParseMediaType("") errors,
-	// so an absent Content-Type takes the same 415 path as a wrong one.
+	if !requireJSON(w, r) {
+		return req, false
+	}
+	r.Body = http.MaxBytesReader(w, r.Body, s.cfg.Server.MaxBodyBytes)
+	if !decodeSingleObject(w, r.Body, &req) {
+		return req, false
+	}
+	if status, code, msg := validateCreateRequest(req); code != "" {
+		writeError(w, status, code, msg)
+		return req, false
+	}
+	return req, true
+}
+
+// requireJSON enforces the documented Content-Type. An absent header takes
+// the same 415 path as a wrong one: mime.ParseMediaType("") errors.
+func requireJSON(w http.ResponseWriter, r *http.Request) bool {
 	if mt, _, err := mime.ParseMediaType(r.Header.Get("Content-Type")); err != nil || mt != "application/json" {
 		writeError(w, http.StatusUnsupportedMediaType, CodeUnsupportedMediaType,
 			"Content-Type must be application/json")
-		return req, false
+		return false
 	}
+	return true
+}
 
-	r.Body = http.MaxBytesReader(w, r.Body, s.cfg.Server.MaxBodyBytes)
-	dec := json.NewDecoder(r.Body)
-	if err := dec.Decode(&req); err != nil {
+// decodeSingleObject decodes exactly one JSON value from body: an oversized
+// body is 413, a malformed one or trailing data 400.
+func decodeSingleObject(w http.ResponseWriter, body io.Reader, dst any) bool {
+	dec := json.NewDecoder(body)
+	if err := dec.Decode(dst); err != nil {
 		var maxErr *http.MaxBytesError
 		if errors.As(err, &maxErr) {
 			writeError(w, http.StatusRequestEntityTooLarge, CodePayloadTooLarge,
 				"request body exceeds the configured limit")
-			return req, false
+			return false
 		}
 		writeError(w, http.StatusBadRequest, CodeInvalidJSON, "request body is not valid JSON")
-		return req, false
+		return false
 	}
 	// Decode stops after the first JSON value; anything but EOF behind it
 	// means the body was not a single JSON object.
 	if err := dec.Decode(new(struct{})); !errors.Is(err, io.EOF) {
 		writeError(w, http.StatusBadRequest, CodeInvalidJSON, "request body contains trailing data")
-		return req, false
+		return false
 	}
+	return true
+}
 
+// validateCreateRequest checks the required fields; an empty code means the
+// request is well-formed.
+func validateCreateRequest(req createRequest) (status int, code, msg string) {
 	switch {
 	case req.APIKey == "":
-		writeError(w, http.StatusBadRequest, CodeMissingField, "api_key is required")
-		return req, false
+		return http.StatusBadRequest, CodeMissingField, "api_key is required"
 	case req.Target == "":
-		writeError(w, http.StatusBadRequest, CodeMissingField, "target is required")
-		return req, false
+		return http.StatusBadRequest, CodeMissingField, "target is required"
 	case len(req.Payload) == 0 || string(req.Payload) == "null":
-		writeError(w, http.StatusBadRequest, CodeMissingField, "payload is required")
-		return req, false
+		return http.StatusBadRequest, CodeMissingField, "payload is required"
+	case !strings.HasPrefix(strings.TrimSpace(string(req.Payload)), "{"):
+		return http.StatusBadRequest, CodeInvalidJSON, "payload must be a JSON object"
 	}
-	if trimmed := strings.TrimSpace(string(req.Payload)); !strings.HasPrefix(trimmed, "{") {
-		writeError(w, http.StatusBadRequest, CodeInvalidJSON, "payload must be a JSON object")
-		return req, false
-	}
-	return req, true
+	return 0, "", ""
 }
 
 func (s *Server) handleCreate(w http.ResponseWriter, r *http.Request) {
@@ -91,7 +110,12 @@ func (s *Server) handleCreate(w http.ResponseWriter, r *http.Request) {
 			"target "+strconv.Quote(req.Target)+" is not configured")
 		return
 	}
+	s.acceptJob(w, r, req, client)
+}
 
+// acceptJob persists the request as a new job — or replays the stored one
+// under its Idempotency-Key — and answers 202 with the job's current state.
+func (s *Server) acceptJob(w http.ResponseWriter, r *http.Request, req createRequest, client string) {
 	id, err := store.NewID()
 	if err != nil {
 		s.internalError(w, "id generation failed", err)
@@ -117,16 +141,22 @@ func (s *Server) handleCreate(w http.ResponseWriter, r *http.Request) {
 	}
 	if created {
 		s.logger.Info("job accepted", "job_id", stored.ID, "target", stored.Target, "client", client)
-		select {
-		case s.nudge <- struct{}{}:
-		default:
-		}
+		s.wakeWorkers()
 	}
 	writeJSON(w, http.StatusAccepted, createResponse{
 		ID:    stored.ID,
 		State: stored.State,
 		Links: map[string]string{"self": "/v1/requests/" + stored.ID},
 	})
+}
+
+// wakeWorkers nudges the pool without blocking: a full channel means a
+// wake-up is already pending.
+func (s *Server) wakeWorkers() {
+	select {
+	case s.nudge <- struct{}{}:
+	default:
+	}
 }
 
 type jobResponse struct {
@@ -190,22 +220,9 @@ func (s *Server) handleList(w http.ResponseWriter, r *http.Request) {
 	if !s.authFromHeader(w, r) {
 		return
 	}
-	state := r.URL.Query().Get("state")
-	switch state {
-	case "", store.StateReceived, store.StateResolving, store.StateForwarding,
-		store.StateAwaitingTarget, store.StateCompleted, store.StateFailed:
-	default:
-		writeError(w, http.StatusBadRequest, CodeInvalidParameter, "unknown state filter "+strconv.Quote(state))
+	state, limit, ok := listParams(w, r)
+	if !ok {
 		return
-	}
-	limit := 50
-	if raw := r.URL.Query().Get("limit"); raw != "" {
-		n, err := strconv.Atoi(raw)
-		if err != nil || n < 1 {
-			writeError(w, http.StatusBadRequest, CodeInvalidParameter, "limit must be a positive integer")
-			return
-		}
-		limit = min(n, 200)
 	}
 	jobs, err := s.store.ListJobs(r.Context(), state, limit)
 	if err != nil {
@@ -217,6 +234,29 @@ func (s *Server) handleList(w http.ResponseWriter, r *http.Request) {
 		items = append(items, toJobResponse(j))
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"items": items})
+}
+
+// listParams validates the state filter and the limit, answering 400 itself
+// for bad values. The limit defaults to 50 and is capped at 200.
+func listParams(w http.ResponseWriter, r *http.Request) (state string, limit int, ok bool) {
+	state = r.URL.Query().Get("state")
+	switch state {
+	case "", store.StateReceived, store.StateResolving, store.StateForwarding,
+		store.StateAwaitingTarget, store.StateCompleted, store.StateFailed:
+	default:
+		writeError(w, http.StatusBadRequest, CodeInvalidParameter, "unknown state filter "+strconv.Quote(state))
+		return "", 0, false
+	}
+	limit = 50
+	if raw := r.URL.Query().Get("limit"); raw != "" {
+		n, err := strconv.Atoi(raw)
+		if err != nil || n < 1 {
+			writeError(w, http.StatusBadRequest, CodeInvalidParameter, "limit must be a positive integer")
+			return "", 0, false
+		}
+		limit = min(n, 200)
+	}
+	return state, limit, true
 }
 
 func (s *Server) handleResult(w http.ResponseWriter, r *http.Request) {
@@ -231,35 +271,39 @@ func (s *Server) handleResult(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusNotFound, CodeNotFound, "result not available (state: "+job.State+")")
 		return
 	}
-	if job.ResultPath != "" {
-		f, err := os.Open(job.ResultPath) // #nosec G304 G703 -- path is written by the worker, never taken from request input
-		if errors.Is(err, fs.ErrNotExist) {
-			// The retention sweeper removes files just before their rows; a
-			// request landing in that window gets a 404, not a 500.
-			s.logger.Warn("result file already pruned", "job_id", job.ID, "path", job.ResultPath)
-			writeError(w, http.StatusNotFound, CodeNotFound, "result no longer available")
-			return
-		}
-		if err != nil {
-			s.logger.Error("result file unreadable", "job_id", job.ID, "path", job.ResultPath, "error", err)
-			writeError(w, http.StatusInternalServerError, CodeInternal, "stored result is unavailable")
-			return
-		}
-		defer f.Close()
-		ct := job.ResultContentType
-		if ct == "" {
-			ct = "application/octet-stream"
-		}
-		w.Header().Set("Content-Type", ct)
-		_, _ = io.Copy(w, f)
-		return
-	}
-	if len(job.TargetResponse) > 0 && json.Valid(job.TargetResponse) {
+	switch {
+	case job.ResultPath != "":
+		s.serveResultFile(w, job)
+	case len(job.TargetResponse) > 0 && json.Valid(job.TargetResponse):
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = w.Write(job.TargetResponse) // #nosec G705 -- served as application/json, never rendered as HTML
+	default:
+		writeError(w, http.StatusNotFound, CodeNotFound, "job completed without a stored result body")
+	}
+}
+
+// serveResultFile streams a file-backed result with its recorded content
+// type. The retention sweeper removes files just before their rows; a
+// request landing in that window gets a 404, not a 500.
+func (s *Server) serveResultFile(w http.ResponseWriter, job *store.Job) {
+	f, err := os.Open(job.ResultPath) // #nosec G304 G703 -- path is written by the worker, never taken from request input
+	if errors.Is(err, fs.ErrNotExist) {
+		s.logger.Warn("result file already pruned", "job_id", job.ID, "path", job.ResultPath)
+		writeError(w, http.StatusNotFound, CodeNotFound, "result no longer available")
 		return
 	}
-	writeError(w, http.StatusNotFound, CodeNotFound, "job completed without a stored result body")
+	if err != nil {
+		s.logger.Error("result file unreadable", "job_id", job.ID, "path", job.ResultPath, "error", err)
+		writeError(w, http.StatusInternalServerError, CodeInternal, "stored result is unavailable")
+		return
+	}
+	defer f.Close()
+	ct := job.ResultContentType
+	if ct == "" {
+		ct = "application/octet-stream"
+	}
+	w.Header().Set("Content-Type", ct)
+	_, _ = io.Copy(w, f)
 }
 
 func (s *Server) handleHealthz(w http.ResponseWriter, _ *http.Request) {
@@ -288,20 +332,30 @@ func toJobResponse(j *store.Job) jobResponse {
 		s := j.CompletedAt.UTC().Format(time.RFC3339)
 		resp.CompletedAt = &s
 	}
-	if j.State == store.StateCompleted && j.TargetStatus != nil {
-		res := &resultInfo{TargetStatus: *j.TargetStatus}
-		if j.ResultPath != "" {
-			res.Href = "/v1/requests/" + j.ID + "/result"
-			res.ContentType = j.ResultContentType
-		} else if len(j.TargetResponse) > 0 {
-			res.TargetResponse = rawOrQuoted(j.TargetResponse)
-		}
-		resp.Result = res
+	if j.State == store.StateCompleted {
+		resp.Result = resultInfoFor(j)
 	}
 	if j.State == store.StateFailed {
 		resp.Error = &errorInfo{Code: j.ErrorCode, Message: j.ErrorMessage}
 	}
 	return resp
+}
+
+// resultInfoFor describes a completed job's result: a file-backed result is
+// referenced by href, inline JSON is embedded.
+func resultInfoFor(j *store.Job) *resultInfo {
+	if j.TargetStatus == nil {
+		return nil
+	}
+	res := &resultInfo{TargetStatus: *j.TargetStatus}
+	switch {
+	case j.ResultPath != "":
+		res.Href = "/v1/requests/" + j.ID + "/result"
+		res.ContentType = j.ResultContentType
+	case len(j.TargetResponse) > 0:
+		res.TargetResponse = rawOrQuoted(j.TargetResponse)
+	}
+	return res
 }
 
 // rawOrQuoted embeds upstream bytes as-is when they are valid JSON and as a
