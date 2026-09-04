@@ -539,6 +539,17 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
+  <a href="#authentication" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Authentication
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#post-v1requests" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -819,6 +830,20 @@
 <p>All requests and responses are JSON. Errors always use one shape:</p>
 <div class="language-json highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="p">{</span><span class="w"> </span><span class="nt">"error"</span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="nt">"code"</span><span class="p">:</span><span class="w"> </span><span class="s2">"unknown_target"</span><span class="p">,</span><span class="w"> </span><span class="nt">"message"</span><span class="p">:</span><span class="w"> </span><span class="s2">"target \"buem2\" is not configured"</span><span class="w"> </span><span class="p">}</span><span class="w"> </span><span class="p">}</span>
 </span></code></pre></div>
+<h2 id="authentication">Authentication<a class="headerlink" href="#authentication" title="Permanent link">&para;</a></h2>
+<p>Clients authenticate with a named key from <code>auth.api_keys</code>:</p>
+<ul>
+<li><code>POST /v1/requests</code> reads the key from the body's <code>api_key</code> field. It is
+  compared in constant time, never stored and never forwarded.</li>
+<li>Every <code>GET /v1/requests…</code> endpoint reads it from the <code>X-API-Key</code> header
+  and answers <code>401 unauthorized</code> when it is missing or unknown.</li>
+<li>The key's name identifies the client in logs (<code>client</code>) and scopes its
+  idempotency keys. It does <strong>not</strong> partition visibility: any valid key can
+  read any request. Health endpoints are unauthenticated.</li>
+</ul>
+<p>Every response carries an <code>X-Request-ID</code> header — echoed from the request
+when supplied, generated otherwise — which is also the <code>request_id</code> field of
+the corresponding log line.</p>
 <h2 id="post-v1requests">POST /v1/requests<a class="headerlink" href="#post-v1requests" title="Permanent link">&para;</a></h2>
 <p>Submit a request for orchestration.</p>
 <p><strong>Body</strong></p>
@@ -844,7 +869,7 @@
 <tr>
 <td><code>payload</code></td>
 <td>object</td>
-<td>The body to resolve and forward to the target.</td>
+<td>The body to resolve and forward to the target. Must be a JSON object.</td>
 </tr>
 </tbody>
 </table>
@@ -853,14 +878,17 @@
 <li><code>Content-Type: application/json</code> (required)</li>
 <li><code>Idempotency-Key</code> (optional) — scoped to the authenticated client.
   Resubmitting the identical request (same target and payload) with the same
-  key returns the original request id instead of creating a duplicate;
-  reusing the key with a <em>different</em> request is rejected with <code>409</code>.</li>
+  key returns <code>202</code> with the original request id and its <em>current</em> state
+  (possibly already <code>completed</code>) instead of creating a duplicate; reusing
+  the key with a <em>different</em> target or payload is rejected with <code>409</code>.
+  Another client may use the same key value independently.</li>
 </ul>
 <p><strong>Responses</strong></p>
 <ul>
 <li><code>202 Accepted</code> — <code>{ "id": "…", "state": "received", "links": { "self": "/v1/requests/…" } }</code></li>
-<li><code>400 invalid_json</code> / <code>missing_field</code> — malformed body (including trailing
-  data after the JSON object) or missing field</li>
+<li><code>400 invalid_json</code> — body is not valid JSON, has trailing data after the
+  JSON object, or <code>payload</code> is not a JSON object</li>
+<li><code>400 missing_field</code> — <code>api_key</code>, <code>target</code> or <code>payload</code> absent (or <code>null</code>)</li>
 <li><code>401 unauthorized</code> — unknown api key</li>
 <li><code>409 idempotency_conflict</code> — <code>Idempotency-Key</code> already used with a
   different target or payload</li>
@@ -868,8 +896,9 @@
 <li><code>415 unsupported_media_type</code> — <code>Content-Type: application/json</code> is required</li>
 <li><code>422 unknown_target</code> — target not configured</li>
 </ul>
+<p>Validation happens in that order: an unknown target is only reported once
+the key has been accepted.</p>
 <h2 id="get-v1requestsid">GET /v1/requests/{id}<a class="headerlink" href="#get-v1requestsid" title="Permanent link">&para;</a></h2>
-<p>Authenticated via the <code>X-API-Key</code> header.</p>
 <div class="language-json highlight"><pre><span></span><code><span id="__span-1-1"><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="p">{</span>
 </span><span id="__span-1-2"><a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a><span class="w">  </span><span class="nt">"id"</span><span class="p">:</span><span class="w"> </span><span class="s2">"6f1c9be2…"</span><span class="p">,</span>
 </span><span id="__span-1-3"><a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a><span class="w">  </span><span class="nt">"target"</span><span class="p">:</span><span class="w"> </span><span class="s2">"meme"</span><span class="p">,</span>
@@ -886,25 +915,37 @@
 <ul>
 <li><code>state</code> is one of <code>received</code>, <code>resolving</code>, <code>forwarding</code>, <code>awaiting_target</code>,
   <code>completed</code>, <code>failed</code>.</li>
-<li>Small JSON results are embedded as <code>result.target_response</code>; large or binary
-  results (e.g. a MEME bundle) are referenced as <code>result.href</code> +
-  <code>result.content_type</code>.</li>
+<li><code>attempts</code> counts processing attempts (resolution + forwarding); it is
+  incremented when a worker claims the job, so a crash mid-attempt still
+  counts.</li>
+<li><code>target_job_id</code> appears once a poll-mode target accepted the job;
+  <code>completed_at</code> once the job is terminal (completed <em>or</em> failed).</li>
+<li><code>result</code> is <code>null</code> until the job is <code>completed</code>. JSON results up to
+  256 KiB are embedded as <code>result.target_response</code>; larger or non-JSON
+  results (e.g. a MEME zip bundle) are stored as files and referenced as
+  <code>result.href</code> + <code>result.content_type</code>. <code>target_status</code> is the HTTP status
+  of the target's final response (<code>200</code> for a fetched poll result).</li>
 <li>Failed jobs carry <code>error.code</code>/<code>error.message</code>; job-level codes are
   <code>invalid_payload</code>, <code>unknown_target</code>, <code>unknown_resolvent</code>, <code>resource_error</code>,
   <code>invalid_resource_response</code>, <code>target_error</code>, <code>target_job_failed</code>,
-  <code>target_timeout</code>, <code>max_attempts_exceeded</code>, <code>internal</code>.</li>
+  <code>target_timeout</code>, <code>max_attempts_exceeded</code>, <code>internal</code>. Messages that quote
+  an upstream response have every configured downstream credential redacted
+  and are truncated to 512 bytes. See
+  <a href="../operations/#failure-handling">Operations → Failure handling</a> for which
+  situation produces which code.</li>
 </ul>
 <p><code>404 not_found</code> for unknown ids.</p>
 <h2 id="get-v1requestsidresult">GET /v1/requests/{id}/result<a class="headerlink" href="#get-v1requestsidresult" title="Permanent link">&para;</a></h2>
-<p>Streams the stored result with its recorded content type. Available once the
-request is <code>completed</code>; <code>404</code> otherwise.</p>
+<p>Serves the stored result once the request is <code>completed</code>: an inline JSON
+result as <code>application/json</code>, a result file streamed with its recorded
+content type (e.g. <code>application/zip</code>). <code>404 not_found</code> while the job is not
+completed, when it completed without a result body, or after the result was
+pruned by retention.</p>
 <h2 id="get-v1requests">GET /v1/requests<a class="headerlink" href="#get-v1requests" title="Permanent link">&para;</a></h2>
-<p>List recent requests, newest first. Authenticated via the <code>X-API-Key</code> header,
-exactly like <code>GET /v1/requests/{id}</code> — the same applies to
-<code>GET /v1/requests/{id}/result</code>. Query parameters: <code>state</code> (filter by job
-state) and <code>limit</code> (default 50, max 200); invalid values answer
-<code>400 invalid_parameter</code> (unknown state filter, or limit not a positive
-integer).</p>
+<p>List recent requests, newest first. Query parameters: <code>state</code> (filter by job
+state) and <code>limit</code> (default 50, max 200 — larger values are capped); invalid
+values answer <code>400 invalid_parameter</code> (unknown state filter, or limit not a
+positive integer). Items have the same shape as <code>GET /v1/requests/{id}</code>.</p>
 <div class="language-json highlight"><pre><span></span><code><span id="__span-2-1"><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a><span class="p">{</span><span class="w"> </span><span class="nt">"items"</span><span class="p">:</span><span class="w"> </span><span class="p">[</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="nt">"id"</span><span class="p">:</span><span class="w"> </span><span class="s2">"…"</span><span class="p">,</span><span class="w"> </span><span class="nt">"state"</span><span class="p">:</span><span class="w"> </span><span class="s2">"failed"</span><span class="p">,</span><span class="w"> </span><span class="nt">"error"</span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="nt">"code"</span><span class="p">:</span><span class="w"> </span><span class="s2">"target_timeout"</span><span class="p">,</span><span class="w"> </span><span class="nt">"message"</span><span class="p">:</span><span class="w"> </span><span class="s2">"…"</span><span class="w"> </span><span class="p">}</span><span class="w"> </span><span class="p">}</span><span class="w"> </span><span class="p">]</span><span class="w"> </span><span class="p">}</span>
 </span></code></pre></div>
 <h2 id="health">Health<a class="headerlink" href="#health" title="Permanent link">&para;</a></h2>
@@ -913,6 +954,7 @@ integer).</p>
 <li><code>GET /readyz</code> — <code>200</code> once migrations ran and the database answers,
   <code>503</code> otherwise.</li>
 </ul>
+<p>Any other route answers <code>404 not_found</code> in the standard error shape.</p>
 
 
 
@@ -935,7 +977,7 @@ integer).</p>
     <span class="md-icon" title="Last update">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13.1c-.1 0-.3.1-.4.2l-1 1 2.1 2.1 1-1c.2-.2.2-.6 0-.8l-1.3-1.3c-.1-.1-.2-.2-.4-.2m-1.9 1.8-6.1 6V23h2.1l6.1-6.1zM12.5 7v5.2l4 2.4-1 1L11 13V7zM11 21.9c-5.1-.5-9-4.8-9-9.9C2 6.5 6.5 2 12 2c5.3 0 9.6 4.1 10 9.3-.3-.1-.6-.2-1-.2s-.7.1-1 .2C19.6 7.2 16.2 4 12 4c-4.4 0-8 3.6-8 8 0 4.1 3.1 7.5 7.1 7.9l-.1.2z"/></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="September 4, 2026 01:14:38 UTC">September 4, 2026</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="September 4, 2026 10:38:30 UTC">September 4, 2026</span>
   </span>
 
     

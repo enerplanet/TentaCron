@@ -847,7 +847,10 @@
   reverse proxy (Caddy, nginx, Traefik) for TLS and rate limiting.</li>
 <li><strong>Secrets via environment.</strong> The YAML config references <code>${VARS}</code>; supply
   them through your orchestrator's secret mechanism. Startup fails fast if a
-  referenced variable is unset.</li>
+  referenced variable is unset, and the reference config needs
+  <code>TENTACRON_KEY_FRONTEND</code>, <code>TENTACRON_KEY_BATCH</code>, <code>MEME_API_KEY</code>,
+  <code>BUEM_API_KEY</code>, <code>PV1_API_KEY</code>, <code>WIND_API_KEY</code>, <code>WEATHER_API_KEY</code> and
+  <code>IGNIS_API_KEY</code>.</li>
 <li><strong>Persistent storage</strong> for <code>storage.path</code> and <code>storage.results_dir</code>
   (the containerized setup writes both under the bind-mounted repo's <code>data/</code>).</li>
 </ul>
@@ -856,6 +859,9 @@
 </span><span id="__span-0-3"><a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a><span class="c1"># or directly on the host:</span>
 </span><span id="__span-0-4"><a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a>make<span class="w"> </span>build<span class="w"> </span><span class="o">&amp;&amp;</span><span class="w"> </span>./bin/tentacron<span class="w"> </span>-config<span class="w"> </span>/etc/tentacron/config.yaml
 </span></code></pre></div>
+<p>Before pointing production traffic at a config, run one real request through
+it with the env-gated live tier (<code>make live</code>, see
+<a href="https://github.com/enerplanet/tentacron/blob/main/test/README.md">test/README.md</a>).</p>
 <h2 id="health-and-readiness">Health and readiness<a class="headerlink" href="#health-and-readiness" title="Permanent link">&para;</a></h2>
 <ul>
 <li><code>GET /healthz</code> — process liveness.</li>
@@ -863,48 +869,87 @@
   your orchestrator's readiness probe.</li>
 </ul>
 <h2 id="logs">Logs<a class="headerlink" href="#logs" title="Permanent link">&para;</a></h2>
-<p>Structured JSON on stdout (<code>log/slog</code>). Useful fields: <code>request_id</code> (echoed
-from/into <code>X-Request-ID</code>), <code>job_id</code>, <code>target</code>, <code>attempt</code>, <code>client</code> (the name
-of the API key used), <code>error</code>. API keys are never logged; upstream error
-bodies have every configured downstream credential redacted and are then
-truncated to 512 bytes — a resource or target API echoing the request back
-in an error cannot leak a key into logs, the audit store, or API responses.</p>
+<p>Structured JSON on stdout (<code>log/slog</code>). One line per HTTP request
+(<code>request_id</code> echoed from/into <code>X-Request-ID</code>, <code>method</code>, <code>path</code>, <code>status</code>,
+<code>duration_ms</code>) and one per job transition (<code>job_id</code>, <code>target</code>, <code>attempt</code>,
+<code>client</code> — the name of the API key used — <code>error</code>). Substitution warnings
+(e.g. a series without <code>"type": "time-series"</code>) are logged at <code>WARN</code> and do
+not fail the job. API keys are never logged; upstream error bodies have every
+configured downstream credential redacted and are then truncated to 512
+bytes — a resource or target API echoing the request back in an error cannot
+leak a key into logs, the audit store, or API responses.</p>
 <h2 id="inspecting-state">Inspecting state<a class="headerlink" href="#inspecting-state" title="Permanent link">&para;</a></h2>
 <p>The SQLite file is the source of truth and safe to read while the service
 runs (WAL mode):</p>
 <div class="language-bash highlight"><pre><span></span><code><span id="__span-1-1"><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a>sqlite3<span class="w"> </span>data/tentacron.db<span class="w"> </span><span class="s2">"select state, count(*) from jobs group by 1"</span>
 </span><span id="__span-1-2"><a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a>sqlite3<span class="w"> </span>data/tentacron.db<span class="w"> </span><span class="s2">"select from_state, to_state, detail, created_at</span>
 </span><span id="__span-1-3"><a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a><span class="s2">                           from job_events where job_id = '&lt;id&gt;' order by id"</span>
+</span><span id="__span-1-4"><a id="__codelineno-1-4" name="__codelineno-1-4" href="#__codelineno-1-4"></a>sqlite3<span class="w"> </span>data/tentacron.db<span class="w"> </span><span class="s2">"select resolvent_type, count(*), min(expires_at)</span>
+</span><span id="__span-1-5"><a id="__codelineno-1-5" name="__codelineno-1-5" href="#__codelineno-1-5"></a><span class="s2">                           from series_cache group by 1"</span>
 </span></code></pre></div>
-<p>Or via the API: <code>GET /v1/requests?state=failed</code>.</p>
+<p><code>jobs.payload</code> holds the request as accepted (client key stripped),
+<code>jobs.resolved_payload</code> what was forwarded. Or via the API:
+<code>GET /v1/requests?state=failed</code>.</p>
 <h2 id="failure-handling">Failure handling<a class="headerlink" href="#failure-handling" title="Permanent link">&para;</a></h2>
 <table>
 <thead>
 <tr>
 <th>Situation</th>
-<th>Behaviour</th>
+<th>Behaviour / job error code</th>
 </tr>
 </thead>
 <tbody>
 <tr>
 <td>Resource/target 5xx, 429, timeout, network error</td>
-<td>Retry with capped exponential backoff, up to <code>worker.max_attempts</code>.</td>
+<td>Retry with capped exponential backoff, up to <code>worker.max_attempts</code>; then <code>max_attempts_exceeded</code>.</td>
 </tr>
 <tr>
-<td>Resource/target 4xx</td>
+<td><code>worker.job_timeout</code> hit or shutdown during an attempt</td>
+<td>Treated as transient: requeued for a clean retry.</td>
+</tr>
+<tr>
+<td>Resource/target other non-2xx (4xx, redirects) or oversized response</td>
 <td>Fail immediately (<code>resource_error</code> / <code>target_error</code>).</td>
+</tr>
+<tr>
+<td>Resource response not a JSON object, <code>null</code>, or <code>response_path</code> missing</td>
+<td><code>invalid_resource_response</code>.</td>
 </tr>
 <tr>
 <td>Unknown resolvent type</td>
 <td>Fail before any HTTP call (<code>unknown_resolvent</code>).</td>
 </tr>
 <tr>
-<td>Target job reports failure</td>
+<td>Target URL <code>{field}</code> placeholder without a string/number payload field</td>
+<td><code>target_error</code>.</td>
+</tr>
+<tr>
+<td>Target removed from the config while jobs are queued</td>
+<td><code>unknown_target</code>.</td>
+</tr>
+<tr>
+<td>Accept response without a usable job id (poll mode)</td>
+<td><code>target_error</code>.</td>
+</tr>
+<tr>
+<td>Status poll fails permanently (4xx, status path missing)</td>
+<td><code>target_error</code>.</td>
+</tr>
+<tr>
+<td>Target job reports a <code>failed_values</code> status</td>
 <td><code>target_job_failed</code>.</td>
 </tr>
 <tr>
-<td>Target job not done before <code>poll.timeout</code></td>
+<td>Target job not done before <code>poll.timeout</code> (or status endpoint unreachable past it)</td>
 <td><code>target_timeout</code>.</td>
+</tr>
+<tr>
+<td>Result fetch fails transiently</td>
+<td>Retried next poll tick; <code>target_error</code> once the poll deadline has passed.</td>
+</tr>
+<tr>
+<td>Panic or result file write failure</td>
+<td><code>internal</code>.</td>
 </tr>
 <tr>
 <td>Process restart</td>
@@ -920,9 +965,15 @@ runs (WAL mode):</p>
 failed request, resubmit it — identical resolvents within the cache TTL are
 served from cache.</p>
 <h2 id="housekeeping">Housekeeping<a class="headerlink" href="#housekeeping" title="Permanent link">&para;</a></h2>
-<p>A background sweeper (every <code>cache.cleanup_interval</code>) removes expired series
-cache rows and prunes terminal jobs older than <code>storage.retention</code>, including
-their result files.</p>
+<p>A background sweeper (every <code>cache.cleanup_interval</code>):</p>
+<ul>
+<li>removes expired series cache rows;</li>
+<li>rescues jobs stranded in <code>resolving</code>/<code>forwarding</code> without a schedule (a
+  failed bookkeeping write) once they are untouched for twice
+  <code>worker.job_timeout</code>;</li>
+<li>prunes terminal jobs older than <code>storage.retention</code>, deleting their result
+  files before their rows so a crash in between never orphans a file.</li>
+</ul>
 <h2 id="roadmap-notes-v2">Roadmap notes (v2)<a class="headerlink" href="#roadmap-notes-v2" title="Permanent link">&para;</a></h2>
 <ul>
 <li>Prometheus <code>/metrics</code> (job states, upstream latencies, cache hit ratio).</li>
@@ -952,7 +1003,7 @@ their result files.</p>
     <span class="md-icon" title="Last update">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13.1c-.1 0-.3.1-.4.2l-1 1 2.1 2.1 1-1c.2-.2.2-.6 0-.8l-1.3-1.3c-.1-.1-.2-.2-.4-.2m-1.9 1.8-6.1 6V23h2.1l6.1-6.1zM12.5 7v5.2l4 2.4-1 1L11 13V7zM11 21.9c-5.1-.5-9-4.8-9-9.9C2 6.5 6.5 2 12 2c5.3 0 9.6 4.1 10 9.3-.3-.1-.6-.2-1-.2s-.7.1-1 .2C19.6 7.2 16.2 4 12 4c-4.4 0-8 3.6-8 8 0 4.1 3.1 7.5 7.1 7.9l-.1.2z"/></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="September 3, 2026 20:30:10 UTC">September 3, 2026</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="September 4, 2026 10:38:30 UTC">September 4, 2026</span>
   </span>
 
     

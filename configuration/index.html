@@ -645,6 +645,17 @@
       <ul class="md-nav__list">
         
           <li class="md-nav__item">
+  <a href="#post-resolvents" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        POST resolvents
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
   <a href="#get-resolvents-querypath-mapping" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -866,12 +877,13 @@
 
 
 <h1 id="configuration">Configuration<a class="headerlink" href="#configuration" title="Permanent link">&para;</a></h1>
-<p>Tentacron reads one YAML file (<code>-config</code> flag). <code>${VAR}</code> references anywhere
-in the file are interpolated from the environment at startup; referencing an
-unset variable aborts startup so the service never runs with empty
-credentials. <code>$$</code> escapes a literal <code>$</code>. Unknown keys are rejected.</p>
+<p>Tentacron reads one YAML file (<code>-config</code> flag, default <code>config.yaml</code>).
+<code>${VAR}</code> references anywhere in the file are interpolated from the
+environment at startup; referencing an unset variable aborts startup so the
+service never runs with empty credentials. <code>$$</code> escapes a literal <code>$</code>.
+Unknown keys are rejected, and every validation problem is reported at once.</p>
 <p>See <a href="https://github.com/enerplanet/tentacron/blob/main/config.example.yaml"><code>config.example.yaml</code></a>
-for a complete annotated example.</p>
+for a complete annotated example covering every integration below.</p>
 <h2 id="server">server<a class="headerlink" href="#server" title="Permanent link">&para;</a></h2>
 <table>
 <thead>
@@ -915,8 +927,9 @@ for a complete annotated example.</p>
 </span><span id="__span-0-3"><a id="__codelineno-0-3" name="__codelineno-0-3" href="#__codelineno-0-3"></a><span class="w">    </span><span class="p p-Indicator">-</span><span class="w"> </span><span class="nt">name</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">frontend</span><span class="w">            </span><span class="c1"># names make keys individually revocable</span>
 </span><span id="__span-0-4"><a id="__codelineno-0-4" name="__codelineno-0-4" href="#__codelineno-0-4"></a><span class="w">      </span><span class="nt">key</span><span class="p">:</span><span class="w"> </span><span class="s">"${TENTACRON_KEY_FRONTEND}"</span>
 </span></code></pre></div>
-<p>At least one key is required. <code>POST</code> authenticates via the body's <code>api_key</code>;
-<code>GET</code> endpoints via the <code>X-API-Key</code> header.</p>
+<p>At least one key is required; names must be unique. <code>POST</code> authenticates via
+the body's <code>api_key</code>; <code>GET</code> endpoints via the <code>X-API-Key</code> header. The name
+appears in logs and scopes the client's idempotency keys.</p>
 <h2 id="storage">storage<a class="headerlink" href="#storage" title="Permanent link">&para;</a></h2>
 <table>
 <thead>
@@ -930,7 +943,7 @@ for a complete annotated example.</p>
 <tr>
 <td><code>path</code></td>
 <td><code>./data/tentacron.db</code></td>
-<td>SQLite database file.</td>
+<td>SQLite database file (parent directory is created).</td>
 </tr>
 <tr>
 <td><code>results_dir</code></td>
@@ -962,12 +975,12 @@ for a complete annotated example.</p>
 <tr>
 <td><code>resolvent_concurrency</code></td>
 <td><code>4</code></td>
-<td>Per-job fan-out bound to resource APIs.</td>
+<td>Per-job fan-out bound to resolvent backends.</td>
 </tr>
 <tr>
 <td><code>poll_interval</code></td>
 <td><code>2s</code></td>
-<td>Queue poll cadence (picks up scheduled retries).</td>
+<td>Queue poll cadence (picks up scheduled retries and poll ticks).</td>
 </tr>
 <tr>
 <td><code>max_attempts</code></td>
@@ -982,7 +995,7 @@ for a complete annotated example.</p>
 <tr>
 <td><code>job_timeout</code></td>
 <td><code>5m</code></td>
-<td>Deadline per processing attempt (resolution + forwarding).</td>
+<td>Deadline per processing attempt (resolution + forwarding); hitting it requeues the job.</td>
 </tr>
 </tbody>
 </table>
@@ -1004,35 +1017,144 @@ for a complete annotated example.</p>
 <tr>
 <td><code>cleanup_interval</code></td>
 <td><code>15m</code></td>
-<td>Sweep cadence for expired cache rows and retention pruning.</td>
+<td>Sweep cadence for expired cache rows, stuck-job rescue and retention pruning.</td>
 </tr>
 </tbody>
 </table>
-<p>Identical resolvent objects (same type + parameters, order-independent) share
-one cache entry — repeated requests don't re-hit the resource APIs.</p>
+<p>Identical resolvent objects (same type + parameters, key order irrelevant)
+share one cache entry — repeated requests don't re-hit the backends. The hash
+covers the whole object, so cosmetic fields such as <code>name</code> split entries.</p>
 <h2 id="targets">targets<a class="headerlink" href="#targets" title="Permanent link">&para;</a></h2>
 <p>One entry per downstream workflow; the request's <code>target</code> field selects it.</p>
+<table>
+<thead>
+<tr>
+<th>Key</th>
+<th>Default</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>url</code></td>
+<td>required</td>
+<td>http(s) URL. May contain <code>{field}</code> placeholders (see notes).</td>
+</tr>
+<tr>
+<td><code>method</code></td>
+<td><code>POST</code></td>
+<td><code>GET</code>, <code>POST</code>, <code>PUT</code> or <code>PATCH</code>.</td>
+</tr>
+<tr>
+<td><code>api_key</code></td>
+<td>–</td>
+<td>Credential for the target; required unless <code>api_key_inject</code> is <code>none</code>.</td>
+</tr>
+<tr>
+<td><code>api_key_inject</code></td>
+<td><code>header</code> if <code>api_key</code> is set, else <code>none</code></td>
+<td><code>none</code>, <code>body_field</code> or <code>header</code>.</td>
+</tr>
+<tr>
+<td><code>api_key_field</code></td>
+<td><code>api_key</code></td>
+<td>Top-level field added to the forwarded JSON (<code>body_field</code>).</td>
+</tr>
+<tr>
+<td><code>api_key_header</code></td>
+<td><code>X-API-Key</code></td>
+<td>Header carrying the key (<code>header</code>).</td>
+</tr>
+<tr>
+<td><code>timeout</code></td>
+<td><code>60s</code></td>
+<td>Per outbound call: the forward, each status poll, the result fetch.</td>
+</tr>
+<tr>
+<td><code>timeseries_path</code></td>
+<td><code>time-series</code></td>
+<td>Dot-separated path to the resolvent container; <code>"."</code> scans the whole payload.</td>
+</tr>
+<tr>
+<td><code>attach_resolvent</code></td>
+<td><code>true</code></td>
+<td>Keep the original resolvent object under the substituted series' <code>resolvent</code> key.</td>
+</tr>
+<tr>
+<td><code>proxy</code></td>
+<td><code>false</code></td>
+<td>Hand the payload through unresolved.</td>
+</tr>
+<tr>
+<td><code>response.mode</code></td>
+<td><code>direct</code></td>
+<td><code>direct</code> or <code>poll</code>.</td>
+</tr>
+<tr>
+<td><code>response.poll.id_json_path</code></td>
+<td>required for <code>poll</code></td>
+<td>Dot path to the job id in the accept response.</td>
+</tr>
+<tr>
+<td><code>response.poll.url_template</code></td>
+<td>required for <code>poll</code></td>
+<td>Status URL; must contain <code>{id}</code>.</td>
+</tr>
+<tr>
+<td><code>response.poll.result_url_template</code></td>
+<td><code>url_template</code></td>
+<td>Result URL once the job is done.</td>
+</tr>
+<tr>
+<td><code>response.poll.status_json_path</code></td>
+<td>required for <code>poll</code></td>
+<td>Dot path to the status value in the status response.</td>
+</tr>
+<tr>
+<td><code>response.poll.done_values</code></td>
+<td>required for <code>poll</code></td>
+<td>Status values meaning success.</td>
+</tr>
+<tr>
+<td><code>response.poll.failed_values</code></td>
+<td>–</td>
+<td>Status values meaning failure; must not overlap <code>done_values</code>.</td>
+</tr>
+<tr>
+<td><code>response.poll.interval</code></td>
+<td><code>10s</code></td>
+<td>Time between status polls.</td>
+</tr>
+<tr>
+<td><code>response.poll.timeout</code></td>
+<td><code>30m</code></td>
+<td>Poll deadline → <code>target_timeout</code>.</td>
+</tr>
+</tbody>
+</table>
+<p>An asynchronous target — the verified <a href="https://github.com/enerplanet/meme">meme</a>
+contract (<code>202</code> + <code>{"id": …, "state": "queued"}</code>, states
+<code>queued|running|succeeded|failed</code>, a zip bundle as result):</p>
 <div class="language-yaml highlight"><pre><span></span><code><span id="__span-1-1"><a id="__codelineno-1-1" name="__codelineno-1-1" href="#__codelineno-1-1"></a><span class="nt">targets</span><span class="p">:</span>
 </span><span id="__span-1-2"><a id="__codelineno-1-2" name="__codelineno-1-2" href="#__codelineno-1-2"></a><span class="w">  </span><span class="nt">meme</span><span class="p">:</span>
 </span><span id="__span-1-3"><a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a><span class="w">    </span><span class="nt">url</span><span class="p">:</span><span class="w"> </span><span class="s">"https://meme.example.com/simulate?target=all"</span>
-</span><span id="__span-1-4"><a id="__codelineno-1-4" name="__codelineno-1-4" href="#__codelineno-1-4"></a><span class="w">    </span><span class="nt">method</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">POST</span><span class="w">                        </span><span class="c1"># GET | POST | PUT | PATCH</span>
+</span><span id="__span-1-4"><a id="__codelineno-1-4" name="__codelineno-1-4" href="#__codelineno-1-4"></a><span class="w">    </span><span class="nt">method</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">POST</span>
 </span><span id="__span-1-5"><a id="__codelineno-1-5" name="__codelineno-1-5" href="#__codelineno-1-5"></a><span class="w">    </span><span class="nt">api_key</span><span class="p">:</span><span class="w"> </span><span class="s">"${MEME_API_KEY}"</span>
-</span><span id="__span-1-6"><a id="__codelineno-1-6" name="__codelineno-1-6" href="#__codelineno-1-6"></a><span class="w">    </span><span class="nt">api_key_inject</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">body_field</span><span class="w">          </span><span class="c1"># none | body_field | header</span>
-</span><span id="__span-1-7"><a id="__codelineno-1-7" name="__codelineno-1-7" href="#__codelineno-1-7"></a><span class="w">    </span><span class="nt">api_key_field</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">api_key</span><span class="w">              </span><span class="c1"># for body_field</span>
-</span><span id="__span-1-8"><a id="__codelineno-1-8" name="__codelineno-1-8" href="#__codelineno-1-8"></a><span class="w">    </span><span class="c1"># api_key_header: X-API-Key         # for header</span>
-</span><span id="__span-1-9"><a id="__codelineno-1-9" name="__codelineno-1-9" href="#__codelineno-1-9"></a><span class="w">    </span><span class="nt">timeout</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">60s</span>
-</span><span id="__span-1-10"><a id="__codelineno-1-10" name="__codelineno-1-10" href="#__codelineno-1-10"></a><span class="w">    </span><span class="nt">timeseries_path</span><span class="p">:</span><span class="w"> </span><span class="s">"model.timeseries"</span><span class="w"> </span><span class="c1"># where resolvents live in the payload</span>
-</span><span id="__span-1-11"><a id="__codelineno-1-11" name="__codelineno-1-11" href="#__codelineno-1-11"></a><span class="w">    </span><span class="nt">response</span><span class="p">:</span>
-</span><span id="__span-1-12"><a id="__codelineno-1-12" name="__codelineno-1-12" href="#__codelineno-1-12"></a><span class="w">      </span><span class="nt">mode</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">poll</span><span class="w">                        </span><span class="c1"># direct | poll</span>
-</span><span id="__span-1-13"><a id="__codelineno-1-13" name="__codelineno-1-13" href="#__codelineno-1-13"></a><span class="w">      </span><span class="nt">poll</span><span class="p">:</span>
-</span><span id="__span-1-14"><a id="__codelineno-1-14" name="__codelineno-1-14" href="#__codelineno-1-14"></a><span class="w">        </span><span class="nt">id_json_path</span><span class="p">:</span><span class="w"> </span><span class="s">"job_id"</span><span class="w">          </span><span class="c1"># job id in the accept response</span>
-</span><span id="__span-1-15"><a id="__codelineno-1-15" name="__codelineno-1-15" href="#__codelineno-1-15"></a><span class="w">        </span><span class="nt">url_template</span><span class="p">:</span><span class="w"> </span><span class="s">"https://meme.example.com/jobs/{id}"</span>
-</span><span id="__span-1-16"><a id="__codelineno-1-16" name="__codelineno-1-16" href="#__codelineno-1-16"></a><span class="w">        </span><span class="c1"># result_url_template defaults to url_template</span>
-</span><span id="__span-1-17"><a id="__codelineno-1-17" name="__codelineno-1-17" href="#__codelineno-1-17"></a><span class="w">        </span><span class="nt">status_json_path</span><span class="p">:</span><span class="w"> </span><span class="s">"status"</span>
-</span><span id="__span-1-18"><a id="__codelineno-1-18" name="__codelineno-1-18" href="#__codelineno-1-18"></a><span class="w">        </span><span class="nt">done_values</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="nv">done</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="nv">completed</span><span class="p p-Indicator">]</span>
-</span><span id="__span-1-19"><a id="__codelineno-1-19" name="__codelineno-1-19" href="#__codelineno-1-19"></a><span class="w">        </span><span class="nt">failed_values</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="nv">failed</span><span class="p p-Indicator">,</span><span class="w"> </span><span class="nv">error</span><span class="p p-Indicator">]</span>
-</span><span id="__span-1-20"><a id="__codelineno-1-20" name="__codelineno-1-20" href="#__codelineno-1-20"></a><span class="w">        </span><span class="nt">interval</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">10s</span>
-</span><span id="__span-1-21"><a id="__codelineno-1-21" name="__codelineno-1-21" href="#__codelineno-1-21"></a><span class="w">        </span><span class="nt">timeout</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">30m</span><span class="w">                    </span><span class="c1"># poll deadline -&gt; target_timeout</span>
+</span><span id="__span-1-6"><a id="__codelineno-1-6" name="__codelineno-1-6" href="#__codelineno-1-6"></a><span class="w">    </span><span class="nt">api_key_inject</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">body_field</span><span class="w">          </span><span class="c1"># meme expects a top-level api_key in the body</span>
+</span><span id="__span-1-7"><a id="__codelineno-1-7" name="__codelineno-1-7" href="#__codelineno-1-7"></a><span class="w">    </span><span class="nt">api_key_field</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">api_key</span>
+</span><span id="__span-1-8"><a id="__codelineno-1-8" name="__codelineno-1-8" href="#__codelineno-1-8"></a><span class="w">    </span><span class="nt">timeout</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">60s</span>
+</span><span id="__span-1-9"><a id="__codelineno-1-9" name="__codelineno-1-9" href="#__codelineno-1-9"></a><span class="w">    </span><span class="nt">timeseries_path</span><span class="p">:</span><span class="w"> </span><span class="s">"model.timeseries"</span><span class="w"> </span><span class="c1"># where resolvents live in the payload</span>
+</span><span id="__span-1-10"><a id="__codelineno-1-10" name="__codelineno-1-10" href="#__codelineno-1-10"></a><span class="w">    </span><span class="nt">response</span><span class="p">:</span>
+</span><span id="__span-1-11"><a id="__codelineno-1-11" name="__codelineno-1-11" href="#__codelineno-1-11"></a><span class="w">      </span><span class="nt">mode</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">poll</span>
+</span><span id="__span-1-12"><a id="__codelineno-1-12" name="__codelineno-1-12" href="#__codelineno-1-12"></a><span class="w">      </span><span class="nt">poll</span><span class="p">:</span>
+</span><span id="__span-1-13"><a id="__codelineno-1-13" name="__codelineno-1-13" href="#__codelineno-1-13"></a><span class="w">        </span><span class="nt">id_json_path</span><span class="p">:</span><span class="w"> </span><span class="s">"id"</span>
+</span><span id="__span-1-14"><a id="__codelineno-1-14" name="__codelineno-1-14" href="#__codelineno-1-14"></a><span class="w">        </span><span class="nt">url_template</span><span class="p">:</span><span class="w"> </span><span class="s">"https://meme.example.com/jobs/{id}/status"</span>
+</span><span id="__span-1-15"><a id="__codelineno-1-15" name="__codelineno-1-15" href="#__codelineno-1-15"></a><span class="w">        </span><span class="nt">status_json_path</span><span class="p">:</span><span class="w"> </span><span class="s">"state"</span>
+</span><span id="__span-1-16"><a id="__codelineno-1-16" name="__codelineno-1-16" href="#__codelineno-1-16"></a><span class="w">        </span><span class="nt">done_values</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="nv">succeeded</span><span class="p p-Indicator">]</span>
+</span><span id="__span-1-17"><a id="__codelineno-1-17" name="__codelineno-1-17" href="#__codelineno-1-17"></a><span class="w">        </span><span class="nt">failed_values</span><span class="p">:</span><span class="w"> </span><span class="p p-Indicator">[</span><span class="nv">failed</span><span class="p p-Indicator">]</span>
+</span><span id="__span-1-18"><a id="__codelineno-1-18" name="__codelineno-1-18" href="#__codelineno-1-18"></a><span class="w">        </span><span class="nt">result_url_template</span><span class="p">:</span><span class="w"> </span><span class="s">"https://meme.example.com/jobs/{id}"</span>
+</span><span id="__span-1-19"><a id="__codelineno-1-19" name="__codelineno-1-19" href="#__codelineno-1-19"></a><span class="w">        </span><span class="nt">interval</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">10s</span>
+</span><span id="__span-1-20"><a id="__codelineno-1-20" name="__codelineno-1-20" href="#__codelineno-1-20"></a><span class="w">        </span><span class="nt">timeout</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">30m</span>
 </span></code></pre></div>
 <p>A synchronous target — the real BuEM integration via
 <a href="https://github.com/enerplanet/buem-gateway">buem-gateway</a>:</p>
@@ -1048,8 +1170,8 @@ one cache entry — repeated requests don't re-hit the resource APIs.</p>
 </span><span id="__span-2-10"><a id="__codelineno-2-10" name="__codelineno-2-10" href="#__codelineno-2-10"></a><span class="w">    </span><span class="nt">response</span><span class="p">:</span>
 </span><span id="__span-2-11"><a id="__codelineno-2-11" name="__codelineno-2-11" href="#__codelineno-2-11"></a><span class="w">      </span><span class="nt">mode</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">direct</span>
 </span></code></pre></div>
-<p>A proxy target — the payload handed through unresolved (ignis's
-calculate endpoint):</p>
+<p>A proxy target — the payload handed through unresolved
+(<a href="https://github.com/THD-Spatial-AI/ignis">ignis</a>'s calculate endpoint):</p>
 <div class="language-yaml highlight"><pre><span></span><code><span id="__span-3-1"><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a><span class="w">  </span><span class="nt">ignis-calculate</span><span class="p">:</span>
 </span><span id="__span-3-2"><a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a><span class="w">    </span><span class="nt">url</span><span class="p">:</span><span class="w"> </span><span class="s">"https://ignis.example.com/api/v1/calculate/{code}"</span>
 </span><span id="__span-3-3"><a id="__codelineno-3-3" name="__codelineno-3-3" href="#__codelineno-3-3"></a><span class="w">    </span><span class="nt">method</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">POST</span>
@@ -1063,32 +1185,100 @@ calculate endpoint):</p>
 </span></code></pre></div>
 <p>Notes:</p>
 <ul>
+<li><code>timeseries_path</code> is a dot-separated path into the payload. MEME spells
+  its registry <code>model.timeseries</code>; the container may be an array or a
+  name→object registry. The special value <code>"."</code> scans the whole payload —
+  for contracts like buem-gateway whose time series (the shared <code>weather</code>
+  block) sits at the payload root rather than inside a named container.</li>
+<li><code>attach_resolvent: false</code> is for targets whose schema validation rejects
+  unknown keys; tentacron's audit store (original payload, resolved payload,
+  events) keeps full traceability either way.</li>
 <li><code>proxy: true</code> skips resolution entirely: tentacron contributes auth,
   persistence, the audit trail and retries, and forwards the payload
-  untouched — byte-exact when the URL has no placeholders. Target URLs may
-  carry <code>{field}</code> placeholders filled from top-level payload fields (any
-  target, not just proxies); consumed fields are stripped from the
-  forwarded body, since they address the call rather than belong to it.
-  <code>timeseries_path</code>/<code>attach_resolvent</code> are rejected on a proxy target.</li>
-<li><code>timeseries_path</code> is a dot-separated path into the payload
-  (default <code>time-series</code>). MEME spells its registry <code>model.timeseries</code>.
-  The special value <code>"."</code> scans the whole payload — for contracts like
-  buem-gateway whose time series (the shared <code>weather</code> block) sits at the
-  payload root rather than inside a named container.</li>
-<li><code>attach_resolvent</code> (default <code>true</code>) controls whether the substituted series
-  keeps the original resolvent object under its <code>resolvent</code> key. Set <code>false</code>
-  for targets whose schema validation rejects unknown keys; tentacron's audit
-  store (original payload, resolved payload, events) keeps full traceability
-  either way.</li>
+  untouched — byte-exact when the URL has no placeholders and the key is
+  not body-injected. <code>timeseries_path</code>/<code>attach_resolvent</code> are rejected on a
+  proxy target.</li>
+<li><strong>URL templating</strong> works on any target: <code>{field}</code> placeholders
+  (<code>[A-Za-z0-9_]+</code>) are filled with the path-escaped value of the payload's
+  top-level field of that name, which must be a string or number. Consumed
+  fields are stripped from the forwarded body, since they address the call
+  rather than belong to it; a missing field fails the job with
+  <code>target_error</code>.</li>
 <li><code>response.mode: direct</code> completes the job with the target's immediate
-  response. <code>poll</code> extracts the target's job id, polls until a
-  <code>done_values</code>/<code>failed_values</code> status appears, then fetches and stores the
-  result.</li>
+  response. <code>poll</code> extracts the target's job id from the accept response
+  (strings and numbers accepted; the id must match <code>[A-Za-z0-9._~-]{1,256}</code>),
+  polls <code>url_template</code> with <code>GET</code> until a <code>done_values</code>/<code>failed_values</code>
+  status appears, then fetches <code>result_url_template</code> and stores the result.
+  A status outside both sets means "still running".</li>
 <li>The target's <code>api_key</code> is injected into outbound requests only — stored
-  payloads stay credential-free.</li>
+  payloads stay credential-free. Header injection applies to the forward,
+  the status polls and the result fetch; <code>body_field</code> injection can only
+  reach the forward (the polls are bodiless <code>GET</code>s), so a status endpoint
+  that itself requires a credential needs <code>header</code> injection.</li>
 </ul>
 <h2 id="resolvents">resolvents<a class="headerlink" href="#resolvents" title="Permanent link">&para;</a></h2>
 <p>One entry per resolvent type. Keys must start with <code>resolvent-</code>.</p>
+<table>
+<thead>
+<tr>
+<th>Key</th>
+<th>Default</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>url</code></td>
+<td>required unless <code>target</code> is set</td>
+<td>http(s) URL of the resource API; <code>{field}</code> placeholders for <code>GET</code>.</td>
+</tr>
+<tr>
+<td><code>method</code></td>
+<td><code>POST</code></td>
+<td><code>GET</code> maps the object onto the URL; <code>POST</code>/<code>PUT</code>/<code>PATCH</code> send it as JSON body.</td>
+</tr>
+<tr>
+<td><code>api_key</code></td>
+<td>–</td>
+<td>Optional credential, sent in <code>api_key_header</code>.</td>
+</tr>
+<tr>
+<td><code>api_key_header</code></td>
+<td><code>X-API-Key</code></td>
+<td>Header carrying the key.</td>
+</tr>
+<tr>
+<td><code>timeout</code></td>
+<td><code>30s</code></td>
+<td>Per resource call.</td>
+</tr>
+<tr>
+<td><code>cache_ttl</code></td>
+<td><code>cache.default_ttl</code></td>
+<td>Reuse window for series of this type.</td>
+</tr>
+<tr>
+<td><code>target</code></td>
+<td>–</td>
+<td>A configured <strong>direct-mode</strong> target as backend instead of <code>url</code>.</td>
+</tr>
+<tr>
+<td><code>payload_field</code></td>
+<td>– (whole object)</td>
+<td>Resolvent field whose value is sent as the call's payload.</td>
+</tr>
+<tr>
+<td><code>response_path</code></td>
+<td>– (whole response)</td>
+<td>Dot path extracting the series from the response; numeric segments index arrays.</td>
+</tr>
+</tbody>
+</table>
+<p><code>method</code>, <code>api_key_header</code> and <code>timeout</code> are only defaulted for URL-backed
+resolvents; a target-backed resolvent inherits transport settings from its
+target. The substituted series should carry <code>"type": "time-series"</code> — any
+other value is logged as a warning, not treated as an error.</p>
+<h3 id="post-resolvents">POST resolvents<a class="headerlink" href="#post-resolvents" title="Permanent link">&para;</a></h3>
 <div class="language-yaml highlight"><pre><span></span><code><span id="__span-4-1"><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a><span class="nt">resolvents</span><span class="p">:</span>
 </span><span id="__span-4-2"><a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a><span class="w">  </span><span class="nt">resolvent-pv1</span><span class="p">:</span>
 </span><span id="__span-4-3"><a id="__codelineno-4-3" name="__codelineno-4-3" href="#__codelineno-4-3"></a><span class="w">    </span><span class="nt">url</span><span class="p">:</span><span class="w"> </span><span class="s">"https://pvsim.example.com/v1/generate"</span>
@@ -1098,21 +1288,48 @@ calculate endpoint):</p>
 </span><span id="__span-4-7"><a id="__codelineno-4-7" name="__codelineno-4-7" href="#__codelineno-4-7"></a><span class="w">    </span><span class="nt">timeout</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">30s</span>
 </span><span id="__span-4-8"><a id="__codelineno-4-8" name="__codelineno-4-8" href="#__codelineno-4-8"></a><span class="w">    </span><span class="nt">cache_ttl</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">24h</span><span class="w">                      </span><span class="c1"># falls back to cache.default_ttl</span>
 </span></code></pre></div>
-<p>POST-style resolvents send the whole resolvent object as the request body;
-the response must be a JSON object and is used verbatim as the series.</p>
+<p>The whole resolvent object (including <code>type</code> and any <code>name</code>) — or the object
+under <code>payload_field</code> — is sent as the JSON request body; the response must
+be a JSON object and is used verbatim as the series. <code>null</code>, arrays or
+malformed bodies fail the job with <code>invalid_resource_response</code>.</p>
 <h3 id="get-resolvents-querypath-mapping">GET resolvents (query/path mapping)<a class="headerlink" href="#get-resolvents-querypath-mapping" title="Permanent link">&para;</a></h3>
 <p>With <code>method: GET</code> the resolvent object maps onto the request URL instead of
-a body — the contract of the verified weather, city2tabula and ignis APIs:</p>
+a body — the contract of the verified
+<a href="https://github.com/enerplanet/weather">weather</a>,
+<a href="https://github.com/THD-Spatial-AI/city2tabula">city2tabula</a> and
+<a href="https://github.com/THD-Spatial-AI/ignis">ignis</a> APIs:</p>
+<div class="language-yaml highlight"><pre><span></span><code><span id="__span-5-1"><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a><span class="w">  </span><span class="nt">resolvent-weather</span><span class="p">:</span>
+</span><span id="__span-5-2"><a id="__codelineno-5-2" name="__codelineno-5-2" href="#__codelineno-5-2"></a><span class="w">    </span><span class="nt">url</span><span class="p">:</span><span class="w"> </span><span class="s">"https://weather.example.com/v1/weather/point?format=json"</span>
+</span><span id="__span-5-3"><a id="__codelineno-5-3" name="__codelineno-5-3" href="#__codelineno-5-3"></a><span class="w">    </span><span class="nt">method</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">GET</span>
+</span><span id="__span-5-4"><a id="__codelineno-5-4" name="__codelineno-5-4" href="#__codelineno-5-4"></a><span class="w">    </span><span class="nt">api_key</span><span class="p">:</span><span class="w"> </span><span class="s">"${WEATHER_API_KEY}"</span>
+</span><span id="__span-5-5"><a id="__codelineno-5-5" name="__codelineno-5-5" href="#__codelineno-5-5"></a><span class="w">    </span><span class="nt">timeout</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">60s</span>
+</span><span id="__span-5-6"><a id="__codelineno-5-6" name="__codelineno-5-6" href="#__codelineno-5-6"></a><span class="w">    </span><span class="nt">cache_ttl</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">24h</span>
+</span><span id="__span-5-7"><a id="__codelineno-5-7" name="__codelineno-5-7" href="#__codelineno-5-7"></a>
+</span><span id="__span-5-8"><a id="__codelineno-5-8" name="__codelineno-5-8" href="#__codelineno-5-8"></a><span class="w">  </span><span class="nt">resolvent-city2tabula</span><span class="p">:</span>
+</span><span id="__span-5-9"><a id="__codelineno-5-9" name="__codelineno-5-9" href="#__codelineno-5-9"></a><span class="w">    </span><span class="nt">url</span><span class="p">:</span><span class="w"> </span><span class="s">"https://city2tabula.example.com/api/v1/buildings"</span>
+</span><span id="__span-5-10"><a id="__codelineno-5-10" name="__codelineno-5-10" href="#__codelineno-5-10"></a><span class="w">    </span><span class="nt">method</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">GET</span><span class="w">                         </span><span class="c1"># no API key per its spec</span>
+</span><span id="__span-5-11"><a id="__codelineno-5-11" name="__codelineno-5-11" href="#__codelineno-5-11"></a><span class="w">    </span><span class="nt">response_path</span><span class="p">:</span><span class="w"> </span><span class="s">"0"</span><span class="w">                  </span><span class="c1"># the API returns a list</span>
+</span><span id="__span-5-12"><a id="__codelineno-5-12" name="__codelineno-5-12" href="#__codelineno-5-12"></a><span class="w">    </span><span class="nt">cache_ttl</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">24h</span>
+</span><span id="__span-5-13"><a id="__codelineno-5-13" name="__codelineno-5-13" href="#__codelineno-5-13"></a>
+</span><span id="__span-5-14"><a id="__codelineno-5-14" name="__codelineno-5-14" href="#__codelineno-5-14"></a><span class="w">  </span><span class="nt">resolvent-ignis</span><span class="p">:</span>
+</span><span id="__span-5-15"><a id="__codelineno-5-15" name="__codelineno-5-15" href="#__codelineno-5-15"></a><span class="w">    </span><span class="nt">url</span><span class="p">:</span><span class="w"> </span><span class="s">"https://ignis.example.com/api/v1/data/{code}"</span>
+</span><span id="__span-5-16"><a id="__codelineno-5-16" name="__codelineno-5-16" href="#__codelineno-5-16"></a><span class="w">    </span><span class="nt">method</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">GET</span>
+</span><span id="__span-5-17"><a id="__codelineno-5-17" name="__codelineno-5-17" href="#__codelineno-5-17"></a><span class="w">    </span><span class="nt">api_key</span><span class="p">:</span><span class="w"> </span><span class="s">"${IGNIS_API_KEY}"</span>
+</span><span id="__span-5-18"><a id="__codelineno-5-18" name="__codelineno-5-18" href="#__codelineno-5-18"></a><span class="w">    </span><span class="nt">api_key_header</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">X-Api-Key</span>
+</span><span id="__span-5-19"><a id="__codelineno-5-19" name="__codelineno-5-19" href="#__codelineno-5-19"></a><span class="w">    </span><span class="nt">cache_ttl</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">168h</span>
+</span></code></pre></div>
 <ul>
 <li><code>{field}</code> placeholders in the configured URL are filled from the resolvent
   object (path-escaped) and consumed — e.g. ignis's
-  <code>/api/v1/data/{code}</code>;</li>
-<li>every remaining field becomes a query parameter, appended to any query
+  <code>/api/v1/data/{code}</code> from <code>"code": "DE.N.SFH.04.Gen.ReEx.001.001"</code>;</li>
+<li><strong>every remaining field becomes a query parameter</strong>, appended to any query
   fixed in the URL (e.g. <code>?format=json</code>); parameters are emitted in sorted
-  order, so outbound URLs are deterministic;</li>
+  order, so outbound URLs are deterministic. Keep GET resolvent objects to
+  the API's parameters — a <code>name</code> or comment field would be sent too;</li>
 <li>arrays of scalars join comma-separated (<code>variables=T,GHI</code>,
   <code>osm_ids=123,456</code> — the convention of those APIs); the <code>type</code> field is
-  tentacron's marker and never sent; nested objects are an authoring error;</li>
+  tentacron's marker and never sent; nested objects are an authoring error
+  (nest complex data under a POST resolvent instead);</li>
 <li><code>response_path</code> accepts numeric segments to index array responses —
   city2tabula's building list resolves one building via <code>response_path: "0"</code>.</li>
 </ul>
@@ -1120,15 +1337,15 @@ a body — the contract of the verified weather, city2tabula and ignis APIs:</p>
 <p>A resolvent can name a configured <strong>target</strong> as its backend instead of a raw
 URL — tentacron composing its own targets, e.g. a BuEM simulation producing
 the heat-demand series of a MEME model:</p>
-<div class="language-yaml highlight"><pre><span></span><code><span id="__span-5-1"><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a><span class="nt">resolvents</span><span class="p">:</span>
-</span><span id="__span-5-2"><a id="__codelineno-5-2" name="__codelineno-5-2" href="#__codelineno-5-2"></a><span class="w">  </span><span class="nt">resolvent-buem</span><span class="p">:</span>
-</span><span id="__span-5-3"><a id="__codelineno-5-3" name="__codelineno-5-3" href="#__codelineno-5-3"></a><span class="w">    </span><span class="nt">target</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">buem-building</span><span class="w">                </span><span class="c1"># a configured direct-mode target</span>
-</span><span id="__span-5-4"><a id="__codelineno-5-4" name="__codelineno-5-4" href="#__codelineno-5-4"></a><span class="w">    </span><span class="nt">payload_field</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">payload</span><span class="w">               </span><span class="c1"># which resolvent field is the nested payload</span>
-</span><span id="__span-5-5"><a id="__codelineno-5-5" name="__codelineno-5-5" href="#__codelineno-5-5"></a><span class="w">    </span><span class="nt">response_path</span><span class="p">:</span><span class="w"> </span><span class="s">"buem.thermal_load_profile.timeseries"</span>
-</span><span id="__span-5-6"><a id="__codelineno-5-6" name="__codelineno-5-6" href="#__codelineno-5-6"></a><span class="w">    </span><span class="nt">cache_ttl</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">24h</span>
+<div class="language-yaml highlight"><pre><span></span><code><span id="__span-6-1"><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a><span class="nt">resolvents</span><span class="p">:</span>
+</span><span id="__span-6-2"><a id="__codelineno-6-2" name="__codelineno-6-2" href="#__codelineno-6-2"></a><span class="w">  </span><span class="nt">resolvent-buem</span><span class="p">:</span>
+</span><span id="__span-6-3"><a id="__codelineno-6-3" name="__codelineno-6-3" href="#__codelineno-6-3"></a><span class="w">    </span><span class="nt">target</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">buem-building</span><span class="w">                </span><span class="c1"># a configured direct-mode target</span>
+</span><span id="__span-6-4"><a id="__codelineno-6-4" name="__codelineno-6-4" href="#__codelineno-6-4"></a><span class="w">    </span><span class="nt">payload_field</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">payload</span><span class="w">               </span><span class="c1"># which resolvent field is the nested payload</span>
+</span><span id="__span-6-5"><a id="__codelineno-6-5" name="__codelineno-6-5" href="#__codelineno-6-5"></a><span class="w">    </span><span class="nt">response_path</span><span class="p">:</span><span class="w"> </span><span class="s">"buem.thermal_load_profile.timeseries"</span>
+</span><span id="__span-6-6"><a id="__codelineno-6-6" name="__codelineno-6-6" href="#__codelineno-6-6"></a><span class="w">    </span><span class="nt">cache_ttl</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">24h</span>
 </span></code></pre></div>
 <p>The resolvent object then carries the nested request under <code>payload_field</code>:</p>
-<div class="language-json highlight"><pre><span></span><code><span id="__span-6-1"><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a><span class="p">{</span><span class="w"> </span><span class="nt">"type"</span><span class="p">:</span><span class="w"> </span><span class="s2">"resolvent-buem"</span><span class="p">,</span><span class="w"> </span><span class="nt">"payload"</span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="nt">"id"</span><span class="p">:</span><span class="w"> </span><span class="s2">"b-1"</span><span class="p">,</span><span class="w"> </span><span class="nt">"buem"</span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="nt">"building"</span><span class="p">:</span><span class="w"> </span><span class="err">…</span><span class="p">,</span><span class="w"> </span><span class="nt">"weather"</span><span class="p">:</span><span class="w"> </span><span class="err">…</span><span class="w"> </span><span class="p">}</span><span class="w"> </span><span class="p">}</span><span class="w"> </span><span class="p">}</span>
+<div class="language-json highlight"><pre><span></span><code><span id="__span-7-1"><a id="__codelineno-7-1" name="__codelineno-7-1" href="#__codelineno-7-1"></a><span class="p">{</span><span class="w"> </span><span class="nt">"type"</span><span class="p">:</span><span class="w"> </span><span class="s2">"resolvent-buem"</span><span class="p">,</span><span class="w"> </span><span class="nt">"payload"</span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="nt">"id"</span><span class="p">:</span><span class="w"> </span><span class="s2">"b-1"</span><span class="p">,</span><span class="w"> </span><span class="nt">"buem"</span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="nt">"building"</span><span class="p">:</span><span class="w"> </span><span class="err">…</span><span class="p">,</span><span class="w"> </span><span class="nt">"weather"</span><span class="p">:</span><span class="w"> </span><span class="err">…</span><span class="w"> </span><span class="p">}</span><span class="w"> </span><span class="p">}</span><span class="w"> </span><span class="p">}</span>
 </span></code></pre></div>
 <p>Rules and semantics:</p>
 <ul>
@@ -1136,12 +1353,16 @@ the heat-demand series of a MEME model:</p>
   back a resolvent (a poll-mode backend would make resolution asynchronous).
   <code>method</code>/<code>api_key</code>/<code>timeout</code> belong to the backing target and are rejected
   on the resolvent.</li>
-<li>The nested payload is forwarded <strong>as-is</strong> — it is never itself scanned for
-  resolvents, so resolvent loops are impossible by construction.</li>
+<li>The nested payload is forwarded <strong>as-is</strong> through the target's URL, auth
+  and timeout (including the target's own <code>{field}</code> URL templating) — it is
+  never itself scanned for resolvents, so resolvent loops are impossible by
+  construction. The backing target's <code>timeseries_path</code>/<code>attach_resolvent</code>
+  play no role; the <em>outer</em> target decides whether the substituted series
+  keeps its <code>resolvent</code> marker.</li>
 <li><code>payload_field</code> selects the resolvent field sent as the nested payload
-  (empty = the whole resolvent object). <code>response_path</code> extracts the
-  series-shaped sub-object from the response (empty = whole response). Both
-  also work for URL-backed resolvents.</li>
+  (empty = the whole resolvent object); it must hold an object.
+  <code>response_path</code> extracts the series-shaped sub-object from the response
+  (empty = whole response). Both also work for URL-backed resolvents.</li>
 <li>Caching applies as usual: the hash covers the whole resolvent object, so
   identical nested simulations are served from the series cache.</li>
 </ul>
@@ -1167,7 +1388,7 @@ the heat-demand series of a MEME model:</p>
     <span class="md-icon" title="Last update">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13.1c-.1 0-.3.1-.4.2l-1 1 2.1 2.1 1-1c.2-.2.2-.6 0-.8l-1.3-1.3c-.1-.1-.2-.2-.4-.2m-1.9 1.8-6.1 6V23h2.1l6.1-6.1zM12.5 7v5.2l4 2.4-1 1L11 13V7zM11 21.9c-5.1-.5-9-4.8-9-9.9C2 6.5 6.5 2 12 2c5.3 0 9.6 4.1 10 9.3-.3-.1-.6-.2-1-.2s-.7.1-1 .2C19.6 7.2 16.2 4 12 4c-4.4 0-8 3.6-8 8 0 4.1 3.1 7.5 7.1 7.9l-.1.2z"/></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="September 4, 2026 10:13:22 UTC">September 4, 2026</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="September 4, 2026 10:38:30 UTC">September 4, 2026</span>
   </span>
 
     

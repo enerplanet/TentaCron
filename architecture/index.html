@@ -837,16 +837,16 @@ forwarding and target polling.</p>
     A --&gt;|persist job| DB[(SQLite)]
     A -.nudge.-&gt; W[Worker pool]
     W --&gt;|claim job| DB
-    W --&gt;|resolvent params| R1[Resource API pv]
-    W --&gt;|resolvent params| R2[Resource API wind]
-    W --&gt;|resolved payload| T[Target API meme / buem]
+    W --&gt;|"resolvent object (POST body / GET query)"| R1[Resource API pv / weather / …]
+    W --&gt;|"nested payload (target-backed resolvent)"| T2[Target API buem-building]
+    W --&gt;|resolved or proxied payload| T[Target API meme / buem / ignis]
     W --&gt;|"poll job {id}"| T
     W --&gt;|series cache| DB</code></pre>
 <h2 id="request-lifecycle">Request lifecycle<a class="headerlink" href="#request-lifecycle" title="Permanent link">&para;</a></h2>
 <pre class="mermaid"><code>stateDiagram-v2
     [*] --&gt; received: POST accepted
     received --&gt; resolving: worker claims job
-    resolving --&gt; forwarding: all resolvents substituted
+    resolving --&gt; forwarding: all resolvents substituted (or proxy: handed through)
     forwarding --&gt; awaiting_target: target accepted (poll mode)
     forwarding --&gt; completed: target responded (direct mode)
     awaiting_target --&gt; completed: target job done, result stored
@@ -854,20 +854,58 @@ forwarding and target polling.</p>
     forwarding --&gt; received: transient error, backoff requeue
     resolving --&gt; failed: permanent error / attempts exhausted
     forwarding --&gt; failed: permanent error / attempts exhausted
-    awaiting_target --&gt; failed: target job failed / poll deadline
+    awaiting_target --&gt; failed: target job failed / poll deadline / permanent poll error
     completed --&gt; [*]
     failed --&gt; [*]</code></pre>
 <p>Every transition is appended to the <code>job_events</code> table, giving a complete
-audit trail per request.</p>
+audit trail per request. Terminal states are final: a late outcome from an
+overlapping worker can never overwrite a result a client may already have
+seen.</p>
 <h2 id="resolution">Resolution<a class="headerlink" href="#resolution" title="Permanent link">&para;</a></h2>
 <p>The payload's time-series container is located via the per-target
-<code>timeseries_path</code> (e.g. <code>model.timeseries</code> for MEME, <code>time-series</code> for buem).
-Inside it, every object whose <code>type</code> starts with <code>resolvent-</code> is collected.
-Unknown resolvent types fail the job <em>before</em> any HTTP call.</p>
-<p>Each distinct resolvent (deduplicated by a canonical SHA-256 hash of its
-parameters) is fetched concurrently — from the series cache when an identical
-resolvent was resolved within its TTL, otherwise from the configured resource
-API. The response replaces the resolvent object in place; the original object
+<code>timeseries_path</code> — <code>model.timeseries</code> for MEME, the default <code>time-series</code>
+for the generic examples, or <code>"."</code> to scan the whole payload (buem-gateway,
+whose <code>weather</code> block sits at the root). The container may be an array or a
+name→object registry; nested arrays and objects below it are walked too.
+Every object whose <code>type</code> starts with <code>resolvent-</code> is collected, in
+deterministic order (array order, sorted keys). The walk does not descend
+into resolvent objects (their fields are opaque backend parameters) nor into
+genuine <code>time-series</code> objects (data). Unknown resolvent types fail the job
+<em>before</em> any HTTP call. A missing container is not an error — there is
+simply nothing to resolve.</p>
+<p>Each distinct resolvent (deduplicated by a canonical SHA-256 hash of its type
+and parameters) is fetched concurrently, bounded by
+<code>worker.resolvent_concurrency</code> — from the series cache when an identical
+resolvent was resolved within its TTL, otherwise through its backend:</p>
+<table>
+<thead>
+<tr>
+<th>Backend</th>
+<th>Configured by</th>
+<th>Outbound call</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>POST resource API</td>
+<td><code>url</code> + <code>method: POST</code> (or PUT/PATCH)</td>
+<td>the resolvent object (or its <code>payload_field</code>) as JSON body</td>
+</tr>
+<tr>
+<td>GET resource API</td>
+<td><code>url</code> + <code>method: GET</code></td>
+<td><code>{field}</code> placeholders filled from the object, every other field a query parameter</td>
+</tr>
+<tr>
+<td>Configured target</td>
+<td><code>target: &lt;direct-mode target&gt;</code></td>
+<td>the nested payload forwarded through that target, with its URL, auth and timeout</td>
+</tr>
+</tbody>
+</table>
+<p>The response must be a JSON object (optionally narrowed via <code>response_path</code>,
+which also indexes array responses). It replaces the resolvent object in
+place; unless the target sets <code>attach_resolvent: false</code>, the original object
 moves under the new series' <code>resolvent</code> key:</p>
 <div class="language-json highlight"><pre><span></span><code><span id="__span-0-1"><a id="__codelineno-0-1" name="__codelineno-0-1" href="#__codelineno-0-1"></a><span class="p">{</span><span class="w"> </span><span class="nt">"name"</span><span class="p">:</span><span class="w"> </span><span class="s2">"pv"</span><span class="p">,</span><span class="w"> </span><span class="nt">"type"</span><span class="p">:</span><span class="w"> </span><span class="s2">"resolvent-pv1"</span><span class="p">,</span><span class="w"> </span><span class="nt">"capacity_kw"</span><span class="p">:</span><span class="w"> </span><span class="mf">12.5</span><span class="w"> </span><span class="p">}</span>
 </span></code></pre></div>
@@ -877,17 +915,32 @@ moves under the new series' <code>resolvent</code> key:</p>
 </span><span id="__span-1-3"><a id="__codelineno-1-3" name="__codelineno-1-3" href="#__codelineno-1-3"></a><span class="w">  </span><span class="nt">"resolvent"</span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="nt">"name"</span><span class="p">:</span><span class="w"> </span><span class="s2">"pv"</span><span class="p">,</span><span class="w"> </span><span class="nt">"type"</span><span class="p">:</span><span class="w"> </span><span class="s2">"resolvent-pv1"</span><span class="p">,</span><span class="w"> </span><span class="nt">"capacity_kw"</span><span class="p">:</span><span class="w"> </span><span class="mf">12.5</span><span class="w"> </span><span class="p">}</span>
 </span><span id="__span-1-4"><a id="__codelineno-1-4" name="__codelineno-1-4" href="#__codelineno-1-4"></a><span class="p">}</span>
 </span></code></pre></div>
+<p>A nested payload sent through a target-backed resolvent is forwarded as-is
+and never itself scanned for resolvents, so resolvent recursion is impossible
+by construction. Payloads and series are decoded with number fidelity
+(<code>json.Number</code>), so integers above 2^53 survive the round trip byte-exact.</p>
+<p><strong>Proxy targets</strong> (<code>proxy: true</code>) skip resolution entirely: the payload is
+stored as its own resolved form and forwarded untouched — byte-exact unless
+the target URL carries <code>{field}</code> placeholders, which are filled from (and
+stripped out of) the payload's top level.</p>
 <h2 id="queue-semantics">Queue semantics<a class="headerlink" href="#queue-semantics" title="Permanent link">&para;</a></h2>
 <p>SQLite <em>is</em> the queue — no external broker:</p>
 <ul>
 <li>Claiming a <code>received</code> job is an atomic compare-and-swap
-  (<code>UPDATE … WHERE state = 'received'</code>); exactly one worker wins.</li>
+  (<code>UPDATE … WHERE state = 'received'</code>); exactly one worker wins. The attempt
+  counter is incremented at claim time, so an attempt cut short by a crash
+  still counts, and a job that already reached <code>worker.max_attempts</code> is
+  failed at claim instead of run again.</li>
 <li>Poll ticks for <code>awaiting_target</code> jobs are claimed by pushing
-  <code>next_attempt_at</code> forward atomically, so concurrent workers never poll the
-  same job twice for the same tick.</li>
-<li>Transient failures (network errors, timeouts, HTTP 429/5xx) requeue the job
-  with capped exponential backoff and ±20 % jitter; permanent failures (4xx,
-  unknown resolvent, target job failed) fail it immediately.</li>
+  <code>next_attempt_at</code> forward atomically by the target's poll interval, so
+  concurrent workers never poll the same job twice for the same tick.</li>
+<li>Transient failures (network errors, timeouts, HTTP 429/5xx, the job
+  timeout) requeue the job with capped exponential backoff and ±20 % jitter;
+  permanent failures (other non-2xx statuses including redirects, oversized
+  responses, malformed resource bodies, unknown resolvent, target job failed)
+  fail it immediately.</li>
+<li>Workers wake on a nudge from the API when a job is accepted and otherwise
+  every <code>worker.poll_interval</code> to pick up scheduled retries and poll ticks.</li>
 </ul>
 <h2 id="restart-safety">Restart safety<a class="headerlink" href="#restart-safety" title="Permanent link">&para;</a></h2>
 <ul>
@@ -896,6 +949,10 @@ moves under the new series' <code>resolvent</code> key:</p>
   cheap.</li>
 <li>Jobs in <code>awaiting_target</code> keep their state and resume polling — the target
   job is never submitted twice.</li>
+<li>The housekeeping sweeper additionally rescues jobs left in
+  <code>resolving</code>/<code>forwarding</code> without a schedule while the process kept running
+  (a failed bookkeeping write) once they have been untouched for twice
+  <code>worker.job_timeout</code>.</li>
 <li>On shutdown, the HTTP server drains first, then workers abort their
   upstream calls and park in-flight jobs back to <code>received</code>.</li>
 </ul>
@@ -906,15 +963,16 @@ moves under the new series' <code>resolvent</code> key:</p>
 <li>Target/resource credentials live only in the YAML config (via environment
   variables) and are injected into outbound requests at send time.</li>
 <li>All outbound URLs come from configuration — request data can only select
-  dictionary entries, never supply a URL. Target-supplied job ids are
-  validated against a strict charset and path-escaped before they are
-  substituted into poll/result URL templates.</li>
+  dictionary entries, never supply a URL. Values that do reach a URL are
+  path-escaped: target-supplied job ids are additionally validated against a
+  strict charset before they are substituted into poll/result URL templates,
+  and <code>{field}</code> placeholders accept only string or number values.</li>
 <li>Outbound calls never follow redirects (Go's default policy would forward
   the injected API-key headers to cross-origin redirect targets), and
   upstream error excerpts have all configured credentials redacted before
   they are stored or logged.</li>
-<li>Request and response bodies are size-capped; TLS termination is expected at
-  a reverse proxy.</li>
+<li>Request and response bodies are size-capped (<code>server.max_body_bytes</code>); TLS
+  termination is expected at a reverse proxy.</li>
 </ul>
 <p>Prometheus metrics are deliberately deferred; the structured logs and the
 <code>job_events</code> audit trail cover observability for a single-instance v1.</p>
@@ -940,7 +998,7 @@ moves under the new series' <code>resolvent</code> key:</p>
     <span class="md-icon" title="Last update">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13.1c-.1 0-.3.1-.4.2l-1 1 2.1 2.1 1-1c.2-.2.2-.6 0-.8l-1.3-1.3c-.1-.1-.2-.2-.4-.2m-1.9 1.8-6.1 6V23h2.1l6.1-6.1zM12.5 7v5.2l4 2.4-1 1L11 13V7zM11 21.9c-5.1-.5-9-4.8-9-9.9C2 6.5 6.5 2 12 2c5.3 0 9.6 4.1 10 9.3-.3-.1-.6-.2-1-.2s-.7.1-1 .2C19.6 7.2 16.2 4 12 4c-4.4 0-8 3.6-8 8 0 4.1 3.1 7.5 7.1 7.9l-.1.2z"/></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="September 3, 2026 20:30:10 UTC">September 3, 2026</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="September 4, 2026 10:38:30 UTC">September 4, 2026</span>
   </span>
 
     
