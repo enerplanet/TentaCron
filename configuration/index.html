@@ -641,6 +641,34 @@
     </span>
   </a>
   
+    <nav class="md-nav" aria-label="resolvents">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#get-resolvents-querypath-mapping" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        GET resolvents (query/path mapping)
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#target-backed-resolvents-composition" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Target-backed resolvents (composition)
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
 </li>
       
     </ul>
@@ -1006,10 +1034,52 @@ one cache entry — repeated requests don't re-hit the resource APIs.</p>
 </span><span id="__span-1-20"><a id="__codelineno-1-20" name="__codelineno-1-20" href="#__codelineno-1-20"></a><span class="w">        </span><span class="nt">interval</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">10s</span>
 </span><span id="__span-1-21"><a id="__codelineno-1-21" name="__codelineno-1-21" href="#__codelineno-1-21"></a><span class="w">        </span><span class="nt">timeout</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">30m</span><span class="w">                    </span><span class="c1"># poll deadline -&gt; target_timeout</span>
 </span></code></pre></div>
+<p>A synchronous target — the real BuEM integration via
+<a href="https://github.com/enerplanet/buem-gateway">buem-gateway</a>:</p>
+<div class="language-yaml highlight"><pre><span></span><code><span id="__span-2-1"><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a><span class="w">  </span><span class="nt">buem</span><span class="p">:</span>
+</span><span id="__span-2-2"><a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a><span class="w">    </span><span class="nt">url</span><span class="p">:</span><span class="w"> </span><span class="s">"https://buem-gateway.example.com/api/v1/buem/buildings"</span>
+</span><span id="__span-2-3"><a id="__codelineno-2-3" name="__codelineno-2-3" href="#__codelineno-2-3"></a><span class="w">    </span><span class="nt">method</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">POST</span>
+</span><span id="__span-2-4"><a id="__codelineno-2-4" name="__codelineno-2-4" href="#__codelineno-2-4"></a><span class="w">    </span><span class="nt">api_key</span><span class="p">:</span><span class="w"> </span><span class="s">"${BUEM_API_KEY}"</span>
+</span><span id="__span-2-5"><a id="__codelineno-2-5" name="__codelineno-2-5" href="#__codelineno-2-5"></a><span class="w">    </span><span class="nt">api_key_inject</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">header</span>
+</span><span id="__span-2-6"><a id="__codelineno-2-6" name="__codelineno-2-6" href="#__codelineno-2-6"></a><span class="w">    </span><span class="nt">api_key_header</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">X-Api-Key</span><span class="w">           </span><span class="c1"># checked by buem-reverse-proxy</span>
+</span><span id="__span-2-7"><a id="__codelineno-2-7" name="__codelineno-2-7" href="#__codelineno-2-7"></a><span class="w">    </span><span class="nt">timeout</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">300s</span><span class="w">                       </span><span class="c1"># the batch simulates in one call</span>
+</span><span id="__span-2-8"><a id="__codelineno-2-8" name="__codelineno-2-8" href="#__codelineno-2-8"></a><span class="w">    </span><span class="nt">timeseries_path</span><span class="p">:</span><span class="w"> </span><span class="s">"."</span><span class="w">                </span><span class="c1"># weather sits at the payload root</span>
+</span><span id="__span-2-9"><a id="__codelineno-2-9" name="__codelineno-2-9" href="#__codelineno-2-9"></a><span class="w">    </span><span class="nt">attach_resolvent</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">false</span><span class="w">             </span><span class="c1"># BuEM's schema gets weather unchanged</span>
+</span><span id="__span-2-10"><a id="__codelineno-2-10" name="__codelineno-2-10" href="#__codelineno-2-10"></a><span class="w">    </span><span class="nt">response</span><span class="p">:</span>
+</span><span id="__span-2-11"><a id="__codelineno-2-11" name="__codelineno-2-11" href="#__codelineno-2-11"></a><span class="w">      </span><span class="nt">mode</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">direct</span>
+</span></code></pre></div>
+<p>A proxy target — the payload handed through unresolved (ignis's
+calculate endpoint):</p>
+<div class="language-yaml highlight"><pre><span></span><code><span id="__span-3-1"><a id="__codelineno-3-1" name="__codelineno-3-1" href="#__codelineno-3-1"></a><span class="w">  </span><span class="nt">ignis-calculate</span><span class="p">:</span>
+</span><span id="__span-3-2"><a id="__codelineno-3-2" name="__codelineno-3-2" href="#__codelineno-3-2"></a><span class="w">    </span><span class="nt">url</span><span class="p">:</span><span class="w"> </span><span class="s">"https://ignis.example.com/api/v1/calculate/{code}"</span>
+</span><span id="__span-3-3"><a id="__codelineno-3-3" name="__codelineno-3-3" href="#__codelineno-3-3"></a><span class="w">    </span><span class="nt">method</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">POST</span>
+</span><span id="__span-3-4"><a id="__codelineno-3-4" name="__codelineno-3-4" href="#__codelineno-3-4"></a><span class="w">    </span><span class="nt">api_key</span><span class="p">:</span><span class="w"> </span><span class="s">"${IGNIS_API_KEY}"</span>
+</span><span id="__span-3-5"><a id="__codelineno-3-5" name="__codelineno-3-5" href="#__codelineno-3-5"></a><span class="w">    </span><span class="nt">api_key_inject</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">header</span>
+</span><span id="__span-3-6"><a id="__codelineno-3-6" name="__codelineno-3-6" href="#__codelineno-3-6"></a><span class="w">    </span><span class="nt">api_key_header</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">X-Api-Key</span>
+</span><span id="__span-3-7"><a id="__codelineno-3-7" name="__codelineno-3-7" href="#__codelineno-3-7"></a><span class="w">    </span><span class="nt">timeout</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">60s</span>
+</span><span id="__span-3-8"><a id="__codelineno-3-8" name="__codelineno-3-8" href="#__codelineno-3-8"></a><span class="w">    </span><span class="nt">proxy</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">true</span>
+</span><span id="__span-3-9"><a id="__codelineno-3-9" name="__codelineno-3-9" href="#__codelineno-3-9"></a><span class="w">    </span><span class="nt">response</span><span class="p">:</span>
+</span><span id="__span-3-10"><a id="__codelineno-3-10" name="__codelineno-3-10" href="#__codelineno-3-10"></a><span class="w">      </span><span class="nt">mode</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">direct</span>
+</span></code></pre></div>
 <p>Notes:</p>
 <ul>
+<li><code>proxy: true</code> skips resolution entirely: tentacron contributes auth,
+  persistence, the audit trail and retries, and forwards the payload
+  untouched — byte-exact when the URL has no placeholders. Target URLs may
+  carry <code>{field}</code> placeholders filled from top-level payload fields (any
+  target, not just proxies); consumed fields are stripped from the
+  forwarded body, since they address the call rather than belong to it.
+  <code>timeseries_path</code>/<code>attach_resolvent</code> are rejected on a proxy target.</li>
 <li><code>timeseries_path</code> is a dot-separated path into the payload
-  (default <code>time-series</code>). MEME spells its registry <code>model.timeseries</code>.</li>
+  (default <code>time-series</code>). MEME spells its registry <code>model.timeseries</code>.
+  The special value <code>"."</code> scans the whole payload — for contracts like
+  buem-gateway whose time series (the shared <code>weather</code> block) sits at the
+  payload root rather than inside a named container.</li>
+<li><code>attach_resolvent</code> (default <code>true</code>) controls whether the substituted series
+  keeps the original resolvent object under its <code>resolvent</code> key. Set <code>false</code>
+  for targets whose schema validation rejects unknown keys; tentacron's audit
+  store (original payload, resolved payload, events) keeps full traceability
+  either way.</li>
 <li><code>response.mode: direct</code> completes the job with the target's immediate
   response. <code>poll</code> extracts the target's job id, polls until a
   <code>done_values</code>/<code>failed_values</code> status appears, then fetches and stores the
@@ -1019,17 +1089,62 @@ one cache entry — repeated requests don't re-hit the resource APIs.</p>
 </ul>
 <h2 id="resolvents">resolvents<a class="headerlink" href="#resolvents" title="Permanent link">&para;</a></h2>
 <p>One entry per resolvent type. Keys must start with <code>resolvent-</code>.</p>
-<div class="language-yaml highlight"><pre><span></span><code><span id="__span-2-1"><a id="__codelineno-2-1" name="__codelineno-2-1" href="#__codelineno-2-1"></a><span class="nt">resolvents</span><span class="p">:</span>
-</span><span id="__span-2-2"><a id="__codelineno-2-2" name="__codelineno-2-2" href="#__codelineno-2-2"></a><span class="w">  </span><span class="nt">resolvent-pv1</span><span class="p">:</span>
-</span><span id="__span-2-3"><a id="__codelineno-2-3" name="__codelineno-2-3" href="#__codelineno-2-3"></a><span class="w">    </span><span class="nt">url</span><span class="p">:</span><span class="w"> </span><span class="s">"https://pvsim.example.com/v1/generate"</span>
-</span><span id="__span-2-4"><a id="__codelineno-2-4" name="__codelineno-2-4" href="#__codelineno-2-4"></a><span class="w">    </span><span class="nt">method</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">POST</span>
-</span><span id="__span-2-5"><a id="__codelineno-2-5" name="__codelineno-2-5" href="#__codelineno-2-5"></a><span class="w">    </span><span class="nt">api_key</span><span class="p">:</span><span class="w"> </span><span class="s">"${PV1_API_KEY}"</span>
-</span><span id="__span-2-6"><a id="__codelineno-2-6" name="__codelineno-2-6" href="#__codelineno-2-6"></a><span class="w">    </span><span class="nt">api_key_header</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">X-API-Key</span>
-</span><span id="__span-2-7"><a id="__codelineno-2-7" name="__codelineno-2-7" href="#__codelineno-2-7"></a><span class="w">    </span><span class="nt">timeout</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">30s</span>
-</span><span id="__span-2-8"><a id="__codelineno-2-8" name="__codelineno-2-8" href="#__codelineno-2-8"></a><span class="w">    </span><span class="nt">cache_ttl</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">24h</span><span class="w">                      </span><span class="c1"># falls back to cache.default_ttl</span>
+<div class="language-yaml highlight"><pre><span></span><code><span id="__span-4-1"><a id="__codelineno-4-1" name="__codelineno-4-1" href="#__codelineno-4-1"></a><span class="nt">resolvents</span><span class="p">:</span>
+</span><span id="__span-4-2"><a id="__codelineno-4-2" name="__codelineno-4-2" href="#__codelineno-4-2"></a><span class="w">  </span><span class="nt">resolvent-pv1</span><span class="p">:</span>
+</span><span id="__span-4-3"><a id="__codelineno-4-3" name="__codelineno-4-3" href="#__codelineno-4-3"></a><span class="w">    </span><span class="nt">url</span><span class="p">:</span><span class="w"> </span><span class="s">"https://pvsim.example.com/v1/generate"</span>
+</span><span id="__span-4-4"><a id="__codelineno-4-4" name="__codelineno-4-4" href="#__codelineno-4-4"></a><span class="w">    </span><span class="nt">method</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">POST</span>
+</span><span id="__span-4-5"><a id="__codelineno-4-5" name="__codelineno-4-5" href="#__codelineno-4-5"></a><span class="w">    </span><span class="nt">api_key</span><span class="p">:</span><span class="w"> </span><span class="s">"${PV1_API_KEY}"</span>
+</span><span id="__span-4-6"><a id="__codelineno-4-6" name="__codelineno-4-6" href="#__codelineno-4-6"></a><span class="w">    </span><span class="nt">api_key_header</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">X-API-Key</span>
+</span><span id="__span-4-7"><a id="__codelineno-4-7" name="__codelineno-4-7" href="#__codelineno-4-7"></a><span class="w">    </span><span class="nt">timeout</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">30s</span>
+</span><span id="__span-4-8"><a id="__codelineno-4-8" name="__codelineno-4-8" href="#__codelineno-4-8"></a><span class="w">    </span><span class="nt">cache_ttl</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">24h</span><span class="w">                      </span><span class="c1"># falls back to cache.default_ttl</span>
 </span></code></pre></div>
-<p>The whole resolvent object is sent as the request body to this URL; the
-response must be a JSON object and is used verbatim as the time series.</p>
+<p>POST-style resolvents send the whole resolvent object as the request body;
+the response must be a JSON object and is used verbatim as the series.</p>
+<h3 id="get-resolvents-querypath-mapping">GET resolvents (query/path mapping)<a class="headerlink" href="#get-resolvents-querypath-mapping" title="Permanent link">&para;</a></h3>
+<p>With <code>method: GET</code> the resolvent object maps onto the request URL instead of
+a body — the contract of the verified weather, city2tabula and ignis APIs:</p>
+<ul>
+<li><code>{field}</code> placeholders in the configured URL are filled from the resolvent
+  object (path-escaped) and consumed — e.g. ignis's
+  <code>/api/v1/data/{code}</code>;</li>
+<li>every remaining field becomes a query parameter, appended to any query
+  fixed in the URL (e.g. <code>?format=json</code>); parameters are emitted in sorted
+  order, so outbound URLs are deterministic;</li>
+<li>arrays of scalars join comma-separated (<code>variables=T,GHI</code>,
+  <code>osm_ids=123,456</code> — the convention of those APIs); the <code>type</code> field is
+  tentacron's marker and never sent; nested objects are an authoring error;</li>
+<li><code>response_path</code> accepts numeric segments to index array responses —
+  city2tabula's building list resolves one building via <code>response_path: "0"</code>.</li>
+</ul>
+<h3 id="target-backed-resolvents-composition">Target-backed resolvents (composition)<a class="headerlink" href="#target-backed-resolvents-composition" title="Permanent link">&para;</a></h3>
+<p>A resolvent can name a configured <strong>target</strong> as its backend instead of a raw
+URL — tentacron composing its own targets, e.g. a BuEM simulation producing
+the heat-demand series of a MEME model:</p>
+<div class="language-yaml highlight"><pre><span></span><code><span id="__span-5-1"><a id="__codelineno-5-1" name="__codelineno-5-1" href="#__codelineno-5-1"></a><span class="nt">resolvents</span><span class="p">:</span>
+</span><span id="__span-5-2"><a id="__codelineno-5-2" name="__codelineno-5-2" href="#__codelineno-5-2"></a><span class="w">  </span><span class="nt">resolvent-buem</span><span class="p">:</span>
+</span><span id="__span-5-3"><a id="__codelineno-5-3" name="__codelineno-5-3" href="#__codelineno-5-3"></a><span class="w">    </span><span class="nt">target</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">buem-building</span><span class="w">                </span><span class="c1"># a configured direct-mode target</span>
+</span><span id="__span-5-4"><a id="__codelineno-5-4" name="__codelineno-5-4" href="#__codelineno-5-4"></a><span class="w">    </span><span class="nt">payload_field</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">payload</span><span class="w">               </span><span class="c1"># which resolvent field is the nested payload</span>
+</span><span id="__span-5-5"><a id="__codelineno-5-5" name="__codelineno-5-5" href="#__codelineno-5-5"></a><span class="w">    </span><span class="nt">response_path</span><span class="p">:</span><span class="w"> </span><span class="s">"buem.thermal_load_profile.timeseries"</span>
+</span><span id="__span-5-6"><a id="__codelineno-5-6" name="__codelineno-5-6" href="#__codelineno-5-6"></a><span class="w">    </span><span class="nt">cache_ttl</span><span class="p">:</span><span class="w"> </span><span class="l l-Scalar l-Scalar-Plain">24h</span>
+</span></code></pre></div>
+<p>The resolvent object then carries the nested request under <code>payload_field</code>:</p>
+<div class="language-json highlight"><pre><span></span><code><span id="__span-6-1"><a id="__codelineno-6-1" name="__codelineno-6-1" href="#__codelineno-6-1"></a><span class="p">{</span><span class="w"> </span><span class="nt">"type"</span><span class="p">:</span><span class="w"> </span><span class="s2">"resolvent-buem"</span><span class="p">,</span><span class="w"> </span><span class="nt">"payload"</span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="nt">"id"</span><span class="p">:</span><span class="w"> </span><span class="s2">"b-1"</span><span class="p">,</span><span class="w"> </span><span class="nt">"buem"</span><span class="p">:</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="nt">"building"</span><span class="p">:</span><span class="w"> </span><span class="err">…</span><span class="p">,</span><span class="w"> </span><span class="nt">"weather"</span><span class="p">:</span><span class="w"> </span><span class="err">…</span><span class="w"> </span><span class="p">}</span><span class="w"> </span><span class="p">}</span><span class="w"> </span><span class="p">}</span>
+</span></code></pre></div>
+<p>Rules and semantics:</p>
+<ul>
+<li><code>url</code> and <code>target</code> are mutually exclusive; only <strong>direct-mode</strong> targets can
+  back a resolvent (a poll-mode backend would make resolution asynchronous).
+  <code>method</code>/<code>api_key</code>/<code>timeout</code> belong to the backing target and are rejected
+  on the resolvent.</li>
+<li>The nested payload is forwarded <strong>as-is</strong> — it is never itself scanned for
+  resolvents, so resolvent loops are impossible by construction.</li>
+<li><code>payload_field</code> selects the resolvent field sent as the nested payload
+  (empty = the whole resolvent object). <code>response_path</code> extracts the
+  series-shaped sub-object from the response (empty = whole response). Both
+  also work for URL-backed resolvents.</li>
+<li>Caching applies as usual: the hash covers the whole resolvent object, so
+  identical nested simulations are served from the series cache.</li>
+</ul>
 
 
 
@@ -1052,7 +1167,7 @@ response must be a JSON object and is used verbatim as the time series.</p>
     <span class="md-icon" title="Last update">
       <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M21 13.1c-.1 0-.3.1-.4.2l-1 1 2.1 2.1 1-1c.2-.2.2-.6 0-.8l-1.3-1.3c-.1-.1-.2-.2-.4-.2m-1.9 1.8-6.1 6V23h2.1l6.1-6.1zM12.5 7v5.2l4 2.4-1 1L11 13V7zM11 21.9c-5.1-.5-9-4.8-9-9.9C2 6.5 6.5 2 12 2c5.3 0 9.6 4.1 10 9.3-.3-.1-.6-.2-1-.2s-.7.1-1 .2C19.6 7.2 16.2 4 12 4c-4.4 0-8 3.6-8 8 0 4.1 3.1 7.5 7.1 7.9l-.1.2z"/></svg>
     </span>
-    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="September 3, 2026 15:03:15 UTC">September 3, 2026</span>
+    <span class="git-revision-date-localized-plugin git-revision-date-localized-plugin-date" title="September 4, 2026 10:13:22 UTC">September 4, 2026</span>
   </span>
 
     
