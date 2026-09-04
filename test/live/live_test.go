@@ -35,12 +35,21 @@ import (
 )
 
 func TestLiveRequest(t *testing.T) {
+	cfg, request := liveInputs(t)
+	st, srv := bootLiveStack(t, cfg)
+	id := submitLive(t, srv.URL, request)
+	followLiveJob(t, st, id)
+}
+
+// liveInputs loads the operator-supplied config and request file, skipping
+// the tier when the gating variables are unset.
+func liveInputs(t *testing.T) (*config.Config, []byte) {
+	t.Helper()
 	configPath := os.Getenv("TENTACRON_LIVE_CONFIG")
 	requestPath := os.Getenv("TENTACRON_LIVE_REQUEST")
 	if configPath == "" || requestPath == "" {
 		t.Skip("live tier disabled: set TENTACRON_LIVE_CONFIG and TENTACRON_LIVE_REQUEST to run against real upstreams")
 	}
-
 	cfg, err := config.Load(configPath)
 	if err != nil {
 		t.Fatalf("load %s: %v", configPath, err)
@@ -50,7 +59,6 @@ func TestLiveRequest(t *testing.T) {
 		t.Fatalf("read %s: %v", requestPath, err)
 	}
 	var reqDoc struct {
-		APIKey string `json:"api_key"`
 		Target string `json:"target"`
 	}
 	if err := json.Unmarshal(request, &reqDoc); err != nil {
@@ -59,16 +67,18 @@ func TestLiveRequest(t *testing.T) {
 	if _, ok := cfg.Targets[reqDoc.Target]; !ok {
 		t.Fatalf("request targets %q, which the config does not define", reqDoc.Target)
 	}
+	return cfg, request
+}
 
-	// The real stack, in process: only the store lives in a temp dir so a
-	// live run never touches an existing deployment database.
+// bootLiveStack runs the real stack in process. Only the store lives in a
+// temp dir, so a live run never touches an existing deployment database.
+func bootLiveStack(t *testing.T, cfg *config.Config) (*store.Store, *httptest.Server) {
+	t.Helper()
 	st, err := store.Open(filepath.Join(t.TempDir(), "live.db"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer func() { _ = st.Close() }()
 	cfg.Storage.ResultsDir = t.TempDir()
-
 	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelInfo}))
 	nudge := make(chan struct{}, 1)
 	pool := worker.New(cfg, st, upstream.New(cfg.Server.MaxBodyBytes, cfg.UpstreamSecrets()), logger, nudge)
@@ -79,13 +89,19 @@ func TestLiveRequest(t *testing.T) {
 		pool.Run(ctx)
 	}()
 	srv := httptest.NewServer(api.New(cfg, st, logger, nudge).Handler())
-	defer func() {
+	t.Cleanup(func() {
 		srv.Close()
 		cancel()
 		<-done
-	}()
+		_ = st.Close()
+	})
+	return st, srv
+}
 
-	resp, err := http.Post(srv.URL+"/v1/requests", "application/json", strings.NewReader(string(request)))
+// submitLive posts the request and returns the accepted job id.
+func submitLive(t *testing.T, base string, request []byte) string {
+	t.Helper()
+	resp, err := http.Post(base+"/v1/requests", "application/json", strings.NewReader(string(request)))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -101,14 +117,20 @@ func TestLiveRequest(t *testing.T) {
 	if err := json.Unmarshal(acceptBody, &accepted); err != nil || accepted.ID == "" {
 		t.Fatalf("no job id in accept response: %s", acceptBody)
 	}
+	return accepted.ID
+}
 
+// followLiveJob logs every state change until the job is terminal and fails
+// the test on a failed job.
+func followLiveJob(t *testing.T, st *store.Store, id string) {
+	t.Helper()
 	deadline := time.Now().Add(liveDeadline(t))
 	lastState := ""
 	for {
 		if time.Now().After(deadline) {
-			t.Fatalf("job %s still %q at the live deadline — raise TENTACRON_LIVE_TIMEOUT if the upstream is just slow", accepted.ID, lastState)
+			t.Fatalf("job %s still %q at the live deadline — raise TENTACRON_LIVE_TIMEOUT if the upstream is just slow", id, lastState)
 		}
-		job, err := st.GetJob(context.Background(), accepted.ID)
+		job, err := st.GetJob(context.Background(), id)
 		if err != nil {
 			t.Fatal(err)
 		}

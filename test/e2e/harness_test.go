@@ -80,12 +80,17 @@ type fakes struct {
 const weatherBody = `{"index":["2018-01-01T00:30:00Z","2018-01-01T01:30:00Z"],"variables":{"T":[1.0,1.2],"GHI":[0.0,12.5]}}`
 
 func (f fakes) withDefaults() fakes {
+	return f.withResourceDefaults().withTargetDefaults()
+}
+
+// withResourceDefaults fills the resource-API replies: the classic POST
+// series, and GET replies routed by path so concurrent fetches stay
+// deterministic — each mirrors its real API's response shape.
+func (f fakes) withResourceDefaults() fakes {
 	if f.resource == nil {
 		f.resource = func(int64) reply { return reply{200, defaultSeries, ""} }
 	}
 	if f.resourceGET == nil {
-		// Route by path so concurrent fetches stay deterministic: each GET
-		// resolvent's default reply mirrors its real API's response shape.
 		f.resourceGET = func(path string, _ int64) reply {
 			switch {
 			case strings.HasPrefix(path, "/point"):
@@ -99,6 +104,12 @@ func (f fakes) withDefaults() fakes {
 			}
 		}
 	}
+	return f
+}
+
+// withTargetDefaults fills every target reply with the service's documented
+// happy-path response.
+func (f fakes) withTargetDefaults() fakes {
 	if f.direct == nil {
 		f.direct = func(int64) reply { return reply{200, `{"ok":true}`, ""} }
 	}
@@ -179,8 +190,21 @@ func newHarness(t *testing.T, f fakes, mod func(*config.Config)) *harness {
 		lastTargetPath: map[string]string{},
 		resourceGETs:   map[string]string{},
 	}
+	resource := h.startResourceFake(f)
+	target := h.startTargetFake(f)
+	cfg := goldenConfig(t, resource.URL, target.URL)
+	if mod != nil {
+		mod(cfg)
+	}
+	h.startStack(cfg)
+	return h
+}
 
-	resource := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+// startResourceFake serves the resource APIs: POST "/" for the classic
+// resolvents and GET paths for the weather/city2tabula/ignis contracts,
+// recording the auth header, body and exact request line of each call.
+func (h *harness) startResourceFake(f fakes) *httptest.Server {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch {
 		case r.Method == http.MethodPost && r.URL.Path == "/":
 			body, _ := io.ReadAll(r.Body)
@@ -200,55 +224,56 @@ func newHarness(t *testing.T, f fakes, mod func(*config.Config)) *harness {
 			w.WriteHeader(http.StatusNotFound)
 		}
 	}))
-	t.Cleanup(resource.Close)
+	h.t.Cleanup(srv.Close)
+	return srv
+}
 
-	captureTarget := func(endpoint string, r *http.Request) {
-		body, _ := io.ReadAll(r.Body)
-		h.mu.Lock()
-		h.lastForwarded[endpoint] = body
-		h.lastTargetAuth[endpoint] = r.Header.Get("X-API-Key")
-		h.lastTargetPath[endpoint] = r.URL.Path
-		h.mu.Unlock()
-	}
+// startTargetFake serves every target endpoint on one mux. The catch-all is
+// a tripwire: traffic the fakes did not script (an escaped job id rewriting
+// the poll path, a wrong method, an unforeseen extra call) must surface as
+// a golden diff, not vanish into a silent 404.
+func (h *harness) startTargetFake(f fakes) *httptest.Server {
 	mux := http.NewServeMux()
-	mux.HandleFunc("POST /run", func(w http.ResponseWriter, r *http.Request) {
-		captureTarget("demo", r)
-		writeReply(w, f.direct(h.demoCalls.Add(1)))
-	})
-	mux.HandleFunc("POST /simulate", func(w http.ResponseWriter, r *http.Request) {
-		captureTarget("meme", r)
-		writeReply(w, f.accept(h.acceptCalls.Add(1)))
-	})
-	mux.HandleFunc("POST /api/v1/buem/buildings", func(w http.ResponseWriter, r *http.Request) {
-		captureTarget("buem", r)
-		writeReply(w, f.gateway(h.gatewayCalls.Add(1)))
-	})
-	mux.HandleFunc("POST /api/v1/buem/building", func(w http.ResponseWriter, r *http.Request) {
-		captureTarget("buem-building", r)
-		writeReply(w, f.building(h.buildingCalls.Add(1)))
-	})
-	mux.HandleFunc("POST /api/v1/calculate/{code}", func(w http.ResponseWriter, r *http.Request) {
-		captureTarget("ignis-calculate", r)
-		writeReply(w, f.calculate(h.calculateCalls.Add(1)))
-	})
+	mux.HandleFunc("POST /run", h.capturing("demo", &h.demoCalls, f.direct))
+	mux.HandleFunc("POST /simulate", h.capturing("meme", &h.acceptCalls, f.accept))
+	mux.HandleFunc("POST /api/v1/buem/buildings", h.capturing("buem", &h.gatewayCalls, f.gateway))
+	mux.HandleFunc("POST /api/v1/buem/building", h.capturing("buem-building", &h.buildingCalls, f.building))
+	mux.HandleFunc("POST /api/v1/calculate/{code}", h.capturing("ignis-calculate", &h.calculateCalls, f.calculate))
 	mux.HandleFunc("GET /jobs/{id}/status", func(w http.ResponseWriter, _ *http.Request) {
 		writeReply(w, f.status(h.statusCalls.Add(1)))
 	})
 	mux.HandleFunc("GET /jobs/{id}", func(w http.ResponseWriter, _ *http.Request) {
 		writeReply(w, f.result(h.resultCalls.Add(1)))
 	})
-	// Catch-all tripwire: traffic the fakes did not script (an escaped job
-	// id rewriting the poll path, a wrong method, an unforeseen extra call)
-	// must surface as a golden diff, not vanish into a silent 404.
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		h.noteUnexpected(r)
 		w.WriteHeader(http.StatusNotFound)
 	})
-	target := httptest.NewServer(mux)
-	t.Cleanup(target.Close)
+	srv := httptest.NewServer(mux)
+	h.t.Cleanup(srv.Close)
+	return srv
+}
 
-	dur := func(d time.Duration) config.Duration { return config.Duration(d) }
-	cfg := &config.Config{
+// capturing builds a target handler that records the body, auth header and
+// path it received under endpoint, counts the call, and answers with the
+// scripted reply.
+func (h *harness) capturing(endpoint string, calls *atomic.Int64, replyFor func(int64) reply) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		h.mu.Lock()
+		h.lastForwarded[endpoint] = body
+		h.lastTargetAuth[endpoint] = r.Header.Get("X-API-Key")
+		h.lastTargetPath[endpoint] = r.URL.Path
+		h.mu.Unlock()
+		writeReply(w, replyFor(calls.Add(1)))
+	}
+}
+
+func dur(d time.Duration) config.Duration { return config.Duration(d) }
+
+// goldenConfig is the fixed stack configuration every scenario starts from.
+func goldenConfig(t *testing.T, resourceURL, targetURL string) *config.Config {
+	return &config.Config{
 		Server: config.Server{MaxBodyBytes: 4096},
 		Auth: config.Auth{APIKeys: []config.APIKey{
 			{Name: "golden", Key: clientKey},
@@ -263,91 +288,101 @@ func newHarness(t *testing.T, f fakes, mod func(*config.Config)) *harness {
 			// attempts/audit lines and flake the goldens.
 			JobTimeout: dur(60 * time.Second),
 		},
-		Cache: config.Cache{DefaultTTL: dur(time.Hour), CleanupInterval: dur(time.Hour)},
-		Targets: map[string]config.Target{
-			// The generic direct-mode fixture: default "time-series" array
-			// container, header key injection.
-			"demo": {
-				URL: target.URL + "/run", Method: "POST", Timeout: dur(2 * time.Second),
-				TimeseriesPath: "time-series",
-				APIKey:         demoSecret, APIKeyInject: config.InjectHeader, APIKeyHeader: "X-API-Key",
-				Response: config.Response{Mode: config.ModeDirect},
-			},
-			// The real buem-gateway contract: synchronous batch endpoint,
-			// X-Api-Key via the reverse proxy, the weather time series at
-			// the payload root, and no tentacron marker in the forwarded
-			// payload (BuEM's schema must receive weather unchanged).
-			"buem": {
-				URL: target.URL + "/api/v1/buem/buildings", Method: "POST", Timeout: dur(2 * time.Second),
-				TimeseriesPath: config.RootTimeseriesPath, AttachResolvent: boolPtr(false),
-				APIKey: buemSecret, APIKeyInject: config.InjectHeader, APIKeyHeader: "X-Api-Key",
-				Response: config.Response{Mode: config.ModeDirect},
-			},
-			// The single-building endpoint; backs resolvent-buem so a BuEM
-			// simulation can feed another target's payload.
-			"buem-building": {
-				URL: target.URL + "/api/v1/buem/building", Method: "POST", Timeout: dur(2 * time.Second),
-				TimeseriesPath: config.RootTimeseriesPath, AttachResolvent: boolPtr(false),
-				APIKey: buemSecret, APIKeyInject: config.InjectHeader, APIKeyHeader: "X-Api-Key",
-				Response: config.Response{Mode: config.ModeDirect},
-			},
-			// The proxy-target exemplar: ignis's calculate endpoint. The
-			// payload is handed through unresolved; the {code} placeholder
-			// is filled from (and stripped out of) the payload.
-			"ignis-calculate": {
-				URL: target.URL + "/api/v1/calculate/{code}", Method: "POST", Timeout: dur(2 * time.Second),
-				Proxy:  true,
-				APIKey: ignisSecret, APIKeyInject: config.InjectHeader, APIKeyHeader: "X-Api-Key",
-				Response: config.Response{Mode: config.ModeDirect},
-			},
-			"meme": {
-				URL: target.URL + "/simulate", Method: "POST", Timeout: dur(2 * time.Second),
-				TimeseriesPath: "model.timeseries",
-				APIKey:         memeSecret, APIKeyInject: config.InjectBodyField, APIKeyField: "api_key",
-				// meme's verified poll contract: id in "id", status at
-				// /jobs/{id}/status with state queued|running|succeeded|
-				// failed, the result bundle at /jobs/{id}.
-				Response: config.Response{Mode: config.ModePoll, Poll: &config.Poll{
-					IDJSONPath: "id", URLTemplate: target.URL + "/jobs/{id}/status",
-					ResultURLTemplate: target.URL + "/jobs/{id}",
-					StatusJSONPath:    "state", DoneValues: []string{"succeeded"}, FailedValues: []string{"failed"},
-					Interval: dur(10 * time.Millisecond), Timeout: dur(2 * time.Second),
-				}},
-			},
-		},
-		Resolvents: map[string]config.Resolvent{
-			"resolvent-pv1": {URL: resource.URL, Method: "POST", APIKey: resourceSecret,
-				APIKeyHeader: "X-API-Key", Timeout: dur(2 * time.Second), CacheTTL: dur(time.Hour)},
-			"resolvent-wind": {URL: resource.URL, Method: "POST", APIKey: resourceSecret,
-				APIKeyHeader: "X-API-Key", Timeout: dur(2 * time.Second), CacheTTL: dur(time.Hour)},
-			// GET resolvents against the verified weather/city2tabula/ignis
-			// contracts: object fields map onto query parameters and path
-			// placeholders.
-			"resolvent-weather": {URL: resource.URL + "/point?format=json", Method: "GET",
-				APIKey: resourceSecret, APIKeyHeader: "X-API-Key",
-				Timeout: dur(2 * time.Second), CacheTTL: dur(time.Hour)},
-			"resolvent-city2tabula": {URL: resource.URL + "/buildings", Method: "GET",
-				Timeout: dur(2 * time.Second), CacheTTL: dur(time.Hour), ResponsePath: "0"},
-			"resolvent-ignis": {URL: resource.URL + "/data/{code}", Method: "GET",
-				APIKey: resourceSecret, APIKeyHeader: "X-Api-Key",
-				Timeout: dur(2 * time.Second), CacheTTL: dur(time.Hour)},
-			// Target composition: resolved by forwarding the resolvent's
-			// "payload" field through the buem-building target and
-			// extracting the load-profile timeseries from the response.
-			"resolvent-buem": {Target: "buem-building", PayloadField: "payload",
-				ResponsePath: "buem.thermal_load_profile.timeseries", CacheTTL: dur(time.Hour)},
-		},
+		Cache:      config.Cache{DefaultTTL: dur(time.Hour), CleanupInterval: dur(time.Hour)},
+		Targets:    goldenTargets(targetURL),
+		Resolvents: goldenResolvents(resourceURL),
 	}
-	if mod != nil {
-		mod(cfg)
-	}
+}
 
-	st, err := store.Open(filepath.Join(t.TempDir(), "golden.db"))
+// goldenTargets wires every target contract the corpus exercises against
+// the fake target server.
+func goldenTargets(base string) map[string]config.Target {
+	return map[string]config.Target{
+		// The generic direct-mode fixture: default "time-series" array
+		// container, header key injection.
+		"demo": {
+			URL: base + "/run", Method: "POST", Timeout: dur(2 * time.Second),
+			TimeseriesPath: "time-series",
+			APIKey:         demoSecret, APIKeyInject: config.InjectHeader, APIKeyHeader: "X-API-Key",
+			Response: config.Response{Mode: config.ModeDirect},
+		},
+		// The real buem-gateway contract: synchronous batch endpoint,
+		// X-Api-Key via the reverse proxy, the weather time series at
+		// the payload root, and no tentacron marker in the forwarded
+		// payload (BuEM's schema must receive weather unchanged).
+		"buem": {
+			URL: base + "/api/v1/buem/buildings", Method: "POST", Timeout: dur(2 * time.Second),
+			TimeseriesPath: config.RootTimeseriesPath, AttachResolvent: boolPtr(false),
+			APIKey: buemSecret, APIKeyInject: config.InjectHeader, APIKeyHeader: "X-Api-Key",
+			Response: config.Response{Mode: config.ModeDirect},
+		},
+		// The single-building endpoint; backs resolvent-buem so a BuEM
+		// simulation can feed another target's payload.
+		"buem-building": {
+			URL: base + "/api/v1/buem/building", Method: "POST", Timeout: dur(2 * time.Second),
+			TimeseriesPath: config.RootTimeseriesPath, AttachResolvent: boolPtr(false),
+			APIKey: buemSecret, APIKeyInject: config.InjectHeader, APIKeyHeader: "X-Api-Key",
+			Response: config.Response{Mode: config.ModeDirect},
+		},
+		// The proxy-target exemplar: ignis's calculate endpoint. The
+		// payload is handed through unresolved; the {code} placeholder
+		// is filled from (and stripped out of) the payload.
+		"ignis-calculate": {
+			URL: base + "/api/v1/calculate/{code}", Method: "POST", Timeout: dur(2 * time.Second),
+			Proxy:  true,
+			APIKey: ignisSecret, APIKeyInject: config.InjectHeader, APIKeyHeader: "X-Api-Key",
+			Response: config.Response{Mode: config.ModeDirect},
+		},
+		// meme's verified poll contract: id in "id", status at
+		// /jobs/{id}/status with state queued|running|succeeded|failed,
+		// the result bundle at /jobs/{id}.
+		"meme": {
+			URL: base + "/simulate", Method: "POST", Timeout: dur(2 * time.Second),
+			TimeseriesPath: "model.timeseries",
+			APIKey:         memeSecret, APIKeyInject: config.InjectBodyField, APIKeyField: "api_key",
+			Response: config.Response{Mode: config.ModePoll, Poll: &config.Poll{
+				IDJSONPath: "id", URLTemplate: base + "/jobs/{id}/status",
+				ResultURLTemplate: base + "/jobs/{id}",
+				StatusJSONPath:    "state", DoneValues: []string{"succeeded"}, FailedValues: []string{"failed"},
+				Interval: dur(10 * time.Millisecond), Timeout: dur(2 * time.Second),
+			}},
+		},
+	}
+}
+
+// goldenResolvents wires the POST resolvents, the GET resolvents against the
+// verified weather/city2tabula/ignis contracts, and the target-backed
+// resolvent-buem against the fake resource server.
+func goldenResolvents(base string) map[string]config.Resolvent {
+	return map[string]config.Resolvent{
+		"resolvent-pv1": {URL: base, Method: "POST", APIKey: resourceSecret,
+			APIKeyHeader: "X-API-Key", Timeout: dur(2 * time.Second), CacheTTL: dur(time.Hour)},
+		"resolvent-wind": {URL: base, Method: "POST", APIKey: resourceSecret,
+			APIKeyHeader: "X-API-Key", Timeout: dur(2 * time.Second), CacheTTL: dur(time.Hour)},
+		"resolvent-weather": {URL: base + "/point?format=json", Method: "GET",
+			APIKey: resourceSecret, APIKeyHeader: "X-API-Key",
+			Timeout: dur(2 * time.Second), CacheTTL: dur(time.Hour)},
+		"resolvent-city2tabula": {URL: base + "/buildings", Method: "GET",
+			Timeout: dur(2 * time.Second), CacheTTL: dur(time.Hour), ResponsePath: "0"},
+		"resolvent-ignis": {URL: base + "/data/{code}", Method: "GET",
+			APIKey: resourceSecret, APIKeyHeader: "X-Api-Key",
+			Timeout: dur(2 * time.Second), CacheTTL: dur(time.Hour)},
+		// Target composition: resolved by forwarding the resolvent's
+		// "payload" field through the buem-building target and
+		// extracting the load-profile timeseries from the response.
+		"resolvent-buem": {Target: "buem-building", PayloadField: "payload",
+			ResponsePath: "buem.thermal_load_profile.timeseries", CacheTTL: dur(time.Hour)},
+	}
+}
+
+// startStack opens the store, runs the worker pool and serves the API,
+// tearing everything down at test cleanup.
+func (h *harness) startStack(cfg *config.Config) {
+	st, err := store.Open(filepath.Join(h.t.TempDir(), "golden.db"))
 	if err != nil {
-		t.Fatal(err)
+		h.t.Fatal(err)
 	}
 	h.st = st
-
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
 	nudge := make(chan struct{}, 1)
 	pool := worker.New(cfg, st, upstream.New(cfg.Server.MaxBodyBytes, cfg.UpstreamSecrets()), logger, nudge)
@@ -358,13 +393,12 @@ func newHarness(t *testing.T, f fakes, mod func(*config.Config)) *harness {
 		pool.Run(ctx)
 	}()
 	h.api = httptest.NewServer(api.New(cfg, st, logger, nudge).Handler())
-	t.Cleanup(func() {
+	h.t.Cleanup(func() {
 		h.api.Close()
 		cancel()
 		<-done
 		_ = st.Close()
 	})
-	return h
 }
 
 func (h *harness) noteUnexpected(r *http.Request) {

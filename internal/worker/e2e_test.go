@@ -33,13 +33,27 @@ type e2eStack struct {
 // a MEME-style async target (accept -> poll -> result) and a resource API.
 func startStack(t *testing.T) *e2eStack {
 	t.Helper()
+	resource := fakeSeriesResource(t)
+	target, lastFwd := fakeMemeTarget(t)
+	cfg := e2eConfig(t, resource.URL, target.URL)
+	return &e2eStack{api: bootStack(t, cfg), lastFwd: lastFwd}
+}
 
-	resource := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+func fakeSeriesResource(t *testing.T) *httptest.Server {
+	t.Helper()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = io.WriteString(w, `{"type":"time-series","unit":"kW","values":[0.4,0.9]}`)
 	}))
-	t.Cleanup(resource.Close)
+	t.Cleanup(srv.Close)
+	return srv
+}
 
+// fakeMemeTarget accepts every submission with a job id, reports it running
+// on the first poll and done afterwards; the returned func yields the last
+// forwarded body.
+func fakeMemeTarget(t *testing.T) (*httptest.Server, func() []byte) {
+	t.Helper()
 	var mu sync.Mutex
 	var lastForwarded []byte
 	var polls int
@@ -63,10 +77,18 @@ func startStack(t *testing.T) *e2eStack {
 		}
 		_, _ = io.WriteString(w, `{"status":"done","objective":1234.5}`)
 	})
-	target := httptest.NewServer(mux)
-	t.Cleanup(target.Close)
+	srv := httptest.NewServer(mux)
+	t.Cleanup(srv.Close)
+	return srv, func() []byte {
+		mu.Lock()
+		defer mu.Unlock()
+		return lastForwarded
+	}
+}
 
-	cfg := &config.Config{
+func e2eConfig(t *testing.T, resourceURL, targetURL string) *config.Config {
+	t.Helper()
+	return &config.Config{
 		Server:  config.Server{MaxBodyBytes: 1 << 20},
 		Auth:    config.Auth{APIKeys: []config.APIKey{{Name: "e2e", Key: clientKey}}},
 		Storage: config.Storage{ResultsDir: t.TempDir(), Retention: config.Duration(time.Hour)},
@@ -78,22 +100,26 @@ func startStack(t *testing.T) *e2eStack {
 		},
 		Cache: config.Cache{DefaultTTL: config.Duration(time.Hour), CleanupInterval: config.Duration(time.Hour)},
 		Targets: map[string]config.Target{"meme": {
-			URL: target.URL + "/simulate", Method: "POST", Timeout: config.Duration(2 * time.Second),
+			URL: targetURL + "/simulate", Method: "POST", Timeout: config.Duration(2 * time.Second),
 			TimeseriesPath: "model.timeseries",
 			APIKey:         "meme-secret", APIKeyInject: config.InjectBodyField, APIKeyField: "api_key",
 			Response: config.Response{Mode: config.ModePoll, Poll: &config.Poll{
-				IDJSONPath: "job_id", URLTemplate: target.URL + "/jobs/{id}",
-				ResultURLTemplate: target.URL + "/jobs/{id}",
+				IDJSONPath: "job_id", URLTemplate: targetURL + "/jobs/{id}",
+				ResultURLTemplate: targetURL + "/jobs/{id}",
 				StatusJSONPath:    "status", DoneValues: []string{"done"}, FailedValues: []string{"failed"},
 				Interval: config.Duration(10 * time.Millisecond), Timeout: config.Duration(5 * time.Second),
 			}},
 		}},
 		Resolvents: map[string]config.Resolvent{"resolvent-pv1": {
-			URL: resource.URL, Method: "POST", APIKeyHeader: "X-API-Key",
+			URL: resourceURL, Method: "POST", APIKeyHeader: "X-API-Key",
 			Timeout: config.Duration(2 * time.Second), CacheTTL: config.Duration(time.Hour),
 		}},
 	}
+}
 
+// bootStack opens the store, runs the pool and serves the API until cleanup.
+func bootStack(t *testing.T, cfg *config.Config) *httptest.Server {
+	t.Helper()
 	st, err := store.Open(filepath.Join(t.TempDir(), "e2e.db"))
 	if err != nil {
 		t.Fatal(err)
@@ -114,15 +140,7 @@ func startStack(t *testing.T) *e2eStack {
 		<-done
 		_ = st.Close()
 	})
-
-	return &e2eStack{
-		api: apiSrv,
-		lastFwd: func() []byte {
-			mu.Lock()
-			defer mu.Unlock()
-			return lastForwarded
-		},
-	}
+	return apiSrv
 }
 
 func postJSON(t *testing.T, url, body string) (int, []byte) {
