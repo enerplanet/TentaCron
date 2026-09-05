@@ -685,3 +685,33 @@ targets:
 		t.Errorf("unknown role must be rejected, got %v", err)
 	}
 }
+
+func TestKeySchedulingKnobs(t *testing.T) {
+	cfg, err := Load(writeConfig(t, `
+auth:
+  api_keys:
+    - {name: batch, key: k1, max_concurrent: 2, max_priority: 0}
+    - {name: ui, key: k2}
+targets:
+  demo:
+    url: "https://demo.example.com/run"
+`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.MaxConcurrentFor("batch") != 2 || cfg.MaxConcurrentFor("ui") != 0 || cfg.MaxConcurrentFor("nobody") != 0 {
+		t.Errorf("max_concurrent: batch=%d ui=%d", cfg.MaxConcurrentFor("batch"), cfg.MaxConcurrentFor("ui"))
+	}
+	if cfg.MaxPriorityFor("batch") != 0 || cfg.MaxPriorityFor("ui") != MaxPriority || cfg.MaxPriorityFor("nobody") != MaxPriority {
+		t.Errorf("max_priority: batch=%d ui=%d", cfg.MaxPriorityFor("batch"), cfg.MaxPriorityFor("ui"))
+	}
+	for _, tt := range []struct{ yaml, wantErr string }{
+		{"    - {name: t, key: k, max_concurrent: -1}\n", "max_concurrent must be zero (unlimited) or positive (got -1)"},
+		{"    - {name: t, key: k, max_priority: 11}\n", "max_priority must be between -10 and 10 (got 11)"},
+	} {
+		_, err := Load(writeConfig(t, "auth:\n  api_keys:\n"+tt.yaml+"targets:\n  demo:\n    url: \"https://demo.example.com/run\"\n"))
+		if err == nil || !strings.Contains(err.Error(), tt.wantErr) {
+			t.Errorf("want %q, got %v", tt.wantErr, err)
+		}
+	}
+}

@@ -30,6 +30,12 @@ func TestAPIContract(t *testing.T) {
 	runScenarios(t, apiContractScenarios)
 }
 
+// TestScheduling covers claim ordering across clients and priorities and
+// per-client in-flight ceilings.
+func TestScheduling(t *testing.T) {
+	runScenarios(t, schedulingScenarios)
+}
+
 // TestGoldenCorpusMatchesScenarios keeps testdata/golden/ and the scenario
 // corpus in lockstep: a removed or renamed scenario must not leave a zombie
 // golden behind, and scenario names must be unique.
@@ -243,7 +249,7 @@ var targetProtocolScenarios = []scenario{
 		// simulation) is never re-submitted when the forward hits its
 		// deadline: exactly one call, one attempt, target_timeout.
 		name:  "target-timeout-not-retried",
-		fakes: fakes{directDelay: 300 * time.Millisecond},
+		fakes: fakes{directDelay: func(int64) time.Duration { return 300 * time.Millisecond }},
 		mod: func(cfg *config.Config) {
 			demo := cfg.Targets["demo"]
 			demo.Timeout = config.Duration(50 * time.Millisecond)
@@ -478,6 +484,72 @@ var targetProtocolScenarios = []scenario{
 			h.await("final state (digits exact in embedded result)", id)
 			h.get("download inline JSON result", "/v1/requests/"+id+"/result",
 				map[string]string{"X-API-Key": clientKey})
+		},
+	},
+}
+
+var schedulingScenarios = []scenario{
+	{
+		// One worker, a batch client that queues six jobs, an interactive
+		// client with one, and an admin job with priority 5 — all queued
+		// while a blocker from the batch client occupies the worker. Claims
+		// go by priority first, then round-robin across clients (each
+		// client's oldest job, the least recently served client first),
+		// then age: the interactive job runs right after the priority job,
+		// ahead of the six queued batch jobs, because the batch client was
+		// the last one served.
+		name: "fair-claim-order",
+		fakes: fakes{directDelay: func(call int64) time.Duration {
+			if call == 1 {
+				return time.Second // the blocker: long enough to queue everything else behind it
+			}
+			return 0
+		}},
+		mod: func(cfg *config.Config) { cfg.Worker.Count = 1 },
+		run: func(t *testing.T, h *harness) {
+			who := func(marker string) string { return `{"who":"` + marker + `","time-series":[]}` }
+			blocker := h.post("batch client submits the blocker", requestBody("demo", who("b0")), nil)
+			h.awaitState("blocker occupies the only worker", blocker, store.StateForwarding)
+			var ids []string
+			for _, m := range []string{"b1", "b2", "b3", "b4", "b5", "b6"} {
+				ids = append(ids, h.post("batch client submits "+m, requestBody("demo", who(m)), nil))
+			}
+			ids = append(ids, h.post("interactive client submits s1",
+				strings.Replace(requestBody("demo", who("s1")), clientKey, secondClientKey, 1), nil))
+			ids = append(ids, h.post("admin submits o1 with priority 5",
+				`{"api_key":"`+adminKey+`","target":"demo","priority":5,"payload":`+who("o1")+`}`, nil))
+			for _, id := range append([]string{blocker}, ids...) {
+				h.awaitState("job "+normalizePath(id, h.ids)+" completes", id, store.StateCompleted, store.StateFailed)
+			}
+			h.targetCallOrder("order in which the target received the jobs", "demo")
+			h.get("priority is reported on the job", "/v1/requests/"+ids[len(ids)-1], map[string]string{"X-API-Key": adminKey})
+		},
+	},
+	{
+		// A per-key in-flight ceiling: the batch client may run one job at a
+		// time, so with two workers its queue drains one by one while the
+		// other client's job takes the free worker at once.
+		name: "per-client-concurrency-ceiling",
+		fakes: fakes{directDelay: func(call int64) time.Duration {
+			if call <= 3 {
+				return 400 * time.Millisecond
+			}
+			return 0
+		}},
+		mod: func(cfg *config.Config) {
+			cfg.Auth.APIKeys[0].MaxConcurrent = 1
+		},
+		run: func(t *testing.T, h *harness) {
+			who := func(marker string) string { return `{"who":"` + marker + `","time-series":[]}` }
+			first := h.post("batch client submits b1", requestBody("demo", who("b1")), nil)
+			h.awaitState("b1 occupies the batch client's single slot", first, store.StateForwarding)
+			second := h.post("batch client submits b2 (must wait for b1)", requestBody("demo", who("b2")), nil)
+			other := h.post("interactive client submits s1 (free worker)",
+				strings.Replace(requestBody("demo", who("s1")), clientKey, secondClientKey, 1), nil)
+			for _, id := range []string{first, second, other} {
+				h.awaitState("job "+normalizePath(id, h.ids)+" completes", id, store.StateCompleted, store.StateFailed)
+			}
+			h.targetCallOrder("s1 reached the target before b2", "demo")
 		},
 	},
 }

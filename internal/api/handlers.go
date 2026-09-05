@@ -4,6 +4,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"io/fs"
 	"mime"
@@ -15,6 +16,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/enerplanet/tentacron/internal/config"
 	"github.com/enerplanet/tentacron/internal/store"
 )
 
@@ -22,6 +24,8 @@ type createRequest struct {
 	APIKey  string          `json:"api_key"`
 	Target  string          `json:"target"`
 	Payload json.RawMessage `json:"payload"`
+	// Priority orders claims (-10..10, default 0); capped per client key.
+	Priority *int `json:"priority"`
 }
 
 type createResponse struct {
@@ -107,6 +111,9 @@ func validateCreateRequest(req createRequest) (status int, code, msg string) {
 		return http.StatusBadRequest, CodeMissingField, "payload is required"
 	case !strings.HasPrefix(strings.TrimSpace(string(req.Payload)), "{"):
 		return http.StatusBadRequest, CodeInvalidJSON, "payload must be a JSON object"
+	case req.Priority != nil && (*req.Priority < config.MinPriority || *req.Priority > config.MaxPriority):
+		return http.StatusBadRequest, CodeInvalidParameter,
+			fmt.Sprintf("priority must be between %d and %d", config.MinPriority, config.MaxPriority)
 	}
 	return 0, "", ""
 }
@@ -127,6 +134,11 @@ func (s *Server) handleCreate(w http.ResponseWriter, r *http.Request) {
 			"target "+strconv.Quote(req.Target)+" is not configured")
 		return
 	}
+	if limit := s.cfg.MaxPriorityFor(id.name); req.Priority != nil && *req.Priority > limit {
+		writeError(w, http.StatusBadRequest, CodeInvalidParameter,
+			fmt.Sprintf("priority %d exceeds this key's maximum of %d", *req.Priority, limit))
+		return
+	}
 	s.acceptJob(w, r, req, id.name)
 }
 
@@ -145,6 +157,9 @@ func (s *Server) acceptJob(w http.ResponseWriter, r *http.Request, req createReq
 		Target:         req.Target,
 		MaxAttempts:    s.cfg.MaxAttemptsFor(req.Target),
 		Payload:        req.Payload, // client api_key lives outside payload and is never stored
+	}
+	if req.Priority != nil {
+		job.Priority = *req.Priority
 	}
 	created, stored, err := s.store.CreateJob(r.Context(), job)
 	if errors.Is(err, store.ErrIdempotencyConflict) {
@@ -181,6 +196,7 @@ type jobResponse struct {
 	Target      string      `json:"target"`
 	State       string      `json:"state"`
 	Attempts    int         `json:"attempts"`
+	Priority    int         `json:"priority,omitempty"`
 	TargetJobID string      `json:"target_job_id,omitempty"`
 	CreatedAt   string      `json:"created_at"`
 	UpdatedAt   string      `json:"updated_at"`
@@ -488,6 +504,7 @@ func toJobResponse(j *store.Job) jobResponse {
 		Target:      j.Target,
 		State:       j.State,
 		Attempts:    j.Attempts,
+		Priority:    j.Priority,
 		TargetJobID: j.TargetJobID,
 		CreatedAt:   j.CreatedAt.UTC().Format(time.RFC3339),
 		UpdatedAt:   j.UpdatedAt.UTC().Format(time.RFC3339),

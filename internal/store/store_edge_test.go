@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"fmt"
 	"os"
@@ -214,7 +215,7 @@ func TestPollTickScheduling(t *testing.T) {
 	}
 	time.Sleep(80 * time.Millisecond)
 	before := time.Now()
-	c, err := s.ClaimNext(ctx, func(string) time.Duration { return 5 * time.Minute })
+	c, err := s.ClaimNext(ctx, ClaimPolicy{PollInterval: func(string) time.Duration { return 5 * time.Minute }})
 	if err != nil || c == nil || c.State != StateAwaitingTarget {
 		t.Fatalf("due poll tick not claimed: %v %v", c, err)
 	}
@@ -854,5 +855,172 @@ func TestListJobsTargetWindowAndCursor(t *testing.T) {
 	}
 	if s0, _ := s.GetJob(ctx, ids[0]); s0.Seq <= 0 {
 		t.Errorf("Seq must expose the insertion order, got %d", s0.Seq)
+	}
+}
+
+func newClientJob(t *testing.T, client string, priority int) *Job {
+	t.Helper()
+	j := newJob(t, "demo")
+	j.Client, j.Priority = client, priority
+	return j
+}
+
+func claimOrder(t *testing.T, s *Store, policy ClaimPolicy, n int) []string {
+	t.Helper()
+	var order []string
+	for i := 0; i < n; i++ {
+		c, err := s.ClaimNext(context.Background(), policy)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if c == nil {
+			break
+		}
+		order = append(order, c.ID)
+	}
+	return order
+}
+
+// At equal priority claims interleave clients — each client's first due job
+// before any client's second — so one client's batch never starves another
+// client's interactive requests.
+func TestClaimOrderIsRoundRobinAcrossClients(t *testing.T) {
+	s := openTest(t)
+	var batch []*Job
+	for i := 0; i < 4; i++ {
+		j := newClientJob(t, "batch", 0)
+		mustCreate(t, s, j)
+		batch = append(batch, j)
+		time.Sleep(time.Millisecond)
+	}
+	ui := newClientJob(t, "ui", 0)
+	mustCreate(t, s, ui)
+	time.Sleep(time.Millisecond)
+	late := newClientJob(t, "batch", 0)
+	mustCreate(t, s, late)
+
+	got := claimOrder(t, s, noPoll, 6)
+	want := []string{batch[0].ID, ui.ID, batch[1].ID, batch[2].ID, batch[3].ID, late.ID}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("claim order = %v\nwant %v", got, want)
+	}
+}
+
+// Priority outranks fairness and age: a higher priority claims first across
+// clients, a negative one waits behind everything at the default.
+func TestClaimOrderHonoursPriority(t *testing.T) {
+	s := openTest(t)
+	low := newClientJob(t, "a", -3)
+	normal := newClientJob(t, "a", 0)
+	urgent := newClientJob(t, "b", 5)
+	other := newClientJob(t, "b", 0)
+	for _, j := range []*Job{low, normal, urgent, other} {
+		mustCreate(t, s, j)
+		time.Sleep(time.Millisecond)
+	}
+	got := claimOrder(t, s, noPoll, 4)
+	want := []string{urgent.ID, normal.ID, other.ID, low.ID}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("claim order = %v\nwant %v", got, want)
+	}
+	if c, _ := s.GetJob(context.Background(), urgent.ID); c.Priority != 5 {
+		t.Errorf("priority not stored: %d", c.Priority)
+	}
+}
+
+// A client at its in-flight ceiling is skipped in favour of other clients'
+// work, and the ceiling holds under concurrent claims because it is checked
+// inside the claim's write transaction.
+func TestClaimRespectsPerClientCeiling(t *testing.T) {
+	s := openTest(t)
+	ctx := context.Background()
+	policy := ClaimPolicy{
+		PollInterval:  func(string) time.Duration { return time.Minute },
+		MaxConcurrent: func(client string) int { return map[string]int{"batch": 2}[client] },
+	}
+	var batch []*Job
+	for i := 0; i < 10; i++ {
+		j := newClientJob(t, "batch", 0)
+		mustCreate(t, s, j)
+		batch = append(batch, j)
+	}
+	ui := newClientJob(t, "ui", 0)
+	mustCreate(t, s, ui)
+
+	var mu sync.Mutex
+	var claimed []string
+	var wg sync.WaitGroup
+	for w := 0; w < 8; w++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			c, err := s.ClaimNext(ctx, policy)
+			if err != nil {
+				t.Errorf("ClaimNext: %v", err)
+				return
+			}
+			if c != nil {
+				mu.Lock()
+				claimed = append(claimed, c.Client)
+				mu.Unlock()
+			}
+		}()
+	}
+	wg.Wait()
+	counts := map[string]int{}
+	for _, c := range claimed {
+		counts[c]++
+	}
+	if counts["batch"] != 2 || counts["ui"] != 1 {
+		t.Fatalf("claimed %v, want exactly 2 batch (the ceiling) and 1 ui", counts)
+	}
+	if c, _ := s.ClaimNext(ctx, policy); c != nil {
+		t.Fatalf("nothing else may be claimable while batch sits at its ceiling, got %s", c.ID)
+	}
+	// Finishing one batch job frees one slot.
+	if err := s.MarkFailed(ctx, batch[0].ID, "target_error", "x"); err != nil {
+		t.Fatal(err)
+	}
+	if c, _ := s.ClaimNext(ctx, policy); c == nil || c.Client != "batch" {
+		t.Fatalf("a freed slot must admit the next batch job, got %v", c)
+	}
+}
+
+// A database created by the first schema version gains the priority column
+// (default 0) on open, and its existing rows stay claimable.
+func TestMigrationAddsPriorityToExistingRows(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "v1.db")
+	db, err := sql.Open("sqlite", "file:"+path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	initSQL, err := migrationFS.ReadFile("migrations/0001_init.sql")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, stmt := range []string{
+		`CREATE TABLE schema_migrations (version INTEGER PRIMARY KEY, applied_at TEXT NOT NULL)`,
+		string(initSQL),
+		`INSERT INTO schema_migrations (version, applied_at) VALUES (1, '2026-01-01T00:00:00.000Z')`,
+		`INSERT INTO jobs (id, client, target, state, max_attempts, payload, created_at, updated_at)
+		 VALUES ('old-job', 'frontend', 'demo', 'received', 3, '{}', '2026-01-01T00:00:00.000Z', '2026-01-01T00:00:00.000Z')`,
+	} {
+		if _, err := db.Exec(stmt); err != nil {
+			t.Fatalf("%s: %v", stmt[:40], err)
+		}
+	}
+	_ = db.Close()
+
+	s, err := Open(path)
+	if err != nil {
+		t.Fatalf("Open on a v1 database: %v", err)
+	}
+	t.Cleanup(func() { _ = s.Close() })
+	job, err := s.GetJob(context.Background(), "old-job")
+	if err != nil || job.Priority != 0 || job.Client != "frontend" {
+		t.Fatalf("existing row after migration: %+v (err %v)", job, err)
+	}
+	if c, err := s.ClaimNext(context.Background(), noPoll); err != nil || c == nil || c.ID != "old-job" {
+		t.Fatalf("existing row must stay claimable: %v %v", c, err)
 	}
 }

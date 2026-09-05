@@ -1,0 +1,353 @@
+[
+  {
+    "request": "POST /v1/requests",
+    "response": {
+      "id": "«job-1»",
+      "links": {
+        "self": "/v1/requests/«job-1»"
+      },
+      "state": "received"
+    },
+    "status": 202,
+    "step": "batch client submits the blocker"
+  },
+  {
+    "request": "GET /v1/requests/{id}",
+    "response": {
+      "attempts": 1,
+      "created_at": "«ts»",
+      "error": null,
+      "id": "«job-1»",
+      "result": null,
+      "state": "forwarding",
+      "target": "demo",
+      "updated_at": "«ts»"
+    },
+    "status": 200,
+    "step": "blocker occupies the only worker"
+  },
+  {
+    "request": "POST /v1/requests",
+    "response": {
+      "id": "«job-2»",
+      "links": {
+        "self": "/v1/requests/«job-2»"
+      },
+      "state": "received"
+    },
+    "status": 202,
+    "step": "batch client submits b1"
+  },
+  {
+    "request": "POST /v1/requests",
+    "response": {
+      "id": "«job-3»",
+      "links": {
+        "self": "/v1/requests/«job-3»"
+      },
+      "state": "received"
+    },
+    "status": 202,
+    "step": "batch client submits b2"
+  },
+  {
+    "request": "POST /v1/requests",
+    "response": {
+      "id": "«job-4»",
+      "links": {
+        "self": "/v1/requests/«job-4»"
+      },
+      "state": "received"
+    },
+    "status": 202,
+    "step": "batch client submits b3"
+  },
+  {
+    "request": "POST /v1/requests",
+    "response": {
+      "id": "«job-5»",
+      "links": {
+        "self": "/v1/requests/«job-5»"
+      },
+      "state": "received"
+    },
+    "status": 202,
+    "step": "batch client submits b4"
+  },
+  {
+    "request": "POST /v1/requests",
+    "response": {
+      "id": "«job-6»",
+      "links": {
+        "self": "/v1/requests/«job-6»"
+      },
+      "state": "received"
+    },
+    "status": 202,
+    "step": "batch client submits b5"
+  },
+  {
+    "request": "POST /v1/requests",
+    "response": {
+      "id": "«job-7»",
+      "links": {
+        "self": "/v1/requests/«job-7»"
+      },
+      "state": "received"
+    },
+    "status": 202,
+    "step": "batch client submits b6"
+  },
+  {
+    "request": "POST /v1/requests",
+    "response": {
+      "id": "«job-8»",
+      "links": {
+        "self": "/v1/requests/«job-8»"
+      },
+      "state": "received"
+    },
+    "status": 202,
+    "step": "interactive client submits s1"
+  },
+  {
+    "request": "POST /v1/requests",
+    "response": {
+      "id": "«job-9»",
+      "links": {
+        "self": "/v1/requests/«job-9»"
+      },
+      "state": "received"
+    },
+    "status": 202,
+    "step": "admin submits o1 with priority 5"
+  },
+  {
+    "request": "GET /v1/requests/{id}",
+    "response": {
+      "attempts": 1,
+      "completed_at": "«ts»",
+      "created_at": "«ts»",
+      "error": null,
+      "id": "«job-1»",
+      "result": {
+        "target_response": {
+          "ok": true
+        },
+        "target_status": 200
+      },
+      "state": "completed",
+      "target": "demo",
+      "updated_at": "«ts»"
+    },
+    "status": 200,
+    "step": "job «job-1» completes"
+  },
+  {
+    "request": "GET /v1/requests/{id}",
+    "response": {
+      "attempts": 1,
+      "completed_at": "«ts»",
+      "created_at": "«ts»",
+      "error": null,
+      "id": "«job-2»",
+      "result": {
+        "target_response": {
+          "ok": true
+        },
+        "target_status": 200
+      },
+      "state": "completed",
+      "target": "demo",
+      "updated_at": "«ts»"
+    },
+    "status": 200,
+    "step": "job «job-2» completes"
+  },
+  {
+    "request": "GET /v1/requests/{id}",
+    "response": {
+      "attempts": 1,
+      "completed_at": "«ts»",
+      "created_at": "«ts»",
+      "error": null,
+      "id": "«job-3»",
+      "result": {
+        "target_response": {
+          "ok": true
+        },
+        "target_status": 200
+      },
+      "state": "completed",
+      "target": "demo",
+      "updated_at": "«ts»"
+    },
+    "status": 200,
+    "step": "job «job-3» completes"
+  },
+  {
+    "request": "GET /v1/requests/{id}",
+    "response": {
+      "attempts": 1,
+      "completed_at": "«ts»",
+      "created_at": "«ts»",
+      "error": null,
+      "id": "«job-4»",
+      "result": {
+        "target_response": {
+          "ok": true
+        },
+        "target_status": 200
+      },
+      "state": "completed",
+      "target": "demo",
+      "updated_at": "«ts»"
+    },
+    "status": 200,
+    "step": "job «job-4» completes"
+  },
+  {
+    "request": "GET /v1/requests/{id}",
+    "response": {
+      "attempts": 1,
+      "completed_at": "«ts»",
+      "created_at": "«ts»",
+      "error": null,
+      "id": "«job-5»",
+      "result": {
+        "target_response": {
+          "ok": true
+        },
+        "target_status": 200
+      },
+      "state": "completed",
+      "target": "demo",
+      "updated_at": "«ts»"
+    },
+    "status": 200,
+    "step": "job «job-5» completes"
+  },
+  {
+    "request": "GET /v1/requests/{id}",
+    "response": {
+      "attempts": 1,
+      "completed_at": "«ts»",
+      "created_at": "«ts»",
+      "error": null,
+      "id": "«job-6»",
+      "result": {
+        "target_response": {
+          "ok": true
+        },
+        "target_status": 200
+      },
+      "state": "completed",
+      "target": "demo",
+      "updated_at": "«ts»"
+    },
+    "status": 200,
+    "step": "job «job-6» completes"
+  },
+  {
+    "request": "GET /v1/requests/{id}",
+    "response": {
+      "attempts": 1,
+      "completed_at": "«ts»",
+      "created_at": "«ts»",
+      "error": null,
+      "id": "«job-7»",
+      "result": {
+        "target_response": {
+          "ok": true
+        },
+        "target_status": 200
+      },
+      "state": "completed",
+      "target": "demo",
+      "updated_at": "«ts»"
+    },
+    "status": 200,
+    "step": "job «job-7» completes"
+  },
+  {
+    "request": "GET /v1/requests/{id}",
+    "response": {
+      "attempts": 1,
+      "completed_at": "«ts»",
+      "created_at": "«ts»",
+      "error": null,
+      "id": "«job-8»",
+      "result": {
+        "target_response": {
+          "ok": true
+        },
+        "target_status": 200
+      },
+      "state": "completed",
+      "target": "demo",
+      "updated_at": "«ts»"
+    },
+    "status": 200,
+    "step": "job «job-8» completes"
+  },
+  {
+    "request": "GET /v1/requests/{id}",
+    "response": {
+      "attempts": 1,
+      "completed_at": "«ts»",
+      "created_at": "«ts»",
+      "error": null,
+      "id": "«job-9»",
+      "priority": 5,
+      "result": {
+        "target_response": {
+          "ok": true
+        },
+        "target_status": 200
+      },
+      "state": "completed",
+      "target": "demo",
+      "updated_at": "«ts»"
+    },
+    "status": 200,
+    "step": "job «job-9» completes"
+  },
+  {
+    "endpoint": "demo",
+    "step": "order in which the target received the jobs",
+    "target_call_order": [
+      "b0",
+      "o1",
+      "s1",
+      "b1",
+      "b2",
+      "b3",
+      "b4",
+      "b5",
+      "b6"
+    ]
+  },
+  {
+    "content_type": "application/json",
+    "request": "GET /v1/requests/«job-9»",
+    "response": {
+      "attempts": 1,
+      "completed_at": "«ts»",
+      "created_at": "«ts»",
+      "error": null,
+      "id": "«job-9»",
+      "priority": 5,
+      "result": {
+        "target_response": {
+          "ok": true
+        },
+        "target_status": 200
+      },
+      "state": "completed",
+      "target": "demo",
+      "updated_at": "«ts»"
+    },
+    "status": 200,
+    "step": "priority is reported on the job"
+  }
+]

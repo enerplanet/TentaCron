@@ -10,6 +10,12 @@ under "Changed" with the keys or fields concerned.
 
 ### Added
 
+- Fair scheduling: workers claim jobs by `priority` (a new optional
+  `-10`..`10` field on `POST /v1/requests`, echoed on the job), then
+  round-robin across clients so a batch never starves interactive
+  requests, then age. Keys gain `max_concurrent` (in-flight ceiling,
+  enforced inside the claim transaction) and `max_priority` (the highest
+  priority a key may request). Schema migration 0002 adds the column.
 - Poll-mode results stream straight into the results directory under a new
   `storage.max_result_bytes` cap (1 GiB) instead of being read into memory,
   so a MEME bundle of any realistic size completes with flat memory use; a

@@ -52,6 +52,8 @@ type Job struct {
 	Attempts       int
 	MaxAttempts    int
 	NextAttemptAt  *time.Time
+	// Priority orders claims: higher first, -10..10, default 0.
+	Priority int
 
 	// Payload as accepted, and after resolvent substitution.
 	Payload         []byte
@@ -85,7 +87,7 @@ func NewID() (string, error) {
 	return hex.EncodeToString(b), nil
 }
 
-const jobColumns = `rowid, id, client, idempotency_key, target, state, attempts, max_attempts,
+const jobColumns = `rowid, id, client, idempotency_key, target, state, attempts, max_attempts, priority,
 	next_attempt_at, payload, resolved_payload, target_job_id, poll_deadline,
 	target_status, target_response, result_path, result_content_type,
 	error_code, error_message, created_at, updated_at, completed_at`
@@ -105,7 +107,7 @@ type jobRow struct {
 func scanJob(r rowScanner) (*Job, error) {
 	var row jobRow
 	j := &row.job
-	err := r.Scan(&j.Seq, &j.ID, &j.Client, &row.idem, &j.Target, &j.State, &j.Attempts, &j.MaxAttempts,
+	err := r.Scan(&j.Seq, &j.ID, &j.Client, &row.idem, &j.Target, &j.State, &j.Attempts, &j.MaxAttempts, &j.Priority,
 		&row.nextAt, &j.Payload, &j.ResolvedPayload, &row.targetJobID, &row.pollDL,
 		&row.targetStatus, &j.TargetResponse, &row.resultPath, &row.resultCT,
 		&row.errCode, &row.errMsg, &row.createdAt, &row.updatedAt, &row.completedAt)
@@ -206,9 +208,9 @@ func insertJob(ctx context.Context, tx *sql.Tx, j *Job, now time.Time) error {
 		idem = j.IdempotencyKey
 	}
 	_, err := tx.ExecContext(ctx, `INSERT INTO jobs
-		(id, client, idempotency_key, target, state, attempts, max_attempts, payload, created_at, updated_at)
-		VALUES (?, ?, ?, ?, ?, 0, ?, ?, ?, ?)`,
-		j.ID, j.Client, idem, j.Target, StateReceived, j.MaxAttempts, j.Payload, ts(now), ts(now))
+		(id, client, idempotency_key, target, state, attempts, max_attempts, priority, payload, created_at, updated_at)
+		VALUES (?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?)`,
+		j.ID, j.Client, idem, j.Target, StateReceived, j.MaxAttempts, j.Priority, j.Payload, ts(now), ts(now))
 	return err
 }
 
@@ -346,23 +348,47 @@ func (s *Store) CountByState(ctx context.Context) (map[string]int, error) {
 	return counts, rows.Err()
 }
 
-// ClaimNext atomically claims the next eligible job. Jobs in "received" move
-// to "resolving"; attempts is incremented at claim time, not on failure, so
-// an attempt cut short by a crash or restart is still counted after recovery.
+// ClaimPolicy tells ClaimNext how to schedule: the poll cadence per target
+// and the per-client ceiling on jobs in flight (0 means unlimited).
+type ClaimPolicy struct {
+	PollInterval  func(target string) time.Duration
+	MaxConcurrent func(client string) int
+}
+
+func (p ClaimPolicy) pollInterval(target string) time.Duration {
+	if p.PollInterval == nil {
+		return time.Minute
+	}
+	return p.PollInterval(target)
+}
+
+func (p ClaimPolicy) maxConcurrent(client string) int {
+	if p.MaxConcurrent == nil {
+		return 0
+	}
+	return p.MaxConcurrent(client)
+}
+
+// ClaimNext atomically claims the next eligible job. Candidates are ordered
+// by priority, then round-robin across clients — each client's oldest due
+// job first, least recently served client first — then age, so one client's
+// batch never starves another's interactive requests. Jobs in "received" move to
+// "resolving"; attempts is incremented at claim time, not on failure, so an
+// attempt cut short by a crash or restart is still counted after recovery.
 // A received job whose attempts already reached max_attempts is failed here
 // instead of claimed, so a poison payload cannot retry forever even when its
-// attempts end in crashes. Jobs in "awaiting_target" whose poll time is due
+// attempts end in crashes. A client at its in-flight ceiling is skipped for
+// another client's work. Jobs in "awaiting_target" whose poll time is due
 // are claimed by pushing next_attempt_at forward (CAS), so no other worker
-// picks the same poll tick; pollNext supplies the per-target poll interval.
-// Returns nil when no work is eligible.
-func (s *Store) ClaimNext(ctx context.Context, pollNext func(target string) time.Duration) (*Job, error) {
+// picks the same poll tick. Returns nil when no work is eligible.
+func (s *Store) ClaimNext(ctx context.Context, policy ClaimPolicy) (*Job, error) {
 	now := time.Now()
 	cands, err := s.claimCandidates(ctx, ts(now))
 	if err != nil {
 		return nil, err
 	}
 	for _, c := range cands {
-		claimed, err := s.claimOne(ctx, c, now, pollNext)
+		claimed, err := s.claimOne(ctx, c, now, policy)
 		if err != nil {
 			return nil, err
 		}
@@ -378,20 +404,27 @@ func (s *Store) ClaimNext(ctx context.Context, pollNext func(target string) time
 }
 
 type claimCand struct {
-	id, state, target, nextAt string
-	attempts, maxAttempts     int
+	id, state, target, client, nextAt string
+	attempts, maxAttempts             int
 }
 
-// claimCandidates lists jobs eligible for claiming right now: due received
-// jobs and awaiting_target jobs whose poll time has arrived.
+// claimCandidates lists jobs eligible for claiming right now — due received
+// jobs and awaiting_target jobs whose poll time has arrived — in scheduling
+// order: priority first; then each client's oldest due job (turn 1) before
+// any client's second, the least recently served client first, so a client
+// that was just handed a job yields to one that is waiting; then age. A
+// small batch lets a worker that loses the claim race on one row (or finds
+// a client at its ceiling) try the next without re-querying.
 func (s *Store) claimCandidates(ctx context.Context, nowS string) ([]claimCand, error) {
-	// Fetch a small candidate batch: a worker that loses the claim race on
-	// one row can try the next without re-querying.
-	rows, err := s.db.QueryContext(ctx, `SELECT id, state, target, next_attempt_at, attempts, max_attempts
-		FROM jobs
-		WHERE (state = ? AND (next_attempt_at IS NULL OR next_attempt_at <= ?))
-		   OR (state = ? AND next_attempt_at IS NOT NULL AND next_attempt_at <= ?)
-		ORDER BY created_at LIMIT 8`,
+	rows, err := s.db.QueryContext(ctx, `SELECT id, state, target, client, next_attempt_at, attempts, max_attempts FROM (
+			SELECT j.id, j.state, j.target, j.client, j.next_attempt_at, j.attempts, j.max_attempts,
+			       j.priority, j.created_at, j.rowid AS seq,
+			       COALESCE(cc.last_claimed_at, '') AS last_served,
+			       ROW_NUMBER() OVER (PARTITION BY j.client ORDER BY j.priority DESC, j.created_at, j.rowid) AS turn
+			FROM jobs j LEFT JOIN client_claims cc ON cc.client = j.client
+			WHERE (j.state = ? AND (j.next_attempt_at IS NULL OR j.next_attempt_at <= ?))
+			   OR (j.state = ? AND j.next_attempt_at IS NOT NULL AND j.next_attempt_at <= ?))
+		ORDER BY priority DESC, turn, last_served, created_at, seq LIMIT 8`,
 		StateReceived, nowS, StateAwaitingTarget, nowS)
 	if err != nil {
 		return nil, err
@@ -401,7 +434,7 @@ func (s *Store) claimCandidates(ctx context.Context, nowS string) ([]claimCand, 
 	for rows.Next() {
 		var c claimCand
 		var nextAt sql.NullString
-		if err := rows.Scan(&c.id, &c.state, &c.target, &nextAt, &c.attempts, &c.maxAttempts); err != nil {
+		if err := rows.Scan(&c.id, &c.state, &c.target, &c.client, &nextAt, &c.attempts, &c.maxAttempts); err != nil {
 			return nil, err
 		}
 		c.nextAt = nextAt.String
@@ -410,7 +443,7 @@ func (s *Store) claimCandidates(ctx context.Context, nowS string) ([]claimCand, 
 	return cands, rows.Err()
 }
 
-func (s *Store) claimOne(ctx context.Context, c claimCand, now time.Time, pollNext func(string) time.Duration) (bool, error) {
+func (s *Store) claimOne(ctx context.Context, c claimCand, now time.Time, policy ClaimPolicy) (bool, error) {
 	switch c.state {
 	case StateReceived:
 		if c.attempts >= c.maxAttempts {
@@ -429,26 +462,30 @@ func (s *Store) claimOne(ctx context.Context, c claimCand, now time.Time, pollNe
 			}
 			return false, nil
 		}
-		return s.claimReceived(ctx, c.id, now)
+		return s.claimReceived(ctx, c.id, c.client, policy.maxConcurrent(c.client), now)
 	case StateAwaitingTarget:
-		return s.claimPollTick(ctx, c.id, c.nextAt, now.Add(pollNext(c.target)), now)
+		return s.claimPollTick(ctx, c.id, c.nextAt, now.Add(policy.pollInterval(c.target)), now)
 	}
 	return false, nil
 }
 
 // claimReceived moves a received job to resolving (incrementing attempts) and
 // records the audit event, all in one transaction. The CAS re-checks the
-// backoff schedule: a stale candidate that another worker just requeued with
-// a future next_attempt_at must lose, or its backoff would be skipped.
-func (s *Store) claimReceived(ctx context.Context, id string, now time.Time) (bool, error) {
+// backoff schedule — a stale candidate that another worker just requeued
+// with a future next_attempt_at must lose, or its backoff would be skipped —
+// and the client's in-flight ceiling, counted inside the same write
+// transaction so concurrent workers cannot overshoot it together.
+func (s *Store) claimReceived(ctx context.Context, id, client string, maxConcurrent int, now time.Time) (bool, error) {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return false, err
 	}
 	res, err := tx.ExecContext(ctx, `UPDATE jobs
 		SET state = ?, attempts = attempts + 1, next_attempt_at = NULL, updated_at = ?
-		WHERE id = ? AND state = ? AND (next_attempt_at IS NULL OR next_attempt_at <= ?)`,
-		StateResolving, ts(now), id, StateReceived, ts(now))
+		WHERE id = ? AND state = ? AND (next_attempt_at IS NULL OR next_attempt_at <= ?)
+		  AND (? <= 0 OR (SELECT count(*) FROM jobs WHERE client = ? AND state IN (?, ?)) < ?)`,
+		StateResolving, ts(now), id, StateReceived, ts(now),
+		maxConcurrent, client, StateResolving, StateForwarding, maxConcurrent)
 	if err != nil {
 		_ = tx.Rollback()
 		return false, err
@@ -456,6 +493,13 @@ func (s *Store) claimReceived(ctx context.Context, id string, now time.Time) (bo
 	if n, _ := res.RowsAffected(); n != 1 {
 		_ = tx.Rollback()
 		return false, nil
+	}
+	// Remember that this client was just served, so the next claim prefers
+	// a client that is still waiting.
+	if _, err := tx.ExecContext(ctx, `INSERT INTO client_claims (client, last_claimed_at) VALUES (?, ?)
+		ON CONFLICT(client) DO UPDATE SET last_claimed_at = excluded.last_claimed_at`, client, ts(now)); err != nil {
+		_ = tx.Rollback()
+		return false, err
 	}
 	if err := appendEventTx(ctx, tx, id, StateReceived, StateResolving, "claimed by worker", now); err != nil {
 		_ = tx.Rollback()

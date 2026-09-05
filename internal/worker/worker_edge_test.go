@@ -83,7 +83,7 @@ func pollTarget(base string, interval, timeout time.Duration) config.Target {
 func parkAwaiting(t *testing.T, st *store.Store, id string) {
 	t.Helper()
 	ctx := context.Background()
-	if c, err := st.ClaimNext(ctx, func(string) time.Duration { return time.Minute }); err != nil || c == nil {
+	if c, err := st.ClaimNext(ctx, store.ClaimPolicy{PollInterval: func(string) time.Duration { return time.Minute }}); err != nil || c == nil {
 		t.Fatalf("claim: %v %v", c, err)
 	}
 	if err := st.SetResolved(ctx, id, []byte(`{}`), "resolved"); err != nil {
@@ -464,7 +464,7 @@ func TestRetryOrFailCapsOverflowedBackoff(t *testing.T) {
 	st := openStore(t)
 	id := createJob(t, st, "demo", `{}`, 200)
 	ctx := context.Background()
-	job, err := st.ClaimNext(ctx, func(string) time.Duration { return time.Minute })
+	job, err := st.ClaimNext(ctx, store.ClaimPolicy{PollInterval: func(string) time.Duration { return time.Minute }})
 	if err != nil || job == nil {
 		t.Fatal("claim failed")
 	}
@@ -578,7 +578,7 @@ func TestSweepRescuesStuckJob(t *testing.T) {
 	st := openStore(t)
 	id := createJob(t, st, "demo", `{}`, 3)
 	ctx := context.Background()
-	if c, _ := st.ClaimNext(ctx, func(string) time.Duration { return time.Minute }); c == nil {
+	if c, _ := st.ClaimNext(ctx, store.ClaimPolicy{PollInterval: func(string) time.Duration { return time.Minute }}); c == nil {
 		t.Fatal("claim failed")
 	}
 	time.Sleep(5 * time.Millisecond)

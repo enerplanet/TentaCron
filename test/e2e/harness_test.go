@@ -76,7 +76,7 @@ type fakes struct {
 	gateway     func(call int64) reply              // POST <target>/api/v1/buem/buildings (the real buem contract)
 	building    func(call int64) reply              // POST <target>/api/v1/buem/building (single building; backs resolvent-buem)
 	calculate   func(call int64) reply              // POST <target>/api/v1/calculate/{code} (ignis; the proxy-target exemplar)
-	directDelay time.Duration                       // latency before the demo target answers (deadline scenarios)
+	directDelay func(call int64) time.Duration      // latency before the demo target answers a given call (deadline and scheduling scenarios)
 }
 
 const weatherBody = `{"index":["2018-01-01T00:30:00Z","2018-01-01T01:30:00Z"],"variables":{"T":[1.0,1.2],"GHI":[0.0,12.5]}}`
@@ -158,9 +158,10 @@ type harness struct {
 	resourceCalls, demoCalls, acceptCalls, statusCalls, resultCalls, gatewayCalls, buildingCalls, calculateCalls atomic.Int64
 
 	mu               sync.Mutex
-	lastForwarded    map[string][]byte // keyed by target name
-	lastTargetAuth   map[string]string // X-API-Key seen per endpoint
-	lastTargetPath   map[string]string // request path seen per endpoint
+	lastForwarded    map[string][]byte   // keyed by target name
+	lastTargetAuth   map[string]string   // X-API-Key seen per endpoint
+	lastTargetPath   map[string]string   // request path seen per endpoint
+	callOrder        map[string][]string // per endpoint: the "who" marker of each payload, in arrival order
 	lastResourceAuth string
 	lastResourceBody []byte
 	resourceGETs     map[string]string // path -> "GET path?query" of the last GET per path
@@ -190,6 +191,7 @@ func newHarness(t *testing.T, f fakes, mod func(*config.Config)) *harness {
 		lastForwarded:  map[string][]byte{},
 		lastTargetAuth: map[string]string{},
 		lastTargetPath: map[string]string{},
+		callOrder:      map[string][]string{},
 		resourceGETs:   map[string]string{},
 	}
 	resource := h.startResourceFake(f)
@@ -237,10 +239,10 @@ func (h *harness) startResourceFake(f fakes) *httptest.Server {
 func (h *harness) startTargetFake(f fakes) *httptest.Server {
 	mux := http.NewServeMux()
 	mux.HandleFunc("POST /run", h.capturing("demo", &h.demoCalls, f.direct, f.directDelay))
-	mux.HandleFunc("POST /simulate", h.capturing("meme", &h.acceptCalls, f.accept, 0))
-	mux.HandleFunc("POST /api/v1/buem/buildings", h.capturing("buem", &h.gatewayCalls, f.gateway, 0))
-	mux.HandleFunc("POST /api/v1/buem/building", h.capturing("buem-building", &h.buildingCalls, f.building, 0))
-	mux.HandleFunc("POST /api/v1/calculate/{code}", h.capturing("ignis-calculate", &h.calculateCalls, f.calculate, 0))
+	mux.HandleFunc("POST /simulate", h.capturing("meme", &h.acceptCalls, f.accept, nil))
+	mux.HandleFunc("POST /api/v1/buem/buildings", h.capturing("buem", &h.gatewayCalls, f.gateway, nil))
+	mux.HandleFunc("POST /api/v1/buem/building", h.capturing("buem-building", &h.buildingCalls, f.building, nil))
+	mux.HandleFunc("POST /api/v1/calculate/{code}", h.capturing("ignis-calculate", &h.calculateCalls, f.calculate, nil))
 	mux.HandleFunc("GET /jobs/{id}/status", func(w http.ResponseWriter, _ *http.Request) {
 		writeReply(w, f.status(h.statusCalls.Add(1)))
 	})
@@ -257,27 +259,45 @@ func (h *harness) startTargetFake(f fakes) *httptest.Server {
 }
 
 // capturing builds a target handler that records the body, auth header and
-// path it received under endpoint, counts the call, waits out the scripted
-// latency (giving up when the client hangs up) and answers with the
-// scripted reply.
-func (h *harness) capturing(endpoint string, calls *atomic.Int64, replyFor func(int64) reply, delay time.Duration) http.HandlerFunc {
+// path it received under endpoint, counts the call, notes the payload's
+// "who" marker for call-order assertions, waits out the scripted latency
+// (giving up when the client hangs up) and answers with the scripted reply.
+func (h *harness) capturing(endpoint string, calls *atomic.Int64, replyFor func(int64) reply, delayFor func(int64) time.Duration) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		body, _ := io.ReadAll(r.Body)
+		var marker struct {
+			Who string `json:"who"`
+		}
+		_ = json.Unmarshal(body, &marker)
 		h.mu.Lock()
 		h.lastForwarded[endpoint] = body
 		h.lastTargetAuth[endpoint] = r.Header.Get("X-API-Key")
 		h.lastTargetPath[endpoint] = r.URL.Path
+		if marker.Who != "" {
+			h.callOrder[endpoint] = append(h.callOrder[endpoint], marker.Who)
+		}
 		h.mu.Unlock()
 		call := calls.Add(1)
-		if delay > 0 {
-			select {
-			case <-time.After(delay):
-			case <-r.Context().Done():
-				return
+		if delayFor != nil {
+			if delay := delayFor(call); delay > 0 {
+				select {
+				case <-time.After(delay):
+				case <-r.Context().Done():
+					return
+				}
 			}
 		}
 		writeReply(w, replyFor(call))
 	}
+}
+
+// targetCallOrder records the sequence in which one endpoint received
+// payloads, by their "who" marker — the observable claim order.
+func (h *harness) targetCallOrder(label, endpoint string) {
+	h.mu.Lock()
+	order := append([]string{}, h.callOrder[endpoint]...)
+	h.mu.Unlock()
+	h.record(map[string]any{"step": label, "endpoint": endpoint, "target_call_order": order})
 }
 
 func dur(d time.Duration) config.Duration { return config.Duration(d) }
@@ -292,6 +312,8 @@ func goldenConfig(t *testing.T, resourceURL, targetURL string) *config.Config {
 			{Name: "second", Key: secondClientKey, Role: config.RoleClient},
 			{Name: "ops", Key: adminKey, Role: config.RoleAdmin},
 		}},
+		// One worker where a scenario needs an observable claim order; the
+		// default of two keeps the corpus fast.
 		Storage: config.Storage{ResultsDir: t.TempDir(), Retention: dur(time.Hour), MaxResultBytes: 1 << 20},
 		Worker: config.Worker{
 			Count: 2, ResolventConcurrency: 4,
@@ -807,6 +829,7 @@ func allScenarios() []scenario {
 	all = append(all, containerIsResolventScenarios...)
 	all = append(all, targetProtocolScenarios...)
 	all = append(all, apiContractScenarios...)
+	all = append(all, schedulingScenarios...)
 	all = append(all, edgeScenarios...)
 	return all
 }

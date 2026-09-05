@@ -55,6 +55,7 @@ Submit a request for orchestration.
 | `api_key` | string | Deprecated fallback for the `X-API-Key` header; never stored or forwarded. |
 | `target` | string | Target workflow name from the `targets` config, e.g. `meme`. |
 | `payload` | object | The body to resolve and forward to the target. Must be a JSON object. |
+| `priority` | integer | Optional, `-10`..`10`, default `0`. Higher priorities are claimed first; each key may be capped by `max_priority` in its configuration. |
 
 **Headers**
 
@@ -74,7 +75,8 @@ Submit a request for orchestration.
   JSON object, or `payload` is not a JSON object
 - `400 missing_field` — no API key (neither header nor field), or `target`
   or `payload` absent (or `null`)
-- `400 invalid_parameter` — `Idempotency-Key` longer than 255 bytes
+- `400 invalid_parameter` — `Idempotency-Key` longer than 255 bytes, or a
+  `priority` outside `-10`..`10` or above the key's `max_priority`
 - `401 unauthorized` — unknown API key
 - `409 idempotency_conflict` — `Idempotency-Key` already used with a
   different target or payload
@@ -107,6 +109,7 @@ the key has been accepted.
 - `attempts` counts processing attempts (resolution + forwarding); it is
   incremented when a worker claims the job, so a crash mid-attempt still
   counts.
+- `priority` appears when it is not the default `0`.
 - `target_job_id` appears once a poll-mode target accepted the job;
   `completed_at` once the job is terminal (completed *or* failed).
 - `result` is `null` until the job is `completed`. JSON results up to

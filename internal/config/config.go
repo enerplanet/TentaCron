@@ -90,7 +90,21 @@ type APIKey struct {
 	// Role scopes what the key may read: a client sees only the requests it
 	// submitted, an admin sees all of them. Defaults to client.
 	Role string `yaml:"role"`
+	// MaxConcurrent caps how many of this client's jobs may be in flight
+	// (resolving or forwarding) at once; 0 means no ceiling. Further jobs
+	// wait in the queue while other clients' work proceeds.
+	MaxConcurrent int `yaml:"max_concurrent"`
+	// MaxPriority caps the priority this client may request (-10..10);
+	// nil allows the full range. Set 0 for a client that must never jump
+	// the queue.
+	MaxPriority *int `yaml:"max_priority"`
 }
+
+// Priority bounds for jobs; the default is 0.
+const (
+	MinPriority = -10
+	MaxPriority = 10
+)
 
 // Auth lists accepted client API keys.
 type Auth struct {
@@ -205,6 +219,26 @@ type Target struct {
 	// (they address the call, they are not payload).
 	Proxy    bool     `yaml:"proxy"`
 	Response Response `yaml:"response"`
+}
+
+// MaxConcurrentFor returns the in-flight ceiling of a client key (0 = none).
+func (c *Config) MaxConcurrentFor(client string) int {
+	for _, k := range c.Auth.APIKeys {
+		if k.Name == client {
+			return k.MaxConcurrent
+		}
+	}
+	return 0
+}
+
+// MaxPriorityFor returns the highest priority a client key may request.
+func (c *Config) MaxPriorityFor(client string) int {
+	for _, k := range c.Auth.APIKeys {
+		if k.Name == client && k.MaxPriority != nil {
+			return *k.MaxPriority
+		}
+	}
+	return MaxPriority
 }
 
 // RetriesOnTimeout reports whether a deadline hit on the forward requeues

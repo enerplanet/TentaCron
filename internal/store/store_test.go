@@ -37,7 +37,8 @@ func mustCreate(t *testing.T, s *Store, j *Job) {
 	}
 }
 
-func noPoll(string) time.Duration { return time.Minute }
+// noPoll is the claim policy of tests that never poll a target.
+var noPoll = ClaimPolicy{PollInterval: func(string) time.Duration { return time.Minute }}
 
 func TestMigrationsIdempotent(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "test.db")
@@ -420,7 +421,7 @@ func TestClaimReceivedRespectsFutureBackoff(t *testing.T) {
 	}
 	// Simulate a worker acting on a candidate list gathered before the
 	// requeue: the direct CAS must lose against the future schedule.
-	claimed, err := s.claimReceived(ctx, j.ID, time.Now())
+	claimed, err := s.claimReceived(ctx, j.ID, "", 0, time.Now())
 	if err != nil {
 		t.Fatal(err)
 	}

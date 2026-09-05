@@ -32,6 +32,10 @@ auth:
   api_keys:
     - name: frontend            # names make keys individually revocable
       key: "${TENTACRON_KEY_FRONTEND}"
+    - name: batch-runner
+      key: "${TENTACRON_KEY_BATCH}"
+      max_concurrent: 2         # at most two of its jobs in flight at once
+      max_priority: 0           # may not jump the queue
     - name: ops
       key: "${TENTACRON_KEY_OPS}"
       role: admin               # reads every client's requests
@@ -42,6 +46,14 @@ the key from the `X-API-Key` header (`POST` still accepts the deprecated
 body field `api_key`). `role` is `client` (default: sees only its own
 requests) or `admin` (sees all). The name appears in logs, scopes the
 client's idempotency keys and is stored on each request.
+
+**Scheduling per key.** Workers claim jobs by priority first, then
+round-robin across clients (every client's first due job before any
+client's second, the least recently served client first), then age, so one
+client's batch never starves another's interactive requests. `max_concurrent` caps how many of a key's jobs may be
+in flight (resolving or forwarding) at once — further jobs wait while other
+clients' work proceeds; `0` (default) means no ceiling. `max_priority` caps
+the `priority` a key may request (`-10`..`10`, default: the full range).
 
 ## storage
 

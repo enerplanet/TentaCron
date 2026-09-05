@@ -18,6 +18,8 @@ auth:
       key: "${TENTACRON_KEY_FRONTEND}"
     - name: batch-runner
       key: "${TENTACRON_KEY_BATCH}"
+      max_concurrent: 2 # at most two batch jobs in flight; interactive clients keep a worker
+      max_priority: 0 # a batch may not jump the queue with a positive priority
 
 storage:
   path: ./data/tentacron.db

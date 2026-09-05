@@ -78,7 +78,7 @@ func (p *Pool) workerLoop(ctx context.Context) {
 // drain claims and processes eligible jobs until the queue is empty.
 func (p *Pool) drain(ctx context.Context) {
 	for ctx.Err() == nil {
-		job, err := p.store.ClaimNext(ctx, p.pollInterval)
+		job, err := p.store.ClaimNext(ctx, store.ClaimPolicy{PollInterval: p.pollInterval, MaxConcurrent: p.cfg.MaxConcurrentFor})
 		if err != nil {
 			if ctx.Err() == nil {
 				p.logger.Error("claim failed", "error", err)

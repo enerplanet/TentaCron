@@ -112,7 +112,7 @@ func TestPayloadShapes(t *testing.T) {
 
 func TestUnknownTopLevelFieldsAreIgnored(t *testing.T) {
 	e := newEnv(t)
-	rec := e.do(t, "POST", "/v1/requests", `{"api_key":"valid-key","target":"meme","payload":{},"priority":"high"}`, nil)
+	rec := e.do(t, "POST", "/v1/requests", `{"api_key":"valid-key","target":"meme","payload":{},"note":"high","tags":["x"]}`, nil)
 	if rec.Code != http.StatusAccepted {
 		t.Errorf("status = %d, want 202 (unknown fields are ignored)", rec.Code)
 	}
@@ -637,7 +637,7 @@ func TestEventsEndpoint(t *testing.T) {
 	}, nil)
 	created := decodeBody[createResponse](t, e.do(t, "POST", "/v1/requests", validBody, nil))
 	ctx := context.Background()
-	if _, err := e.store.ClaimNext(ctx, func(string) time.Duration { return time.Minute }); err != nil {
+	if _, err := e.store.ClaimNext(ctx, store.ClaimPolicy{PollInterval: func(string) time.Duration { return time.Minute }}); err != nil {
 		t.Fatal(err)
 	}
 	if err := e.store.MarkFailed(ctx, created.ID, "target_error", "boom"); err != nil {
@@ -774,5 +774,40 @@ func TestListFiltersAndCursorPagination(t *testing.T) {
 	}
 	if got := list("?client=test", authHdr); len(got.Items) != 7 {
 		t.Errorf("a client may name itself in the client filter, got %d", len(got.Items))
+	}
+}
+
+// priority is bounded to -10..10 and capped per key; it is echoed on the job
+// when set and omitted at the default.
+func TestPriorityValidationAndKeyCap(t *testing.T) {
+	zero := 0
+	e := newEnvWith(t, func(c *config.Config) {
+		c.Auth.APIKeys = append(c.Auth.APIKeys, config.APIKey{Name: "capped", Key: "capped-key", Role: config.RoleClient, MaxPriority: &zero})
+	}, nil)
+	post := func(body, key string) *httptest.ResponseRecorder {
+		return e.do(t, "POST", "/v1/requests", body, map[string]string{"X-API-Key": key})
+	}
+	for _, p := range []string{"11", "-11", "1.5"} {
+		rec := post(`{"target":"meme","payload":{},"priority":`+p+`}`, "valid-key")
+		if rec.Code != http.StatusBadRequest {
+			t.Errorf("priority %s: %d %s, want 400", p, rec.Code, rec.Body.String())
+		}
+	}
+	created := decodeBody[createResponse](t, post(`{"target":"meme","payload":{},"priority":7}`, "valid-key"))
+	doc := decodeBody[map[string]json.RawMessage](t, e.do(t, "GET", "/v1/requests/"+created.ID, "", authHdr))
+	if string(doc["priority"]) != "7" {
+		t.Errorf("priority not echoed: %s", doc["priority"])
+	}
+	plain := decodeBody[createResponse](t, post(`{"target":"meme","payload":{}}`, "valid-key"))
+	doc = decodeBody[map[string]json.RawMessage](t, e.do(t, "GET", "/v1/requests/"+plain.ID, "", authHdr))
+	if _, present := doc["priority"]; present {
+		t.Errorf("default priority must be omitted: %s", doc["priority"])
+	}
+	rec := post(`{"target":"meme","payload":{},"priority":1}`, "capped-key")
+	if rec.Code != http.StatusBadRequest || errCode(t, rec) != CodeInvalidParameter || !strings.Contains(rec.Body.String(), "maximum of 0") {
+		t.Errorf("capped key above its maximum: %d %s", rec.Code, rec.Body.String())
+	}
+	if rec := post(`{"target":"meme","payload":{},"priority":-5}`, "capped-key"); rec.Code != http.StatusAccepted {
+		t.Errorf("capped key below its maximum: %d %s", rec.Code, rec.Body.String())
 	}
 }
