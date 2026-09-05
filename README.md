@@ -18,8 +18,9 @@ Client ──GET /v1/requests/id─    ▼  │
 
 ## How it works
 
-1. `POST /v1/requests` with `{ "api_key": …, "target": "meme", "payload": … }`
-   returns `202 Accepted` and a request id; the request is persisted (SQLite).
+1. `POST /v1/requests` with `{ "target": "meme", "payload": … }` and the
+   client's `X-API-Key` header returns `202 Accepted` and a request id; the
+   request is persisted (SQLite).
 2. A worker finds every object with a `type` starting `resolvent-` inside the
    payload's time-series container (location configurable per target, e.g.
    `model.timeseries` for MEME, the payload root for BuEM's weather block).
@@ -85,9 +86,8 @@ Submit a request:
 
 ```bash
 curl -s -X POST localhost:8080/v1/requests \
-  -H 'Content-Type: application/json' \
+  -H 'Content-Type: application/json' -H 'X-API-Key: dev-key' \
   -d '{
-    "api_key": "dev-key",
     "target": "demo",
     "payload": {
       "scenario": "rooftop-expansion-2030",
@@ -128,11 +128,14 @@ docker run -d -p 8080:8080 \
 
 | Endpoint | Description |
 |---|---|
-| `POST /v1/requests` | Submit `{api_key, target, payload}`; returns `202` + id. Supports an `Idempotency-Key` header. |
-| `GET /v1/requests/{id}` | State, attempts, result (inline JSON or `result.href`), error. Auth: `X-API-Key`. |
-| `GET /v1/requests/{id}/result` | Streams a stored result (inline JSON or a result file such as a MEME bundle). Auth: `X-API-Key`. |
-| `GET /v1/requests?state=failed&limit=50` | List recent requests, newest first. Auth: `X-API-Key`. |
-| `GET /healthz`, `GET /readyz` | Liveness / readiness. |
+| `POST /v1/requests` | Submit `{target, payload}`; returns `202` + id. Supports an `Idempotency-Key` header. |
+| `GET /v1/requests/{id}` | State, attempts, result (inline JSON or `result.href`), error. |
+| `GET /v1/requests/{id}/result` | Streams a stored result (inline JSON or a result file such as a MEME bundle). |
+| `GET /v1/requests?state=failed&limit=50` | List the caller's recent requests, newest first (every client's for an `admin` key). |
+| `GET /healthz`, `GET /readyz`, `GET /version` | Liveness, readiness, build. |
+
+All `/v1` endpoints authenticate with the `X-API-Key` header; a key's `role`
+(`client` or `admin`) decides whether it sees only its own requests or all.
 
 See [docs/api.md](docs/api.md) for the full reference,
 [docs/configuration.md](docs/configuration.md) for every config key,

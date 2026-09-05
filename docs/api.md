@@ -18,15 +18,27 @@ the keys it concerns.
 
 ## Authentication
 
-Clients authenticate with a named key from `auth.api_keys`:
+Clients authenticate with a named key from `auth.api_keys`, sent in the
+`X-API-Key` header on every endpoint under `/v1`:
 
-- `POST /v1/requests` reads the key from the body's `api_key` field. It is
+- `POST /v1/requests` reads the header first. The body's `api_key` field is
+  still accepted as a fallback but **deprecated** (announced here; removal
+  not before 1.0); when both are present the header wins. The key is
   compared in constant time, never stored and never forwarded.
-- Every `GET /v1/requests…` endpoint reads it from the `X-API-Key` header
-  and answers `401 unauthorized` when it is missing or unknown.
-- The key's name identifies the client in logs (`client`) and scopes its
-  idempotency keys. It does **not** partition visibility: any valid key can
-  read any request. Health endpoints are unauthenticated.
+- Every `GET /v1/requests…` endpoint requires the header and answers
+  `401 unauthorized` when it is missing or unknown.
+- Health and build endpoints are unauthenticated.
+
+**Roles and visibility.** Each key has a `role`: `client` (default) or
+`admin`. A client sees only the requests it submitted — another client's
+request id answers `404 not_found` exactly like an unknown id, so ids cannot
+be probed across clients, and lists contain only its own requests. An admin
+reads every request. The key's name identifies the client in logs
+(`client`), scopes its idempotency keys and is stored on each request.
+
+**Header limits.** `Idempotency-Key` may be at most 255 bytes (longer
+answers `400 invalid_parameter`); an `X-Request-ID` longer than 128
+characters is replaced by a generated id.
 
 Every response carries an `X-Request-ID` header — echoed from the request
 when supplied, generated otherwise — which is also the `request_id` field of
@@ -40,12 +52,13 @@ Submit a request for orchestration.
 
 | Field | Type | Description |
 |---|---|---|
-| `api_key` | string | A client key from `auth.api_keys`. Never stored or forwarded. |
+| `api_key` | string | Deprecated fallback for the `X-API-Key` header; never stored or forwarded. |
 | `target` | string | Target workflow name from the `targets` config, e.g. `meme`. |
 | `payload` | object | The body to resolve and forward to the target. Must be a JSON object. |
 
 **Headers**
 
+- `X-API-Key` (preferred over the body field)
 - `Content-Type: application/json` (required)
 - `Idempotency-Key` (optional) — scoped to the authenticated client.
   Resubmitting the identical request (same target and payload) with the same
@@ -59,8 +72,10 @@ Submit a request for orchestration.
 - `202 Accepted` — `{ "id": "…", "state": "received", "links": { "self": "/v1/requests/…" } }`
 - `400 invalid_json` — body is not valid JSON, has trailing data after the
   JSON object, or `payload` is not a JSON object
-- `400 missing_field` — `api_key`, `target` or `payload` absent (or `null`)
-- `401 unauthorized` — unknown api key
+- `400 missing_field` — no API key (neither header nor field), or `target`
+  or `payload` absent (or `null`)
+- `400 invalid_parameter` — `Idempotency-Key` longer than 255 bytes
+- `401 unauthorized` — unknown API key
 - `409 idempotency_conflict` — `Idempotency-Key` already used with a
   different target or payload
 - `413 payload_too_large` — body exceeds `server.max_body_bytes`
@@ -108,7 +123,8 @@ the key has been accepted.
   [Operations → Failure handling](operations.md#failure-handling) for which
   situation produces which code.
 
-`404 not_found` for unknown ids.
+`404 not_found` for unknown ids and for another client's ids (admins
+excepted).
 
 ## GET /v1/requests/{id}/result
 
@@ -120,7 +136,8 @@ pruned by retention.
 
 ## GET /v1/requests
 
-List recent requests, newest first. Query parameters: `state` (filter by job
+List recent requests, newest first — a client's own requests, or every
+request for an admin key. Query parameters: `state` (filter by job
 state) and `limit` (default 50, max 200 — larger values are capped); invalid
 values answer `400 invalid_parameter` (unknown state filter, or limit not a
 positive integer). Items have the same shape as `GET /v1/requests/{id}`.

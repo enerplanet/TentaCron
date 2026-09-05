@@ -657,3 +657,31 @@ func TestDescribeListsEverythingWithoutSecrets(t *testing.T) {
 		t.Errorf("targets must be sorted by name:\n%s", out)
 	}
 }
+
+func TestAPIKeyRoles(t *testing.T) {
+	cfg, err := Load(writeConfig(t, `
+auth:
+  api_keys:
+    - {name: frontend, key: k1}
+    - {name: ops, key: k2, role: admin}
+targets:
+  demo:
+    url: "https://demo.example.com/run"
+`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Auth.APIKeys[0].Role != RoleClient || cfg.Auth.APIKeys[1].Role != RoleAdmin {
+		t.Errorf("roles = %q / %q, want client (default) / admin", cfg.Auth.APIKeys[0].Role, cfg.Auth.APIKeys[1].Role)
+	}
+	_, err = Load(writeConfig(t, `
+auth:
+  api_keys: [{name: t, key: k, role: superuser}]
+targets:
+  demo:
+    url: "https://demo.example.com/run"
+`))
+	if err == nil || !strings.Contains(err.Error(), `auth.api_keys[0] (t): role must be "client" or "admin" (got "superuser")`) {
+		t.Errorf("unknown role must be rejected, got %v", err)
+	}
+}

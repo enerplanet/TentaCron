@@ -1,11 +1,12 @@
 # `examples/` — ready-to-send requests
 
-Complete request bodies for `POST /v1/requests`. Replace
-`your-tentacron-api-key` with a key from your `auth.api_keys` config and send:
+Complete request bodies for `POST /v1/requests`. Send them with your key
+from `auth.api_keys` in the `X-API-Key` header (the `api_key` field the files
+carry is the deprecated fallback; a header always wins over it):
 
 ```bash
 curl -s -X POST localhost:8080/v1/requests \
-  -H 'Content-Type: application/json' \
+  -H 'Content-Type: application/json' -H 'X-API-Key: your-tentacron-api-key' \
   -d @examples/demo-direct.json
 # → {"id":"6f1c9be2…","state":"received","links":{"self":"/v1/requests/6f1c9be2…"}}
 

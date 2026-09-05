@@ -248,18 +248,35 @@ func (s *Store) GetJobByIdempotency(ctx context.Context, client, key string) (*J
 	return j, err
 }
 
-// ListJobs returns jobs newest-first, optionally filtered by state; rowid
-// breaks created_at ties by insertion order (ids are random hex, so ordering
-// by id would shuffle same-millisecond jobs run to run).
-func (s *Store) ListJobs(ctx context.Context, state string, limit int) ([]*Job, error) {
+// ListFilter narrows ListJobs. Empty State and Client mean no filter on that
+// column; Limit is required.
+type ListFilter struct {
+	State  string
+	Client string
+	Limit  int
+}
+
+// ListJobs returns jobs newest-first, filtered by state and/or submitting
+// client; rowid breaks created_at ties by insertion order (ids are random
+// hex, so ordering by id would shuffle same-millisecond jobs run to run).
+func (s *Store) ListJobs(ctx context.Context, f ListFilter) ([]*Job, error) {
 	q := `SELECT ` + jobColumns + ` FROM jobs`
+	var where []string
 	args := []any{}
-	if state != "" {
-		q += ` WHERE state = ?`
-		args = append(args, state)
+	if f.State != "" {
+		where = append(where, "state = ?")
+		args = append(args, f.State)
+	}
+	if f.Client != "" {
+		where = append(where, "client = ?")
+		args = append(args, f.Client)
+	}
+	if len(where) > 0 {
+		// The clauses are compile-time constants; every value is bound.
+		q += ` WHERE ` + strings.Join(where, " AND ") //nolint:gosec // G202
 	}
 	q += ` ORDER BY created_at DESC, rowid DESC LIMIT ?`
-	args = append(args, limit)
+	args = append(args, f.Limit)
 	rows, err := s.db.QueryContext(ctx, q, args...)
 	if err != nil {
 		return nil, err

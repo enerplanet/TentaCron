@@ -49,7 +49,7 @@ func TestListJobsOrderingFilterAndLimit(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	all, err := s.ListJobs(ctx, "", 10)
+	all, err := s.ListJobs(ctx, ListFilter{Limit: 10})
 	if err != nil || len(all) != 5 {
 		t.Fatalf("ListJobs all: %d jobs, err %v", len(all), err)
 	}
@@ -58,15 +58,15 @@ func TestListJobsOrderingFilterAndLimit(t *testing.T) {
 			t.Fatalf("newest-first ordering broken at %d: %s", i, j.ID)
 		}
 	}
-	failed, err := s.ListJobs(ctx, StateFailed, 10)
+	failed, err := s.ListJobs(ctx, ListFilter{State: StateFailed, Limit: 10})
 	if err != nil || len(failed) != 2 || failed[0].ID != ids[3] || failed[1].ID != ids[1] {
 		t.Errorf("failed filter = %v (err %v)", failed, err)
 	}
-	limited, _ := s.ListJobs(ctx, "", 2)
+	limited, _ := s.ListJobs(ctx, ListFilter{Limit: 2})
 	if len(limited) != 2 || limited[0].ID != ids[4] {
 		t.Errorf("limit 2 = %d jobs, first %s", len(limited), limited[0].ID)
 	}
-	if none, err := s.ListJobs(ctx, StateCompleted, 10); err != nil || len(none) != 0 {
+	if none, err := s.ListJobs(ctx, ListFilter{State: StateCompleted, Limit: 10}); err != nil || len(none) != 0 {
 		t.Errorf("no completed jobs: %v (err %v)", none, err)
 	}
 }
@@ -81,7 +81,7 @@ func TestListJobsSameMillisecondTiebreak(t *testing.T) {
 		mustCreate(t, s, j)
 		ids = append(ids, j.ID)
 	}
-	got, err := s.ListJobs(context.Background(), "", 10)
+	got, err := s.ListJobs(context.Background(), ListFilter{Limit: 10})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -757,5 +757,49 @@ func TestCountByState(t *testing.T) {
 	want := map[string]int{StateReceived: 1, StateResolving: 1, StateFailed: 1}
 	if !reflect.DeepEqual(counts, want) {
 		t.Errorf("counts = %v, want %v", counts, want)
+	}
+}
+
+// The client filter backs read scoping: a client lists only the jobs it
+// submitted, combined with the state filter.
+func TestListJobsFiltersByClient(t *testing.T) {
+	s := openTest(t)
+	ctx := context.Background()
+	for _, spec := range []struct {
+		client string
+		fail   bool
+	}{{"a", false}, {"b", false}, {"a", true}, {"b", true}, {"a", false}} {
+		j := newJob(t, "meme")
+		j.Client = spec.client
+		mustCreate(t, s, j)
+		if spec.fail {
+			if err := s.MarkFailed(ctx, j.ID, "target_error", "x"); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+	count := func(f ListFilter) int {
+		jobs, err := s.ListJobs(ctx, f)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, j := range jobs {
+			if f.Client != "" && j.Client != f.Client {
+				t.Errorf("job %s of client %s leaked into client %s's list", j.ID, j.Client, f.Client)
+			}
+		}
+		return len(jobs)
+	}
+	if n := count(ListFilter{Client: "a", Limit: 10}); n != 3 {
+		t.Errorf("client a: %d jobs, want 3", n)
+	}
+	if n := count(ListFilter{Client: "b", State: StateFailed, Limit: 10}); n != 1 {
+		t.Errorf("client b failed: %d jobs, want 1", n)
+	}
+	if n := count(ListFilter{Limit: 10}); n != 5 {
+		t.Errorf("unfiltered: %d jobs, want 5", n)
+	}
+	if n := count(ListFilter{Client: "nobody", Limit: 10}); n != 0 {
+		t.Errorf("unknown client: %d jobs, want 0", n)
 	}
 }

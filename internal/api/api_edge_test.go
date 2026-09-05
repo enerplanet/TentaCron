@@ -210,16 +210,101 @@ func TestListOrderNewestFirstAndEmptyBody(t *testing.T) {
 	}
 }
 
-// POST authenticates via the body only; the header is not a substitute.
-func TestPostUsesBodyKeyNotHeader(t *testing.T) {
+// POST takes the key from the X-API-Key header when present — the preferred
+// form — and falls back to the deprecated body field; a header wins over a
+// body field.
+func TestPostAcceptsHeaderKeyAndFallsBackToBody(t *testing.T) {
 	e := newEnv(t)
-	rec := e.do(t, "POST", "/v1/requests", `{"target":"meme","payload":{}}`, authHdr)
-	if rec.Code != http.StatusBadRequest || errCode(t, rec) != CodeMissingField {
-		t.Errorf("header without body key: %d %s", rec.Code, rec.Body.String())
+	if rec := e.do(t, "POST", "/v1/requests", `{"target":"meme","payload":{}}`, authHdr); rec.Code != http.StatusAccepted {
+		t.Errorf("header only: %d %s", rec.Code, rec.Body.String())
 	}
-	rec = e.do(t, "POST", "/v1/requests", `{"api_key":"nope","target":"meme","payload":{}}`, authHdr)
-	if rec.Code != http.StatusUnauthorized {
-		t.Errorf("wrong body key with valid header: %d, want 401", rec.Code)
+	if rec := e.do(t, "POST", "/v1/requests", `{"api_key":"nope","target":"meme","payload":{}}`, authHdr); rec.Code != http.StatusAccepted {
+		t.Errorf("valid header must win over a wrong body key: %d %s", rec.Code, rec.Body.String())
+	}
+	if rec := e.do(t, "POST", "/v1/requests", validBody, nil); rec.Code != http.StatusAccepted {
+		t.Errorf("body key alone (deprecated) must still work: %d", rec.Code)
+	}
+	rec := e.do(t, "POST", "/v1/requests", `{"target":"meme","payload":{}}`, nil)
+	if rec.Code != http.StatusBadRequest || errCode(t, rec) != CodeMissingField || !strings.Contains(rec.Body.String(), "X-API-Key") {
+		t.Errorf("no key at all: %d %s", rec.Code, rec.Body.String())
+	}
+	if rec := e.do(t, "POST", "/v1/requests", `{"target":"meme","payload":{}}`, map[string]string{"X-API-Key": "nope"}); rec.Code != http.StatusUnauthorized {
+		t.Errorf("wrong header key: %d, want 401", rec.Code)
+	}
+}
+
+// Reads are scoped to the submitting client: another client's id answers
+// 404 exactly like an unknown one and its jobs never appear in a list; an
+// admin key sees everything.
+func TestReadsAreScopedToTheClientUnlessAdmin(t *testing.T) {
+	e := newEnvWith(t, func(c *config.Config) {
+		c.Auth.APIKeys = []config.APIKey{
+			{Name: "a", Key: "key-a", Role: config.RoleClient},
+			{Name: "b", Key: "key-b", Role: config.RoleClient},
+			{Name: "ops", Key: "key-ops", Role: config.RoleAdmin},
+		}
+	}, nil)
+	created := decodeBody[createResponse](t, e.do(t, "POST", "/v1/requests", `{"target":"meme","payload":{}}`, map[string]string{"X-API-Key": "key-a"}))
+	if err := e.store.MarkCompleted(context.Background(), created.ID, 200, []byte(`{"ok":true}`), "", "", "done"); err != nil {
+		t.Fatal(err)
+	}
+	hdr := func(k string) map[string]string { return map[string]string{"X-API-Key": k} }
+	for _, path := range []string{"/v1/requests/" + created.ID, "/v1/requests/" + created.ID + "/result"} {
+		if rec := e.do(t, "GET", path, "", hdr("key-a")); rec.Code != http.StatusOK {
+			t.Errorf("owner %s: %d", path, rec.Code)
+		}
+		if rec := e.do(t, "GET", path, "", hdr("key-b")); rec.Code != http.StatusNotFound || errCode(t, rec) != CodeNotFound {
+			t.Errorf("other client %s: %d %s, want the same 404 as an unknown id", path, rec.Code, rec.Body.String())
+		}
+		if rec := e.do(t, "GET", path, "", hdr("key-ops")); rec.Code != http.StatusOK {
+			t.Errorf("admin %s: %d", path, rec.Code)
+		}
+	}
+	items := func(k string) int {
+		return len(decodeBody[map[string][]jobResponse](t, e.do(t, "GET", "/v1/requests", "", hdr(k)))["items"])
+	}
+	if items("key-a") != 1 || items("key-b") != 0 || items("key-ops") != 1 {
+		t.Errorf("list sizes a=%d b=%d ops=%d, want 1/0/1", items("key-a"), items("key-b"), items("key-ops"))
+	}
+}
+
+func TestHeaderLengthCaps(t *testing.T) {
+	e := newEnv(t)
+	long := strings.Repeat("k", maxIdempotencyKeyLen+1)
+	rec := e.do(t, "POST", "/v1/requests", validBody, map[string]string{"Idempotency-Key": long})
+	if rec.Code != http.StatusBadRequest || errCode(t, rec) != CodeInvalidParameter {
+		t.Errorf("oversized Idempotency-Key: %d %s", rec.Code, rec.Body.String())
+	}
+	if rec := e.do(t, "POST", "/v1/requests", validBody, map[string]string{"Idempotency-Key": strings.Repeat("k", maxIdempotencyKeyLen)}); rec.Code != http.StatusAccepted {
+		t.Errorf("Idempotency-Key at the cap: %d", rec.Code)
+	}
+	rec = e.do(t, "GET", "/healthz", "", map[string]string{"X-Request-ID": strings.Repeat("r", maxRequestIDLen+1)})
+	if got := rec.Header().Get("X-Request-ID"); !regexp.MustCompile(`^[0-9a-f]{16}$`).MatchString(got) {
+		t.Errorf("oversized request id must be replaced by a generated one, got %q", got)
+	}
+}
+
+func TestRequestLogCarriesTheClientName(t *testing.T) {
+	var buf bytes.Buffer
+	e := newEnvWith(t, nil, slog.New(slog.NewJSONHandler(&buf, nil)))
+	e.do(t, "POST", "/v1/requests", `{"target":"meme","payload":{}}`, authHdr)
+	e.do(t, "GET", "/v1/requests", "", authHdr)
+	e.do(t, "GET", "/healthz", "", nil)
+	lines := strings.Split(strings.TrimSpace(buf.String()), "\n")
+	var requestLines []string
+	for _, l := range lines {
+		if strings.Contains(l, `"msg":"request"`) {
+			requestLines = append(requestLines, l)
+		}
+	}
+	if len(requestLines) != 3 {
+		t.Fatalf("want 3 request log lines, got %d:\n%s", len(requestLines), buf.String())
+	}
+	if !strings.Contains(requestLines[0], `"client":"test"`) || !strings.Contains(requestLines[1], `"client":"test"`) {
+		t.Errorf("authenticated requests must log the client name:\n%s", buf.String())
+	}
+	if !strings.Contains(requestLines[2], `"client":""`) {
+		t.Errorf("unauthenticated request must log an empty client:\n%s", requestLines[2])
 	}
 }
 
@@ -471,7 +556,7 @@ func TestConcurrentCreatesAreIsolated(t *testing.T) {
 	if len(ids) != n {
 		t.Errorf("%d distinct ids for %d requests", len(ids), n)
 	}
-	jobs, err := e.store.ListJobs(context.Background(), "", 100)
+	jobs, err := e.store.ListJobs(context.Background(), store.ListFilter{Limit: 100})
 	if err != nil || len(jobs) != n {
 		t.Errorf("stored %d jobs (err %v), want %d", len(jobs), err, n)
 	}

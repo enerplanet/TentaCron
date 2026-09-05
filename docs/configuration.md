@@ -32,11 +32,16 @@ auth:
   api_keys:
     - name: frontend            # names make keys individually revocable
       key: "${TENTACRON_KEY_FRONTEND}"
+    - name: ops
+      key: "${TENTACRON_KEY_OPS}"
+      role: admin               # reads every client's requests
 ```
 
-At least one key is required; names must be unique. `POST` authenticates via
-the body's `api_key`; `GET` endpoints via the `X-API-Key` header. The name
-appears in logs and scopes the client's idempotency keys.
+At least one key is required; names must be unique. Every endpoint reads
+the key from the `X-API-Key` header (`POST` still accepts the deprecated
+body field `api_key`). `role` is `client` (default: sees only its own
+requests) or `admin` (sees all). The name appears in logs, scopes the
+client's idempotency keys and is stored on each request.
 
 ## storage
 

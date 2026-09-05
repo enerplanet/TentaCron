@@ -43,6 +43,7 @@ var update = flag.Bool("update", false, "rewrite golden files instead of compari
 const (
 	clientKey       = "golden-client-key"
 	secondClientKey = "golden-second-client-key"
+	adminKey        = "golden-admin-key"
 	demoSecret      = "demo-golden-secret"
 	buemSecret      = "buem-golden-secret"
 	ignisSecret     = "ignis-golden-secret"
@@ -286,8 +287,9 @@ func goldenConfig(t *testing.T, resourceURL, targetURL string) *config.Config {
 	return &config.Config{
 		Server: config.Server{MaxBodyBytes: 4096},
 		Auth: config.Auth{APIKeys: []config.APIKey{
-			{Name: "golden", Key: clientKey},
-			{Name: "second", Key: secondClientKey},
+			{Name: "golden", Key: clientKey, Role: config.RoleClient},
+			{Name: "second", Key: secondClientKey, Role: config.RoleClient},
+			{Name: "ops", Key: adminKey, Role: config.RoleAdmin},
 		}},
 		Storage: config.Storage{ResultsDir: t.TempDir(), Retention: dur(time.Hour)},
 		Worker: config.Worker{
@@ -498,12 +500,14 @@ func (h *harness) await(label, id string) {
 
 // awaitState polls until the job reaches one of the wanted states and records
 // the response — usable mid-flight (e.g. awaiting_target) as well as for
-// terminal states.
+// terminal states. It polls with the admin key: reads are scoped per client
+// and a scenario may await another client's job. The recorded response does
+// not depend on the key.
 func (h *harness) awaitState(label, id string, want ...string) {
 	h.t.Helper()
 	deadline := time.Now().Add(30 * time.Second)
 	for time.Now().Before(deadline) {
-		status, body := h.getOnce("/v1/requests/"+id, map[string]string{"X-API-Key": clientKey})
+		status, body := h.getOnce("/v1/requests/"+id, map[string]string{"X-API-Key": adminKey})
 		var doc struct {
 			State string `json:"state"`
 		}

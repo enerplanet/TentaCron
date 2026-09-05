@@ -36,32 +36,34 @@
     "content_type": "application/json",
     "request": "GET /v1/requests/«job-1»",
     "response": {
-      "attempts": 1,
-      "completed_at": "«ts»",
-      "created_at": "«ts»",
-      "error": null,
-      "id": "«job-1»",
-      "result": {
-        "target_response": {
-          "ok": true
-        },
-        "target_status": 200
-      },
-      "state": "completed",
-      "target": "demo",
-      "updated_at": "«ts»"
+      "error": {
+        "code": "not_found",
+        "message": "no such request"
+      }
     },
-    "status": 200,
-    "step": "client B reads A's job status"
+    "status": 404,
+    "step": "client B reads A's job status (404, as for an unknown id)"
   },
   {
     "content_type": "application/json",
     "request": "GET /v1/requests/«job-1»/result",
     "response": {
-      "ok": true
+      "error": {
+        "code": "not_found",
+        "message": "no such request"
+      }
+    },
+    "status": 404,
+    "step": "client B streams A's result (404)"
+  },
+  {
+    "content_type": "application/json",
+    "request": "GET /v1/requests?limit=5",
+    "response": {
+      "items": []
     },
     "status": 200,
-    "step": "client B streams A's result"
+    "step": "client B lists jobs (A's job absent)"
   },
   {
     "content_type": "application/json",
@@ -87,6 +89,6 @@
       ]
     },
     "status": 200,
-    "step": "client B lists jobs"
+    "step": "client A lists its own job"
   }
 ]

@@ -27,16 +27,29 @@ type createResponse struct {
 	Links map[string]string `json:"links"`
 }
 
+// maxIdempotencyKeyLen bounds the Idempotency-Key header, which is stored
+// verbatim and indexed.
+const maxIdempotencyKeyLen = 255
+
 // decodeCreateRequest parses and validates the create-request body, writing
-// the client error response itself when the request is unusable.
+// the client error response itself when the request is unusable. The API
+// key comes from the X-API-Key header when present (the preferred form) and
+// from the body's api_key field otherwise.
 func (s *Server) decodeCreateRequest(w http.ResponseWriter, r *http.Request) (createRequest, bool) {
 	var req createRequest
 	if !requireJSON(w, r) {
 		return req, false
 	}
+	if len(r.Header.Get("Idempotency-Key")) > maxIdempotencyKeyLen {
+		writeError(w, http.StatusBadRequest, CodeInvalidParameter, "Idempotency-Key must be at most 255 bytes")
+		return req, false
+	}
 	r.Body = http.MaxBytesReader(w, r.Body, s.cfg.Server.MaxBodyBytes)
 	if !decodeSingleObject(w, r.Body, &req) {
 		return req, false
+	}
+	if header := r.Header.Get("X-API-Key"); header != "" {
+		req.APIKey = header
 	}
 	if status, code, msg := validateCreateRequest(req); code != "" {
 		writeError(w, status, code, msg)
@@ -84,7 +97,7 @@ func decodeSingleObject(w http.ResponseWriter, body io.Reader, dst any) bool {
 func validateCreateRequest(req createRequest) (status int, code, msg string) {
 	switch {
 	case req.APIKey == "":
-		return http.StatusBadRequest, CodeMissingField, "api_key is required"
+		return http.StatusBadRequest, CodeMissingField, "an API key is required: send the X-API-Key header (or the api_key field)"
 	case req.Target == "":
 		return http.StatusBadRequest, CodeMissingField, "target is required"
 	case len(req.Payload) == 0 || string(req.Payload) == "null":
@@ -100,17 +113,18 @@ func (s *Server) handleCreate(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	client, ok := s.authenticate(req.APIKey)
+	id, ok := s.authenticate(req.APIKey)
 	if !ok {
-		writeError(w, http.StatusUnauthorized, CodeUnauthorized, "invalid api_key")
+		writeError(w, http.StatusUnauthorized, CodeUnauthorized, "invalid API key")
 		return
 	}
+	noteClient(r, id.name)
 	if _, ok := s.cfg.Targets[req.Target]; !ok {
 		writeError(w, http.StatusUnprocessableEntity, CodeUnknownTarget,
 			"target "+strconv.Quote(req.Target)+" is not configured")
 		return
 	}
-	s.acceptJob(w, r, req, client)
+	s.acceptJob(w, r, req, id.name)
 }
 
 // acceptJob persists the request as a new job — or replays the stored one
@@ -199,6 +213,21 @@ func (s *Server) jobFromPath(w http.ResponseWriter, r *http.Request) (*store.Job
 	return job, true
 }
 
+// jobForCaller loads the addressed job and enforces read scoping: a job the
+// caller may not see answers 404 exactly like an unknown id, so ids cannot
+// be probed across clients.
+func (s *Server) jobForCaller(w http.ResponseWriter, r *http.Request, id identity) (*store.Job, bool) {
+	job, ok := s.jobFromPath(w, r)
+	if !ok {
+		return nil, false
+	}
+	if !id.mayRead(job) {
+		writeError(w, http.StatusNotFound, CodeNotFound, "no such request")
+		return nil, false
+	}
+	return job, true
+}
+
 // internalError logs the cause and answers with the opaque 500 error body.
 func (s *Server) internalError(w http.ResponseWriter, logMsg string, err error) {
 	s.logger.Error(logMsg, "error", err)
@@ -206,10 +235,11 @@ func (s *Server) internalError(w http.ResponseWriter, logMsg string, err error) 
 }
 
 func (s *Server) handleGet(w http.ResponseWriter, r *http.Request) {
-	if !s.authFromHeader(w, r) {
+	id, ok := s.authFromHeader(w, r)
+	if !ok {
 		return
 	}
-	job, ok := s.jobFromPath(w, r)
+	job, ok := s.jobForCaller(w, r, id)
 	if !ok {
 		return
 	}
@@ -217,14 +247,19 @@ func (s *Server) handleGet(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleList(w http.ResponseWriter, r *http.Request) {
-	if !s.authFromHeader(w, r) {
+	id, ok := s.authFromHeader(w, r)
+	if !ok {
 		return
 	}
 	state, limit, ok := listParams(w, r)
 	if !ok {
 		return
 	}
-	jobs, err := s.store.ListJobs(r.Context(), state, limit)
+	filter := store.ListFilter{State: state, Limit: limit}
+	if !id.admin() {
+		filter.Client = id.name // clients list only their own requests
+	}
+	jobs, err := s.store.ListJobs(r.Context(), filter)
 	if err != nil {
 		s.internalError(w, "list jobs failed", err)
 		return
@@ -260,10 +295,11 @@ func listParams(w http.ResponseWriter, r *http.Request) (state string, limit int
 }
 
 func (s *Server) handleResult(w http.ResponseWriter, r *http.Request) {
-	if !s.authFromHeader(w, r) {
+	id, ok := s.authFromHeader(w, r)
+	if !ok {
 		return
 	}
-	job, ok := s.jobFromPath(w, r)
+	job, ok := s.jobForCaller(w, r, id)
 	if !ok {
 		return
 	}

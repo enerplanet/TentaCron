@@ -1,11 +1,16 @@
 package api
 
 import (
+	"context"
 	"crypto/rand"
 	"encoding/hex"
 	"net/http"
 	"time"
 )
+
+// maxRequestIDLen bounds the client-supplied X-Request-ID that is echoed and
+// logged; longer values are replaced by a generated id.
+const maxRequestIDLen = 128
 
 type statusRecorder struct {
 	http.ResponseWriter
@@ -17,16 +22,32 @@ func (r *statusRecorder) WriteHeader(status int) {
 	r.ResponseWriter.WriteHeader(status)
 }
 
-// withRequestLog assigns/echoes a request id and logs one line per request.
+// requestMeta collects per-request facts the handlers learn after the
+// middleware started (the authenticated client) for the request log line.
+type requestMeta struct{ client string }
+
+type requestMetaKey struct{}
+
+// noteClient records the authenticated client name for the request log.
+func noteClient(r *http.Request, name string) {
+	if m, ok := r.Context().Value(requestMetaKey{}).(*requestMeta); ok {
+		m.client = name
+	}
+}
+
+// withRequestLog assigns/echoes a request id and logs one line per request,
+// including the client name once a handler authenticated the caller.
 func (s *Server) withRequestLog(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		reqID := r.Header.Get("X-Request-ID")
-		if reqID == "" {
+		if reqID == "" || len(reqID) > maxRequestIDLen {
 			var b [8]byte
 			_, _ = rand.Read(b[:])
 			reqID = hex.EncodeToString(b[:])
 		}
 		w.Header().Set("X-Request-ID", reqID)
+		meta := &requestMeta{}
+		r = r.WithContext(context.WithValue(r.Context(), requestMetaKey{}, meta))
 		rec := &statusRecorder{ResponseWriter: w, status: http.StatusOK}
 		start := time.Now()
 		next.ServeHTTP(rec, r)
@@ -35,6 +56,7 @@ func (s *Server) withRequestLog(next http.Handler) http.Handler {
 			"method", r.Method,
 			"path", r.URL.Path,
 			"status", rec.status,
+			"client", meta.client,
 			"duration_ms", time.Since(start).Milliseconds())
 	})
 }

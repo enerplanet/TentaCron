@@ -499,6 +499,12 @@ var apiContractScenarios = []scenario{
 			h.post("content type with charset parameter is accepted",
 				requestBody("demo", `{"time-series":[]}`),
 				map[string]string{"Content-Type": "application/json; charset=utf-8"})
+			h.post("api key in the X-API-Key header, no api_key field (preferred form)",
+				`{"target":"demo","payload":{"time-series":[]}}`,
+				map[string]string{"X-API-Key": clientKey})
+			h.post("header key wins over a wrong body key",
+				`{"api_key":"stale","target":"demo","payload":{"time-series":[]}}`,
+				map[string]string{"X-API-Key": clientKey})
 		},
 	},
 	{
@@ -520,17 +526,33 @@ var apiContractScenarios = []scenario{
 		},
 	},
 	{
-		// Deliberately pins that reads are NOT owner-scoped: any configured
-		// API key can read any job. A future scoping decision must show up
-		// here as a reviewable golden diff.
+		// Reads are scoped to the submitting client: another client's key
+		// gets the same 404 as for an unknown id (no id probing across
+		// clients) and never sees the job in a list.
 		name: "cross-client-read",
 		run: func(t *testing.T, h *harness) {
 			id := h.post("client A submits", requestBody("demo", `{"time-series":[]}`), nil)
 			h.await("job completes", id)
 			auth2 := map[string]string{"X-API-Key": secondClientKey}
-			h.get("client B reads A's job status", "/v1/requests/"+id, auth2)
-			h.get("client B streams A's result", "/v1/requests/"+id+"/result", auth2)
-			h.get("client B lists jobs", "/v1/requests?limit=5", auth2)
+			h.get("client B reads A's job status (404, as for an unknown id)", "/v1/requests/"+id, auth2)
+			h.get("client B streams A's result (404)", "/v1/requests/"+id+"/result", auth2)
+			h.get("client B lists jobs (A's job absent)", "/v1/requests?limit=5", auth2)
+			h.get("client A lists its own job", "/v1/requests?limit=5", map[string]string{"X-API-Key": clientKey})
+		},
+	},
+	{
+		// An admin key reads every client's requests: status, result and the
+		// unfiltered list.
+		name: "admin-reads-all",
+		run: func(t *testing.T, h *harness) {
+			a := h.post("client A submits", requestBody("demo", `{"time-series":[]}`), nil)
+			h.await("A's job completes", a)
+			b := h.post("client B submits", strings.Replace(requestBody("demo", `{"time-series":[]}`), clientKey, secondClientKey, 1), nil)
+			h.awaitState("B's job completes", b, store.StateCompleted, store.StateFailed)
+			admin := map[string]string{"X-API-Key": adminKey}
+			h.get("admin reads A's status", "/v1/requests/"+a, admin)
+			h.get("admin streams B's result", "/v1/requests/"+b+"/result", admin)
+			h.get("admin lists both clients' jobs", "/v1/requests?limit=5", admin)
 		},
 	},
 	{

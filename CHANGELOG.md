@@ -10,6 +10,12 @@ under "Changed" with the keys or fields concerned.
 
 ### Added
 
+- `X-API-Key` header authentication on `POST /v1/requests`, matching the
+  read endpoints; a header wins over the body field. Keys carry a `role`:
+  `client` (default) sees only the requests it submitted, `admin` sees
+  every request. `Idempotency-Key` is capped at 255 bytes and an
+  `X-Request-ID` longer than 128 characters is replaced; the request log
+  line names the authenticated client.
 - Prometheus metrics on a dedicated listener (`server.metrics_addr`, off by
   default): job outcomes and failure codes per target, queue depth per
   state, upstream call counts and latency by kind, name and status class,
@@ -38,6 +44,16 @@ under "Changed" with the keys or fields concerned.
   resolvent location), and an API stability statement in `docs/api.md`.
 
 ### Changed
+
+- Reads are scoped to the submitting client: `GET /v1/requests/{id}` and
+  `/result` answer `404` for another client's request (as for an unknown
+  id) and `GET /v1/requests` lists only the caller's requests. Deployments
+  where one key must see everything give it `role: admin`.
+
+### Deprecated
+
+- The `api_key` field in the `POST /v1/requests` body. Send the
+  `X-API-Key` header instead; the field stays accepted until 1.0.
 
 - Configuration validation requires each target's attempt deadline
   (`job_timeout`, or `worker.job_timeout`) to cover the target's `timeout`

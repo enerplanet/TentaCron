@@ -48,7 +48,7 @@
     "response": {
       "error": {
         "code": "missing_field",
-        "message": "api_key is required"
+        "message": "an API key is required: send the X-API-Key header (or the api_key field)"
       }
     },
     "status": 400,
@@ -92,7 +92,7 @@
     "response": {
       "error": {
         "code": "unauthorized",
-        "message": "invalid api_key"
+        "message": "invalid API key"
       }
     },
     "status": 401,
@@ -131,5 +131,29 @@
     },
     "status": 202,
     "step": "content type with charset parameter is accepted"
+  },
+  {
+    "request": "POST /v1/requests",
+    "response": {
+      "id": "«job-2»",
+      "links": {
+        "self": "/v1/requests/«job-2»"
+      },
+      "state": "received"
+    },
+    "status": 202,
+    "step": "api key in the X-API-Key header, no api_key field (preferred form)"
+  },
+  {
+    "request": "POST /v1/requests",
+    "response": {
+      "id": "«job-3»",
+      "links": {
+        "self": "/v1/requests/«job-3»"
+      },
+      "state": "received"
+    },
+    "status": 202,
+    "step": "header key wins over a wrong body key"
   }
 ]

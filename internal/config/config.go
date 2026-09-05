@@ -74,15 +74,32 @@ func (s Server) SlogLevel() slog.Level {
 	}
 }
 
+// Roles a client key can hold.
+const (
+	RoleClient = "client" // reads only the requests it submitted
+	RoleAdmin  = "admin"  // reads every request and may filter lists by client
+)
+
 // APIKey is one named client credential.
 type APIKey struct {
 	Name string `yaml:"name"`
 	Key  string `yaml:"key"`
+	// Role scopes what the key may read: a client sees only the requests it
+	// submitted, an admin sees all of them. Defaults to client.
+	Role string `yaml:"role"`
 }
 
 // Auth lists accepted client API keys.
 type Auth struct {
 	APIKeys []APIKey `yaml:"api_keys"`
+}
+
+func (a *Auth) applyDefaults() {
+	for i := range a.APIKeys {
+		if a.APIKeys[i].Role == "" {
+			a.APIKeys[i].Role = RoleClient
+		}
+	}
 }
 
 // Storage holds persistence settings.
@@ -291,6 +308,7 @@ func expandEnv(s string) (string, error) {
 
 func (c *Config) applyDefaults() {
 	c.Server.applyDefaults()
+	c.Auth.applyDefaults()
 	c.Storage.applyDefaults()
 	c.Worker.applyDefaults()
 	c.Cache.applyDefaults()
