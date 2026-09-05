@@ -536,19 +536,30 @@ func (p *Pool) markCompleted(bg context.Context, job *store.Job, status int, bod
 }
 
 // writeResultFile stores an oversized or non-JSON result in the results dir.
-// The write goes to a temp file first and is renamed into place, so a client
-// streaming the previous file (or a concurrent duplicate completion) never
-// observes a truncated result.
+// The write goes to a uniquely named temp file first and is renamed into
+// place, so a client streaming the previous file never observes a truncated
+// result, and two overlapping poll ticks completing the same job (each with
+// its own temp file) can never interleave writes into one another.
 func (p *Pool) writeResultFile(jobID, contentType string, body []byte) (string, error) {
 	if err := os.MkdirAll(p.cfg.Storage.ResultsDir, 0o750); err != nil {
 		return "", fmt.Errorf("create results dir: %w", err)
 	}
 	path := filepath.Join(p.cfg.Storage.ResultsDir, jobID+resultExt(contentType))
-	tmp := path + ".tmp"
-	if err := os.WriteFile(tmp, body, 0o600); err != nil {
+	tmp, err := os.CreateTemp(p.cfg.Storage.ResultsDir, jobID+".*.tmp")
+	if err != nil {
 		return "", fmt.Errorf("write result file: %w", err)
 	}
-	if err := os.Rename(tmp, path); err != nil {
+	if _, err := tmp.Write(body); err != nil {
+		_ = tmp.Close()
+		_ = os.Remove(tmp.Name())
+		return "", fmt.Errorf("write result file: %w", err)
+	}
+	if err := tmp.Close(); err != nil {
+		_ = os.Remove(tmp.Name())
+		return "", fmt.Errorf("write result file: %w", err)
+	}
+	if err := os.Rename(tmp.Name(), path); err != nil {
+		_ = os.Remove(tmp.Name())
 		return "", fmt.Errorf("write result file: %w", err)
 	}
 	return path, nil
