@@ -849,6 +849,10 @@ func TestManyResolventsAreBoundedAndAllSubstituted(t *testing.T) {
 	const n = 3000
 	cfg := baseConfig(t)
 	cfg.Worker.ResolventConcurrency = 8
+	// 3000 fetches, each also a cache write, take well over the fast-test
+	// job timeout under the race detector on a two-core CI runner; the
+	// deadline is not what this test is about.
+	cfg.Worker.JobTimeout = dur(2 * time.Minute)
 	resource, calls := fakeResource(t, 0)
 	target, lastBody := fakeDirectTarget(t, 200, `{"ok":true}`)
 	cfg.Resolvents["resolvent-pv1"] = resolventCfg(resource.URL)
@@ -867,7 +871,7 @@ func TestManyResolventsAreBoundedAndAllSubstituted(t *testing.T) {
 	baseline := runtime.NumGoroutine()
 	startPool(t, cfg, st)
 	peak := 0
-	deadline := time.Now().Add(20 * time.Second)
+	deadline := time.Now().Add(90 * time.Second)
 	for time.Now().Before(deadline) {
 		if g := runtime.NumGoroutine(); g > peak {
 			peak = g
@@ -878,9 +882,9 @@ func TestManyResolventsAreBoundedAndAllSubstituted(t *testing.T) {
 		}
 		time.Sleep(time.Millisecond)
 	}
-	job := waitForTerminal(t, st, id)
-	if job.State != store.StateCompleted {
-		t.Fatalf("state = %s: %s", job.State, job.ErrorMessage)
+	job, err := st.GetJob(context.Background(), id)
+	if err != nil || job.State != store.StateCompleted {
+		t.Fatalf("state = %s (err %v): %s", job.State, err, job.ErrorMessage)
 	}
 	if calls.Load() != n {
 		t.Errorf("resource calls = %d, want %d", calls.Load(), n)
