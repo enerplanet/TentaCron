@@ -69,15 +69,37 @@ func TestFindOrderIsDeterministic(t *testing.T) {
 	}
 }
 
-// timeseries_path addresses the container, never a resolvent object itself:
-// pointing it at the resolvent scans that object's fields instead.
-func TestContainerItselfIsNeverACandidate(t *testing.T) {
-	root := parse(t, `{"weather":{"type":"resolvent-weather","lat":48.8}}`)
-	if found := find(t, root, "weather"); len(found) != 0 {
-		t.Errorf("the container object itself must not be treated as a resolvent, got %d", len(found))
+// A timeseries_path may address a single resolvent object directly; it is
+// then resolved in place, replacing the parent's slot.
+func TestContainerItselfIsResolved(t *testing.T) {
+	root := parse(t, `{"weather":{"type":"resolvent-weather","lat":48.8},"other":{"type":"resolvent-x"}}`)
+	found := find(t, root, "weather")
+	if len(found) != 1 || found[0].Type != "resolvent-weather" {
+		t.Fatalf("found %v, want exactly the addressed resolvent", foundTypes(found))
 	}
-	if found := find(t, root, ""); len(found) != 1 {
-		t.Errorf("root scan must find it, got %d", len(found))
+	if _, err := found[0].Substitute([]byte(`{"type":"time-series","values":[1]}`), true); err != nil {
+		t.Fatal(err)
+	}
+	slot := root["weather"].(map[string]any)
+	if slot["type"] != TimeSeriesType || slot[ResolventKey].(map[string]any)["lat"] != json.Number("48.8") {
+		t.Errorf("container slot not replaced in place: %v", slot)
+	}
+	if other := root["other"].(map[string]any); other["type"] != "resolvent-x" {
+		t.Errorf("sibling outside the path must stay untouched: %v", other)
+	}
+	nested := parse(t, `{"a":{"b":{"type":"resolvent-x","v":1}}}`)
+	if found := find(t, nested, "a.b"); len(found) != 1 {
+		t.Fatalf("nested path to a resolvent: found %d, want 1", len(found))
+	} else if _, err := found[0].Substitute([]byte(`{"type":"time-series"}`), false); err != nil {
+		t.Fatal(err)
+	}
+	if nested["a"].(map[string]any)["b"].(map[string]any)["type"] != TimeSeriesType {
+		t.Errorf("nested slot not replaced: %v", nested)
+	}
+	// The root object itself has no slot to replace and is always scanned.
+	rootRes := parse(t, `{"type":"resolvent-x","child":{"type":"resolvent-y"}}`)
+	if got := foundTypes(find(t, rootRes, "")); !reflect.DeepEqual(got, []string{"resolvent-y"}) {
+		t.Errorf("root scan found %v, want the child only", got)
 	}
 }
 

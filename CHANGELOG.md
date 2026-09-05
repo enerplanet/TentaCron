@@ -33,6 +33,9 @@ under "Changed" with the keys or fields concerned.
 
 ### Fixed
 
+- A `timeseries_path` that addresses a single resolvent object (rather than
+  a container of them) now resolves that object and replaces its slot; it
+  used to scan the object's own fields and resolve nothing.
 - Terminal states are strictly final: a second completion or failure of an
   already completed or failed job is refused, so an overlapping duplicate
   completion (a slower poll tick finishing after a faster one) can no longer

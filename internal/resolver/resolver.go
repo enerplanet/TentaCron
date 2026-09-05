@@ -69,37 +69,58 @@ func Marshal(root map[string]any) ([]byte, error) {
 }
 
 // Find navigates the dot-separated path to the time-series container and
-// collects all resolvent objects inside it. A missing container is not an
-// error — payloads without a time-series property simply have nothing to
+// collects all resolvent objects inside it — or the container itself, when
+// the path addresses a single resolvent object. A missing container is not
+// an error: payloads without a time-series property simply have nothing to
 // resolve. An empty path scans the whole document.
 func Find(root map[string]any, path string) ([]*Found, error) {
-	container := any(root)
-	if path != "" {
-		for _, seg := range strings.Split(path, ".") {
-			m, ok := container.(map[string]any)
-			if !ok {
-				return nil, nil
-			}
-			container, ok = m[seg]
-			if !ok {
-				return nil, nil
-			}
-		}
+	container, parent, key, ok := locateContainer(root, path)
+	if !ok {
+		return nil, nil
 	}
 	var found []*Found
 	var err error
-	walk(container, func(typ string, obj map[string]any, replace func(map[string]any)) {
+	report := func(typ string, obj map[string]any, replace func(map[string]any)) {
 		if err != nil {
 			return // a hash already failed; Find returns the error and discards found
 		}
 		var hash string
 		hash, err = paramHash(typ, obj)
 		found = append(found, &Found{Type: typ, Hash: hash, Object: obj, replace: replace})
-	})
+	}
+	if obj, isObj := container.(map[string]any); isObj && parent != nil {
+		if typ, isRes := resolventType(obj); isRes {
+			// The container is the resolvent; its slot is the parent's key.
+			report(typ, obj, func(series map[string]any) { parent[key] = series })
+			return found, err
+		}
+	}
+	walk(container, report)
 	if err != nil {
 		return nil, err
 	}
 	return found, nil
+}
+
+// locateContainer follows the dot-separated path from root and returns the
+// node it addresses together with the parent map and key that hold it
+// (nil and "" for the root itself). ok is false when the path misses.
+func locateContainer(root map[string]any, path string) (node any, parent map[string]any, key string, ok bool) {
+	node = root
+	if path == "" {
+		return node, nil, "", true
+	}
+	for _, seg := range strings.Split(path, ".") {
+		m, isMap := node.(map[string]any)
+		if !isMap {
+			return nil, nil, "", false
+		}
+		if node, ok = m[seg]; !ok {
+			return nil, nil, "", false
+		}
+		parent, key = m, seg
+	}
+	return node, parent, key, true
 }
 
 // walk visits arrays and objects below node, reporting each resolvent object

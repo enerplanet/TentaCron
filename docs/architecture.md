@@ -50,7 +50,9 @@ The payload's time-series container is located via the per-target
 `timeseries_path` — `model.timeseries` for MEME, the default `time-series`
 for the generic examples, or `"."` to scan the whole payload (buem-gateway,
 whose `weather` block sits at the root). The container may be an array or a
-name→object registry; nested arrays and objects below it are walked too.
+name→object registry; nested arrays and objects below it are walked too. A
+path that addresses a single resolvent object resolves that object itself,
+replacing its slot in the parent.
 Every object whose `type` starts with `resolvent-` is collected, in
 deterministic order (array order, sorted keys). The walk does not descend
 into resolvent objects (their fields are opaque backend parameters) nor into

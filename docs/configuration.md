@@ -79,7 +79,7 @@ One entry per downstream workflow; the request's `target` field selects it.
 | `api_key_field` | `api_key` | Top-level field added to the forwarded JSON (`body_field`). |
 | `api_key_header` | `X-API-Key` | Header carrying the key (`header`). |
 | `timeout` | `60s` | Per outbound call: the forward, each status poll, the result fetch. |
-| `timeseries_path` | `time-series` | Dot-separated path to the resolvent container; `"."` scans the whole payload. |
+| `timeseries_path` | `time-series` | Dot-separated path to the resolvent container (or to a single resolvent object); `"."` scans the whole payload. |
 | `attach_resolvent` | `true` | Keep the original resolvent object under the substituted series' `resolvent` key. |
 | `proxy` | `false` | Hand the payload through unresolved. |
 | `response.mode` | `direct` | `direct` or `poll`. |

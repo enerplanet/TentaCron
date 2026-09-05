@@ -769,6 +769,7 @@ func allScenarios() []scenario {
 	var all []scenario
 	all = append(all, exampleScenarios...)
 	all = append(all, resolutionScenarios...)
+	all = append(all, containerIsResolventScenarios...)
 	all = append(all, targetProtocolScenarios...)
 	all = append(all, apiContractScenarios...)
 	all = append(all, edgeScenarios...)

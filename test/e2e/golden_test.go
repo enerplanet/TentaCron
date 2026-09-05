@@ -15,6 +15,7 @@ import (
 // deduplication, cache reuse across requests, and resource-API misbehavior.
 func TestResolutionAndCaching(t *testing.T) {
 	runScenarios(t, resolutionScenarios)
+	runScenarios(t, containerIsResolventScenarios)
 }
 
 // TestTargetProtocol covers the forward/poll protocol edges against the
@@ -192,6 +193,27 @@ var resolutionScenarios = []scenario{
 			h.await("final state", id)
 			h.resourceRequests("exact GET requests the resource APIs received")
 			h.forwarded("building attributes and TABULA data substituted", "demo")
+			h.counts()
+		},
+	},
+}
+
+var containerIsResolventScenarios = []scenario{
+	{
+		// timeseries_path may point straight at one resolvent object (a
+		// contract with a single weather slot, say); the object itself is
+		// resolved and its slot replaced in place.
+		name: "container-is-resolvent",
+		mod: func(cfg *config.Config) {
+			demo := cfg.Targets["demo"]
+			demo.TimeseriesPath = "weather"
+			cfg.Targets["demo"] = demo
+		},
+		run: func(t *testing.T, h *harness) {
+			payload := `{"site":"deggendorf","weather":{"type":"resolvent-pv1","lat":48.83},"other":{"type":"resolvent-wind"}}`
+			id := h.post("submit payload whose container is the resolvent", requestBody("demo", payload), nil)
+			h.await("final state", id)
+			h.forwarded("the addressed object is substituted, the sibling outside the path is not", "demo")
 			h.counts()
 		},
 	},
