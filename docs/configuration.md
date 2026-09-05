@@ -53,7 +53,7 @@ appears in logs and scopes the client's idempotency keys.
 | `poll_interval` | `2s` | Queue poll cadence (picks up scheduled retries and poll ticks). |
 | `max_attempts` | `5` | Processing attempts before `max_attempts_exceeded`. |
 | `backoff_base` / `backoff_max` | `2s` / `60s` | Exponential backoff bounds (±20 % jitter). |
-| `job_timeout` | `5m` | Deadline per processing attempt (resolution + forwarding); hitting it requeues the job. |
+| `job_timeout` | `5m` | Deadline per processing attempt (resolution + forwarding); hitting it requeues the job. Must cover every target's `timeout` plus the longest resolvent timeout (see the timeout budget note under targets); a target may override it. |
 
 ## cache
 
@@ -79,6 +79,9 @@ One entry per downstream workflow; the request's `target` field selects it.
 | `api_key_field` | `api_key` | Top-level field added to the forwarded JSON (`body_field`). |
 | `api_key_header` | `X-API-Key` | Header carrying the key (`header`). |
 | `timeout` | `60s` | Per outbound call: the forward, each status poll, the result fetch. |
+| `job_timeout` | `worker.job_timeout` | Deadline for one processing attempt of this target's jobs. Must cover `timeout` plus the longest resolvent timeout. |
+| `max_attempts` | `worker.max_attempts` | Processing attempts for this target's jobs before `max_attempts_exceeded`. |
+| `retry_on_timeout` | `true` | What a deadline hit on the forward means: `true` requeues like any transient failure, `false` fails the job with `target_timeout`. |
 | `timeseries_path` | `time-series` | Dot-separated path to the resolvent container (or to a single resolvent object); `"."` scans the whole payload. |
 | `attach_resolvent` | `true` | Keep the original resolvent object under the substituted series' `resolvent` key. |
 | `proxy` | `false` | Hand the payload through unresolved. |
@@ -173,6 +176,18 @@ Notes:
   fields are stripped from the forwarded body, since they address the call
   rather than belong to it; a missing field fails the job with
   `target_error`.
+- **Timeout budget.** One processing attempt covers resolution and the
+  forward, bounded by `job_timeout` (the target's own, else
+  `worker.job_timeout`). Validation refuses a budget shorter than the
+  target's `timeout` plus the longest configured resolvent timeout — a
+  target-backed resolvent counts with its backing target's `timeout` — because
+  a forward that is merely slow would otherwise be cut off by the job
+  deadline, classified transient, and the target's work submitted again.
+  For synchronous targets whose work is expensive or not idempotent (BuEM's
+  batch simulation) set `retry_on_timeout: false`: a deadline hit on the
+  forward then fails the job with `target_timeout` after a single call,
+  while 5xx and network errors still retry. `max_attempts` per target caps
+  every kind of retry for that target.
 - `response.mode: direct` completes the job with the target's immediate
   response. `poll` extracts the target's job id from the accept response
   (strings and numbers accepted; the id must match `[A-Za-z0-9._~-]{1,256}`),

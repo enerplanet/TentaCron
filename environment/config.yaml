@@ -27,7 +27,7 @@ worker:
   max_attempts: 5
   backoff_base: 2s
   backoff_max: 60s
-  job_timeout: 5m
+  job_timeout: 15m # must cover a target's timeout plus the longest resolvent timeout
 
 cache:
   default_ttl: 6h
@@ -62,6 +62,8 @@ targets:
     api_key_inject: header
     api_key_header: X-Api-Key
     timeout: 300s
+    job_timeout: 10m
+    retry_on_timeout: false # never re-submit a batch simulation cut off by a deadline
     timeseries_path: "."
     attach_resolvent: false
     response:
@@ -74,6 +76,7 @@ targets:
     api_key_inject: header
     api_key_header: X-Api-Key
     timeout: 300s
+    retry_on_timeout: false
     timeseries_path: "."
     attach_resolvent: false
     response:

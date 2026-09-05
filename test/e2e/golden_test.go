@@ -238,6 +238,25 @@ var targetProtocolScenarios = []scenario{
 		},
 	},
 	{
+		// A target with retry_on_timeout: false (an expensive synchronous
+		// simulation) is never re-submitted when the forward hits its
+		// deadline: exactly one call, one attempt, target_timeout.
+		name:  "target-timeout-not-retried",
+		fakes: fakes{directDelay: 300 * time.Millisecond},
+		mod: func(cfg *config.Config) {
+			demo := cfg.Targets["demo"]
+			demo.Timeout = config.Duration(50 * time.Millisecond)
+			demo.RetryOnTimeout = boolPtr(false)
+			cfg.Targets["demo"] = demo
+		},
+		run: func(t *testing.T, h *harness) {
+			id := h.post("submit to a slow target that must not be re-submitted", requestBody("demo", `{"time-series":[]}`), nil)
+			h.await("final state (target_timeout after a single attempt)", id)
+			h.events("audit trail (no requeue)", id)
+			h.countsWithPolls()
+		},
+	},
+	{
 		// The target echoes credentials back in its error body; the
 		// stored/served error message must show them redacted.
 		name: "target-400-secret-echo",

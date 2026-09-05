@@ -502,3 +502,23 @@ func TestPayloadStoredByteExact(t *testing.T) {
 		t.Errorf("stored payload = %s, want the request bytes verbatim", job.Payload)
 	}
 }
+
+// The attempt ceiling stored on a job comes from the target when it sets
+// max_attempts, otherwise from the worker default.
+func TestAcceptUsesTargetMaxAttempts(t *testing.T) {
+	e := newEnvWith(t, func(c *config.Config) {
+		c.Targets["meme"] = config.Target{URL: "https://meme.example.com/simulate", MaxAttempts: 2}
+		c.Targets["other"] = config.Target{URL: "https://other.example.com/run"}
+	}, nil)
+	for target, want := range map[string]int{"meme": 2, "other": 5} {
+		created := decodeBody[createResponse](t, e.do(t, "POST", "/v1/requests",
+			`{"api_key":"valid-key","target":"`+target+`","payload":{}}`, nil))
+		job, err := e.store.GetJob(context.Background(), created.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if job.MaxAttempts != want {
+			t.Errorf("target %s stored max_attempts %d, want %d", target, job.MaxAttempts, want)
+		}
+	}
+}

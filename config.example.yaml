@@ -29,7 +29,10 @@ worker:
   max_attempts: 5
   backoff_base: 2s
   backoff_max: 60s
-  job_timeout: 5m # per processing attempt (resolution + forwarding)
+  job_timeout: 15m # per processing attempt (resolution + forwarding). Must cover a
+  # target's timeout plus the longest resolvent timeout (here buem-building's
+  # 300s via resolvent-buem), or a slow forward is cut off and re-submitted;
+  # a target can override it with its own job_timeout.
 
 cache:
   default_ttl: 6h # resolved-series reuse window
@@ -70,6 +73,10 @@ targets:
     api_key_inject: header
     api_key_header: X-Api-Key # checked by buem-reverse-proxy
     timeout: 300s # the whole batch simulates in one synchronous call
+    job_timeout: 10m # this target's attempt deadline: the batch plus weather resolution
+    retry_on_timeout: false # a batch cut off by a deadline may still be simulating;
+    # re-submitting it would run the whole simulation twice. Fail with
+    # target_timeout instead (5xx and network errors still retry).
     timeseries_path: "." # the weather block sits at the payload root
     attach_resolvent: false # BuEM's schema must receive weather unchanged;
     # traceability stays in tentacron's audit store
@@ -87,6 +94,7 @@ targets:
     api_key_inject: header
     api_key_header: X-Api-Key
     timeout: 300s
+    retry_on_timeout: false
     timeseries_path: "."
     attach_resolvent: false
     response:

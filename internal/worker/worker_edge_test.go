@@ -342,6 +342,78 @@ func TestJobTimeoutRequeuesThenExhausts(t *testing.T) {
 	}
 }
 
+// A target with retry_on_timeout: false is never re-submitted when the
+// forward hits its deadline: one call, one attempt, target_timeout.
+func TestTargetTimeoutNotRetriedWhenConfigured(t *testing.T) {
+	cfg := baseConfig(t)
+	release := make(chan struct{})
+	var calls atomic.Int64
+	slow := httptest.NewServer(http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) {
+		calls.Add(1)
+		_, _ = io.Copy(io.Discard, r.Body)
+		select {
+		case <-r.Context().Done():
+		case <-release:
+		}
+	}))
+	t.Cleanup(func() {
+		close(release)
+		slow.Close()
+	})
+	tcfg := directTargetCfg(slow.URL)
+	tcfg.Timeout = dur(40 * time.Millisecond)
+	noRetry := false
+	tcfg.RetryOnTimeout = &noRetry
+	cfg.Targets["demo"] = tcfg
+	st := openStore(t)
+	id := createJob(t, st, "demo", `{}`, 3)
+	startPool(t, cfg, st)
+	job := waitForTerminal(t, st, id)
+	if job.State != store.StateFailed || job.ErrorCode != errTargetTimeout || job.Attempts != 1 {
+		t.Fatalf("state=%s code=%s attempts=%d, want failed/target_timeout after one attempt", job.State, job.ErrorCode, job.Attempts)
+	}
+	if !strings.Contains(job.ErrorMessage, "retry_on_timeout is false") || !strings.Contains(job.ErrorMessage, "40ms") {
+		t.Errorf("message must explain the policy and name the timeout: %s", job.ErrorMessage)
+	}
+	if calls.Load() != 1 {
+		t.Errorf("target called %d times, want exactly 1", calls.Load())
+	}
+}
+
+// A per-target job_timeout bounds the attempt even when the worker default
+// is generous; the deadline during resolution still requeues.
+func TestPerTargetJobTimeoutOverridesWorkerDefault(t *testing.T) {
+	cfg := baseConfig(t)
+	cfg.Worker.JobTimeout = dur(30 * time.Second)
+	release := make(chan struct{})
+	hang := httptest.NewServer(http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) {
+		_, _ = io.Copy(io.Discard, r.Body)
+		select {
+		case <-r.Context().Done():
+		case <-release:
+		}
+	}))
+	t.Cleanup(func() {
+		close(release)
+		hang.Close()
+	})
+	target, _ := fakeDirectTarget(t, 200, `{"ok":true}`)
+	tcfg := directTargetCfg(target.URL)
+	tcfg.JobTimeout = dur(40 * time.Millisecond)
+	cfg.Targets["demo"] = tcfg
+	cfg.Resolvents["resolvent-pv1"] = resolventCfg(hang.URL)
+	st := openStore(t)
+	id := createJob(t, st, "demo", `{"time-series":[{"type":"resolvent-pv1"}]}`, 2)
+	startPool(t, cfg, st)
+	job := waitForTerminal(t, st, id)
+	if job.State != store.StateFailed || job.ErrorCode != errMaxAttempts || job.Attempts != 2 {
+		t.Fatalf("state=%s code=%s attempts=%d, want two attempts cut by the 40ms target job_timeout", job.State, job.ErrorCode, job.Attempts)
+	}
+	if !strings.Contains(job.ErrorMessage, "deadline exceeded") {
+		t.Errorf("message must show the deadline cause: %s", job.ErrorMessage)
+	}
+}
+
 // The audit trail's "retrying in" values must follow base*2^(n-1), capped at
 // backoff_max, with ±20% jitter.
 func TestBackoffScheduleRespectsBounds(t *testing.T) {

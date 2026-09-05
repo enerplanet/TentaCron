@@ -10,6 +10,12 @@ under "Changed" with the keys or fields concerned.
 
 ### Added
 
+- Per-target `job_timeout`, `max_attempts` and `retry_on_timeout`. A target
+  can bound its own processing attempts and cap its retries; with
+  `retry_on_timeout: false` a forward cut off by a deadline fails the job
+  with `target_timeout` after that single call instead of being requeued,
+  so an expensive or non-idempotent synchronous simulation is never
+  submitted twice. The reference configs set it on the BuEM targets.
 - Project hygiene for contributors: `SECURITY.md` with private disclosure
   and supported versions, a pull request template mirroring the
   contribution checklist, `CODEOWNERS`, architecture decision records under
@@ -19,6 +25,14 @@ under "Changed" with the keys or fields concerned.
 
 ### Changed
 
+- Configuration validation requires each target's attempt deadline
+  (`job_timeout`, or `worker.job_timeout`) to cover the target's `timeout`
+  plus the longest configured resolvent timeout (target-backed resolvents
+  count with their backing target's `timeout`; proxy targets need only their
+  own). Configs where a merely slow forward would have been cut off by the
+  job deadline and re-submitted no longer load; the error names the key and
+  the required value. The reference configs raise `worker.job_timeout` from
+  `5m` to `15m` for that reason.
 - A known route called with an unsupported method answers
   `405 method_not_allowed` with an `Allow` header, in the JSON error
   envelope; it used to answer `404 not_found`. Unknown routes still answer

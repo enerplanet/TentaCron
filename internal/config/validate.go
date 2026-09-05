@@ -3,7 +3,9 @@ package config
 import (
 	"errors"
 	"fmt"
+	"maps"
 	"net/url"
+	"slices"
 	"strings"
 
 	"github.com/enerplanet/tentacron/internal/resolver"
@@ -23,7 +25,7 @@ func (c *Config) Validate() error {
 	v.worker(c.Worker)
 	v.cache(c.Cache)
 	v.auth(c.Auth)
-	v.targets(c.Targets)
+	v.targets(c.Targets, c.Resolvents, c.Worker)
 	v.resolvents(c.Resolvents, c.Targets)
 	return errors.Join(v.errs...)
 }
@@ -103,12 +105,58 @@ func (v *validator) auth(a Auth) {
 	}
 }
 
-func (v *validator) targets(targets map[string]Target) {
+func (v *validator) targets(targets map[string]Target, resolvents map[string]Resolvent, w Worker) {
 	if len(targets) == 0 {
 		v.fail("targets: at least one target is required")
 	}
+	longest, longestName := longestResolventTimeout(resolvents, targets)
 	for name, t := range targets {
 		v.target("targets."+name, t)
+		v.timeoutBudget("targets."+name, t, w, longest, longestName)
+	}
+}
+
+// longestResolventTimeout returns the longest time a single resolvent call
+// may take — a target-backed resolvent counts with its backing target's
+// timeout — and which resolvent it belongs to (sorted name order breaks
+// ties so messages are stable).
+func longestResolventTimeout(resolvents map[string]Resolvent, targets map[string]Target) (Duration, string) {
+	var longest Duration
+	var longestName string
+	for _, name := range slices.Sorted(maps.Keys(resolvents)) {
+		r := resolvents[name]
+		d := r.Timeout
+		if r.Target != "" {
+			d = targets[r.Target].Timeout
+		}
+		if d > longest {
+			longest, longestName = d, name
+		}
+	}
+	return longest, longestName
+}
+
+// timeoutBudget requires a target's attempt deadline to cover its own call
+// timeout plus the longest resolvent timeout. Below that, a forward that is
+// merely slow is cut off by the job deadline, classified transient, and the
+// target's work is submitted again — the most expensive failure mode for a
+// synchronous simulation target.
+func (v *validator) timeoutBudget(p string, t Target, w Worker, longest Duration, longestName string) {
+	budget, source := t.JobTimeout, p+".job_timeout"
+	if budget == 0 {
+		budget, source = w.JobTimeout, "worker.job_timeout"
+	}
+	if budget <= 0 || t.Timeout <= 0 {
+		return // both already reported as invalid
+	}
+	need, detail := t.Timeout, fmt.Sprintf("its timeout (%s)", t.Timeout.Std())
+	if !t.Proxy && longest > 0 {
+		need += longest
+		detail += fmt.Sprintf(" plus the longest resolvent timeout (%s, %s)", longest.Std(), longestName)
+	}
+	if budget < need {
+		v.fail("%s: %s (%s) is shorter than %s; a forward cut off by the job deadline would be retried and re-submit the target's work — raise it to at least %s",
+			p, source, budget.Std(), detail, need.Std())
 	}
 }
 
@@ -118,6 +166,12 @@ func (v *validator) target(p string, t Target) {
 		v.fail("%s.method: %q is not a supported HTTP method", p, t.Method)
 	}
 	v.positiveDur(p+".timeout", t.Timeout)
+	if t.JobTimeout < 0 {
+		v.fail("%s.job_timeout: must be a positive duration or omitted (got %s)", p, t.JobTimeout.Std())
+	}
+	if t.MaxAttempts < 0 {
+		v.fail("%s.max_attempts: must be a positive integer or omitted (got %d)", p, t.MaxAttempts)
+	}
 	v.targetAuth(p, t)
 	if t.Proxy && (t.TimeseriesPath != "" || t.AttachResolvent != nil) {
 		v.fail("%s: timeseries_path/attach_resolvent have no effect on a proxy target", p)

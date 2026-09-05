@@ -86,7 +86,8 @@ sqlite3 data/tentacron.db "select resolvent_type, count(*), min(expires_at)
 | Situation | Behaviour / job error code |
 |---|---|
 | Resource/target 5xx, 429, timeout, network error | Retry with capped exponential backoff, up to `worker.max_attempts`; then `max_attempts_exceeded`. |
-| `worker.job_timeout` hit or shutdown during an attempt | Treated as transient: requeued for a clean retry. |
+| `worker.job_timeout` (or the target's `job_timeout`) hit, or shutdown during an attempt | Treated as transient: requeued for a clean retry. |
+| Forward cut off by a deadline on a target with `retry_on_timeout: false` | `target_timeout` after that single call; the target's work is never re-submitted. |
 | Resource/target other non-2xx (4xx, redirects) or oversized response | Fail immediately (`resource_error` / `target_error`). |
 | Resource response not a JSON object, `null`, or `response_path` missing | `invalid_resource_response`. |
 | Unknown resolvent type | Fail before any HTTP call (`unknown_resolvent`). |

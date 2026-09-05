@@ -108,14 +108,29 @@ const RootTimeseriesPath = "."
 
 // Target describes one downstream target workflow (e.g. meme, buem).
 type Target struct {
-	URL            string   `yaml:"url"`
-	Method         string   `yaml:"method"`
-	APIKey         string   `yaml:"api_key"`
-	APIKeyInject   string   `yaml:"api_key_inject"`
-	APIKeyField    string   `yaml:"api_key_field"`
-	APIKeyHeader   string   `yaml:"api_key_header"`
-	Timeout        Duration `yaml:"timeout"`
-	TimeseriesPath string   `yaml:"timeseries_path"`
+	URL          string   `yaml:"url"`
+	Method       string   `yaml:"method"`
+	APIKey       string   `yaml:"api_key"`
+	APIKeyInject string   `yaml:"api_key_inject"`
+	APIKeyField  string   `yaml:"api_key_field"`
+	APIKeyHeader string   `yaml:"api_key_header"`
+	Timeout      Duration `yaml:"timeout"`
+	// JobTimeout bounds one processing attempt (resolution plus the
+	// forward) for jobs of this target; zero inherits worker.job_timeout.
+	// Validation requires it to cover Timeout plus the longest resolvent
+	// timeout, or a slow forward is cut off by the job deadline, classified
+	// transient, and the target's work is submitted again.
+	JobTimeout Duration `yaml:"job_timeout"`
+	// MaxAttempts caps processing attempts for jobs of this target; zero
+	// inherits worker.max_attempts.
+	MaxAttempts int `yaml:"max_attempts"`
+	// RetryOnTimeout decides what a deadline hit on the forward means: nil
+	// or true requeues the job like any transient failure; false fails it
+	// with target_timeout. Set false for synchronous targets whose work is
+	// expensive or not idempotent — the target may still be processing the
+	// request, and a retry would run it twice.
+	RetryOnTimeout *bool  `yaml:"retry_on_timeout"`
+	TimeseriesPath string `yaml:"timeseries_path"`
 	// AttachResolvent controls whether the original resolvent object is
 	// preserved under the substituted series' "resolvent" key (tentacron's
 	// default traceability contract). Set false for targets whose schema
@@ -131,6 +146,29 @@ type Target struct {
 	// (they address the call, they are not payload).
 	Proxy    bool     `yaml:"proxy"`
 	Response Response `yaml:"response"`
+}
+
+// RetriesOnTimeout reports whether a deadline hit on the forward requeues
+// the job (the default) or fails it with target_timeout.
+func (t Target) RetriesOnTimeout() bool { return t.RetryOnTimeout == nil || *t.RetryOnTimeout }
+
+// JobTimeoutFor returns the attempt deadline for jobs of target: the
+// target's own job_timeout when set, otherwise worker.job_timeout (which
+// also covers a target that is no longer configured).
+func (c *Config) JobTimeoutFor(target string) time.Duration {
+	if t, ok := c.Targets[target]; ok && t.JobTimeout > 0 {
+		return t.JobTimeout.Std()
+	}
+	return c.Worker.JobTimeout.Std()
+}
+
+// MaxAttemptsFor returns the attempt ceiling for jobs of target: the
+// target's own max_attempts when set, otherwise worker.max_attempts.
+func (c *Config) MaxAttemptsFor(target string) int {
+	if t, ok := c.Targets[target]; ok && t.MaxAttempts > 0 {
+		return t.MaxAttempts
+	}
+	return c.Worker.MaxAttempts
 }
 
 // Response describes how a target reports its result.

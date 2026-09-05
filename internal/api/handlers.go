@@ -126,7 +126,7 @@ func (s *Server) acceptJob(w http.ResponseWriter, r *http.Request, req createReq
 		Client:         client,
 		IdempotencyKey: r.Header.Get("Idempotency-Key"),
 		Target:         req.Target,
-		MaxAttempts:    s.cfg.Worker.MaxAttempts,
+		MaxAttempts:    s.cfg.MaxAttemptsFor(req.Target),
 		Payload:        req.Payload, // client api_key lives outside payload and is never stored
 	}
 	created, stored, err := s.store.CreateJob(r.Context(), job)

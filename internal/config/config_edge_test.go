@@ -524,3 +524,109 @@ targets:
 		t.Fatalf("want interval/timeout error, got %v", err)
 	}
 }
+
+// The attempt deadline must cover a target's own timeout plus the longest
+// resolvent timeout; otherwise a slow forward is cut off, classified
+// transient, and the target's work is submitted again.
+func TestTimeoutBudgetValidation(t *testing.T) {
+	base := `
+auth:
+  api_keys: [{name: t, key: k}]
+worker:
+  job_timeout: 5m
+targets:
+  buem:
+    url: "https://buem.example.com/run"
+    timeout: 300s
+  buem-building:
+    url: "https://buem.example.com/building"
+    timeout: 200s
+  ignis:
+    url: "https://ignis.example.com/calc/{code}"
+    timeout: 60s
+    proxy: true
+resolvents:
+  resolvent-weather:
+    url: "https://weather.example.com/point"
+    timeout: 60s
+  resolvent-buem:
+    target: buem-building
+`
+	_, err := Load(writeConfig(t, base))
+	if err == nil {
+		t.Fatal("want a budget error")
+	}
+	want := "targets.buem: worker.job_timeout (5m0s) is shorter than its timeout (5m0s) plus the longest resolvent timeout (3m20s, resolvent-buem)"
+	if !strings.Contains(err.Error(), want) {
+		t.Errorf("error must read\n  %s\ngot\n  %v", want, err)
+	}
+	if !strings.Contains(err.Error(), "raise it to at least 8m20s") {
+		t.Errorf("error must name the required budget, got %v", err)
+	}
+	if strings.Contains(err.Error(), "targets.ignis") {
+		t.Errorf("a proxy target only needs its own timeout (60s < 5m), got %v", err)
+	}
+	// buem-building needs 200s + 200s = 6m40s and is reported as well, with
+	// its own required budget.
+	if !strings.Contains(err.Error(), "targets.buem-building: worker.job_timeout (5m0s) is shorter than its timeout (3m20s)") ||
+		!strings.Contains(err.Error(), "raise it to at least 6m40s") {
+		t.Errorf("buem-building must be reported with its own budget, got %v", err)
+	}
+	// A per-target job_timeout satisfies the rule for that target only.
+	fixed := strings.Replace(base, "    timeout: 300s\n", "    timeout: 300s\n    job_timeout: 10m\n", 1)
+	fixed = strings.Replace(fixed, "    timeout: 200s\n", "    timeout: 200s\n    job_timeout: 7m\n", 1)
+	if _, err := Load(writeConfig(t, fixed)); err != nil {
+		t.Errorf("per-target job_timeout must satisfy the budget: %v", err)
+	}
+	// Raising the worker default fixes every target at once.
+	if _, err := Load(writeConfig(t, strings.Replace(base, "job_timeout: 5m", "job_timeout: 15m", 1))); err != nil {
+		t.Errorf("worker.job_timeout 15m must satisfy every target: %v", err)
+	}
+}
+
+func TestPerTargetOverridesAndRetryPolicy(t *testing.T) {
+	cfg, err := Load(writeConfig(t, `
+auth:
+  api_keys: [{name: t, key: k}]
+worker:
+  job_timeout: 5m
+  max_attempts: 5
+targets:
+  tuned:
+    url: "https://tuned.example.com/run"
+    job_timeout: 2m
+    max_attempts: 2
+    retry_on_timeout: false
+  plain:
+    url: "https://plain.example.com/run"
+`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := cfg.JobTimeoutFor("tuned"); got != 2*time.Minute {
+		t.Errorf("tuned job timeout = %v, want 2m", got)
+	}
+	if got := cfg.JobTimeoutFor("plain"); got != 5*time.Minute {
+		t.Errorf("plain job timeout = %v, want the worker default 5m", got)
+	}
+	if got := cfg.JobTimeoutFor("gone"); got != 5*time.Minute {
+		t.Errorf("unknown target job timeout = %v, want the worker default", got)
+	}
+	if cfg.MaxAttemptsFor("tuned") != 2 || cfg.MaxAttemptsFor("plain") != 5 || cfg.MaxAttemptsFor("gone") != 5 {
+		t.Errorf("max attempts = %d/%d/%d, want 2/5/5", cfg.MaxAttemptsFor("tuned"), cfg.MaxAttemptsFor("plain"), cfg.MaxAttemptsFor("gone"))
+	}
+	if cfg.Targets["tuned"].RetriesOnTimeout() || !cfg.Targets["plain"].RetriesOnTimeout() || !(Target{}).RetriesOnTimeout() {
+		t.Error("retry_on_timeout must default to true and honour an explicit false")
+	}
+	for _, tt := range []struct{ yaml, wantErr string }{
+		{"    job_timeout: -1m\n", "targets.plain.job_timeout: must be a positive duration or omitted (got -1m0s)"},
+		{"    max_attempts: -2\n", "targets.plain.max_attempts: must be a positive integer or omitted (got -2)"},
+	} {
+		_, err := Load(writeConfig(t, minimalYAML+"\n"+`  plain:
+    url: "https://plain.example.com/run"
+`+tt.yaml))
+		if err == nil || !strings.Contains(err.Error(), tt.wantErr) {
+			t.Errorf("want %q, got %v", tt.wantErr, err)
+		}
+	}
+}

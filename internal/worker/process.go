@@ -52,7 +52,7 @@ func (p *Pool) process(ctx context.Context, job *store.Job) {
 		}
 	}()
 
-	actx, cancel := context.WithTimeout(ctx, p.cfg.Worker.JobTimeout.Std())
+	actx, cancel := context.WithTimeout(ctx, p.cfg.JobTimeoutFor(job.Target))
 	defer cancel()
 
 	switch job.State {
@@ -395,6 +395,14 @@ func (p *Pool) callResolventBackend(ctx context.Context, f *resolver.Found, rcfg
 func (p *Pool) forward(ctx, bg context.Context, job *store.Job, tcfg config.Target, resolved []byte) {
 	res, err := p.client.ForwardToTarget(ctx, job.Target, tcfg, resolved)
 	if err != nil {
+		if errors.Is(err, context.DeadlineExceeded) && !tcfg.RetriesOnTimeout() {
+			// The target may still be working on this request; a retry
+			// would submit the same work again. Fail instead of requeueing.
+			p.failJob(bg, job, errTargetTimeout, fmt.Sprintf(
+				"target %s did not answer before the deadline (call timeout %s); not retried because retry_on_timeout is false",
+				job.Target, tcfg.Timeout.Std()))
+			return
+		}
 		p.retryOrFail(bg, job, errTargetError, err)
 		return
 	}

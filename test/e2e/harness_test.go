@@ -75,6 +75,7 @@ type fakes struct {
 	gateway     func(call int64) reply              // POST <target>/api/v1/buem/buildings (the real buem contract)
 	building    func(call int64) reply              // POST <target>/api/v1/buem/building (single building; backs resolvent-buem)
 	calculate   func(call int64) reply              // POST <target>/api/v1/calculate/{code} (ignis; the proxy-target exemplar)
+	directDelay time.Duration                       // latency before the demo target answers (deadline scenarios)
 }
 
 const weatherBody = `{"index":["2018-01-01T00:30:00Z","2018-01-01T01:30:00Z"],"variables":{"T":[1.0,1.2],"GHI":[0.0,12.5]}}`
@@ -234,11 +235,11 @@ func (h *harness) startResourceFake(f fakes) *httptest.Server {
 // a golden diff, not vanish into a silent 404.
 func (h *harness) startTargetFake(f fakes) *httptest.Server {
 	mux := http.NewServeMux()
-	mux.HandleFunc("POST /run", h.capturing("demo", &h.demoCalls, f.direct))
-	mux.HandleFunc("POST /simulate", h.capturing("meme", &h.acceptCalls, f.accept))
-	mux.HandleFunc("POST /api/v1/buem/buildings", h.capturing("buem", &h.gatewayCalls, f.gateway))
-	mux.HandleFunc("POST /api/v1/buem/building", h.capturing("buem-building", &h.buildingCalls, f.building))
-	mux.HandleFunc("POST /api/v1/calculate/{code}", h.capturing("ignis-calculate", &h.calculateCalls, f.calculate))
+	mux.HandleFunc("POST /run", h.capturing("demo", &h.demoCalls, f.direct, f.directDelay))
+	mux.HandleFunc("POST /simulate", h.capturing("meme", &h.acceptCalls, f.accept, 0))
+	mux.HandleFunc("POST /api/v1/buem/buildings", h.capturing("buem", &h.gatewayCalls, f.gateway, 0))
+	mux.HandleFunc("POST /api/v1/buem/building", h.capturing("buem-building", &h.buildingCalls, f.building, 0))
+	mux.HandleFunc("POST /api/v1/calculate/{code}", h.capturing("ignis-calculate", &h.calculateCalls, f.calculate, 0))
 	mux.HandleFunc("GET /jobs/{id}/status", func(w http.ResponseWriter, _ *http.Request) {
 		writeReply(w, f.status(h.statusCalls.Add(1)))
 	})
@@ -255,9 +256,10 @@ func (h *harness) startTargetFake(f fakes) *httptest.Server {
 }
 
 // capturing builds a target handler that records the body, auth header and
-// path it received under endpoint, counts the call, and answers with the
+// path it received under endpoint, counts the call, waits out the scripted
+// latency (giving up when the client hangs up) and answers with the
 // scripted reply.
-func (h *harness) capturing(endpoint string, calls *atomic.Int64, replyFor func(int64) reply) http.HandlerFunc {
+func (h *harness) capturing(endpoint string, calls *atomic.Int64, replyFor func(int64) reply, delay time.Duration) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		body, _ := io.ReadAll(r.Body)
 		h.mu.Lock()
@@ -265,7 +267,15 @@ func (h *harness) capturing(endpoint string, calls *atomic.Int64, replyFor func(
 		h.lastTargetAuth[endpoint] = r.Header.Get("X-API-Key")
 		h.lastTargetPath[endpoint] = r.URL.Path
 		h.mu.Unlock()
-		writeReply(w, replyFor(calls.Add(1)))
+		call := calls.Add(1)
+		if delay > 0 {
+			select {
+			case <-time.After(delay):
+			case <-r.Context().Done():
+				return
+			}
+		}
+		writeReply(w, replyFor(call))
 	}
 }
 

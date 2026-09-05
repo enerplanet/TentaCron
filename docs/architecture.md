@@ -115,7 +115,10 @@ SQLite *is* the queue — no external broker:
   timeout) requeue the job with capped exponential backoff and ±20 % jitter;
   permanent failures (other non-2xx statuses including redirects, oversized
   responses, malformed resource bodies, unknown resolvent, target job failed)
-  fail it immediately.
+  fail it immediately. A target configured with `retry_on_timeout: false`
+  turns a deadline hit on its forward into a permanent `target_timeout`, so
+  an expensive synchronous simulation is never submitted twice; per-target
+  `job_timeout` and `max_attempts` override the worker defaults.
 - Workers wake on a nudge from the API when a job is accepted and otherwise
   every `worker.poll_interval` to pick up scheduled retries and poll ticks.
 
