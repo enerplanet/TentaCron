@@ -27,6 +27,7 @@ worker:
   count: 4
   resolvent_concurrency: 4
   poll_interval: 2s
+  scheduler_interval: 30s
   max_attempts: 5
   backoff_base: 2s
   backoff_max: 60s

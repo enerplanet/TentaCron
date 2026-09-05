@@ -587,6 +587,12 @@ func (s *Server) handleList(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
+	s.writeJobPage(w, r, filter)
+}
+
+// writeJobPage answers one page of jobs for the filter, with the cursor of
+// the next page when there is one.
+func (s *Server) writeJobPage(w http.ResponseWriter, r *http.Request, filter store.ListFilter) {
 	pageSize := filter.Limit
 	filter.Limit++ // one extra row tells whether a next page exists
 	jobs, err := s.store.ListJobs(r.Context(), filter)

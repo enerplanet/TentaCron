@@ -1004,8 +1004,10 @@ func TestCancelRequest(t *testing.T) {
 	if rec := e.do(t, "DELETE", "/v1/requests/"+held, "", authHdr); rec.Code != http.StatusOK {
 		t.Fatalf("cancel while awaiting: %d %s", rec.Code, rec.Body.String())
 	}
+	// The cancel call is best effort and asynchronous: wait for the handler
+	// to have recorded the path (its last write), not merely counted the call.
 	deadline := time.Now().Add(2 * time.Second)
-	for cancels.Load() == 0 && time.Now().Before(deadline) {
+	for gotPath.Load() == nil && time.Now().Before(deadline) {
 		time.Sleep(5 * time.Millisecond)
 	}
 	if cancels.Load() != 1 || gotPath.Load() != "/jobs/m-9/cancel" {

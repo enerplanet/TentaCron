@@ -107,6 +107,7 @@ func (v *validator) worker(w Worker) {
 	v.positiveDur("worker.backoff_base", w.BackoffBase)
 	v.positiveDur("worker.backoff_max", w.BackoffMax)
 	v.positiveDur("worker.job_timeout", w.JobTimeout)
+	v.positiveDur("worker.scheduler_interval", w.SchedulerInterval)
 	if w.BackoffBase > 0 && w.BackoffMax > 0 && w.BackoffBase > w.BackoffMax {
 		v.fail("worker.backoff_base (%s) must not exceed worker.backoff_max (%s)", w.BackoffBase.Std(), w.BackoffMax.Std())
 	}

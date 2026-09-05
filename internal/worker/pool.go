@@ -25,6 +25,13 @@ type Pool struct {
 	nudge    <-chan struct{}
 	metrics  *metrics.Metrics // nil-safe: a nil receiver records nothing
 	notifier *notify.Hub      // nil-safe: wakes long-polling reads on terminal transitions
+	clock    Clock            // the scheduler's notion of now; injectable for tests
+}
+
+// WithClock replaces the wall clock the scheduler reads.
+func (p *Pool) WithClock(c Clock) *Pool {
+	p.clock = c
+	return p
 }
 
 // WithNotifier wakes long-polling API reads when a job ends.
@@ -35,7 +42,7 @@ func (p *Pool) WithNotifier(h *notify.Hub) *Pool {
 
 // New builds a Pool. nudge wakes an idle worker when the API accepts a job.
 func New(cfg *config.Config, st *store.Store, client *upstream.Client, logger *slog.Logger, nudge <-chan struct{}) *Pool {
-	return &Pool{cfg: cfg, store: st, client: client, logger: logger, nudge: nudge}
+	return &Pool{cfg: cfg, store: st, client: client, logger: logger, nudge: nudge, clock: realClock{}}
 }
 
 // WithMetrics records job outcomes and series-cache lookups.
@@ -65,6 +72,11 @@ func (p *Pool) Run(ctx context.Context) {
 	go func() {
 		defer wg.Done()
 		p.sweeperLoop(ctx)
+	}()
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		p.schedulerLoop(ctx)
 	}()
 	wg.Wait()
 }

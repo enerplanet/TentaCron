@@ -33,6 +33,7 @@ worker:
   count: 4 # concurrent jobs
   resolvent_concurrency: 4 # per-job fan-out bound to resource APIs
   poll_interval: 2s # queue poll cadence (also picks up scheduled retries)
+  scheduler_interval: 30s # how often due schedules become requests
   max_attempts: 5
   backoff_base: 2s
   backoff_max: 60s

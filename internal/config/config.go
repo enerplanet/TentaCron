@@ -162,6 +162,9 @@ type Worker struct {
 	BackoffBase          Duration `yaml:"backoff_base"`
 	BackoffMax           Duration `yaml:"backoff_max"`
 	JobTimeout           Duration `yaml:"job_timeout"`
+	// SchedulerInterval is how often due schedules are materialised into
+	// jobs; a run is never earlier than its due time and at most this late.
+	SchedulerInterval Duration `yaml:"scheduler_interval"`
 }
 
 // Cache holds resolved-series cache settings.
@@ -450,6 +453,7 @@ func (w *Worker) applyDefaults() {
 	setDur(&w.BackoffBase, 2*time.Second)
 	setDur(&w.BackoffMax, 60*time.Second)
 	setDur(&w.JobTimeout, 5*time.Minute)
+	setDur(&w.SchedulerInterval, 30*time.Second)
 }
 
 func (c *Cache) applyDefaults() {

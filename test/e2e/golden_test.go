@@ -1,6 +1,7 @@
 package e2e
 
 import (
+	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
@@ -833,13 +834,48 @@ var apiContractScenarios = []scenario{
 		},
 	},
 	{
+		// A recurring run: the schedule is created with its first due time,
+		// materialises into an ordinary request (cache refresh by default,
+		// the schedule's priority) at every due time, records its last run,
+		// and is scoped like requests. Deleting it leaves the runs.
+		name: "schedule-crud",
+		run: func(t *testing.T, h *harness) {
+			auth := map[string]string{"X-API-Key": clientKey}
+			other := map[string]string{"X-API-Key": secondClientKey}
+			admin := map[string]string{"X-API-Key": adminKey}
+			created := h.call("create a schedule that runs every two seconds", http.MethodPost, "/v1/schedules",
+				`{"target":"demo","payload":{"time-series":[{"type":"resolvent-pv1","capacity_kw":1}]},"cron":"@every 2s","priority":1}`, auth)
+			id, _ := created["id"].(string)
+			if id == "" {
+				t.Fatalf("schedule not created: %v", created)
+			}
+			h.call("read it back", http.MethodGet, "/v1/schedules/"+id, "", auth)
+			h.call("another client cannot see it", http.MethodGet, "/v1/schedules/"+id, "", other)
+			h.call("the admin lists every client's schedules", http.MethodGet, "/v1/schedules", "", admin)
+			h.call("no runs yet", http.MethodGet, "/v1/schedules/"+id+"/runs", "", auth)
+			h.awaitRuns("the first run has completed", id, 1)
+			after := h.call("the schedule records its last run", http.MethodGet, "/v1/schedules/"+id, "", auth)
+			run, _ := after["last_job_id"].(string)
+			h.call("the run is an ordinary request: cache refresh, the schedule's priority", http.MethodGet, "/v1/requests/"+run, "", auth)
+			h.call("delete it", http.MethodDelete, "/v1/schedules/"+id, "", auth)
+			h.call("gone", http.MethodGet, "/v1/schedules/"+id, "", auth)
+			h.call("the run outlives the schedule", http.MethodGet, "/v1/requests/"+run, "", auth)
+			h.call("an invalid cron expression is refused", http.MethodPost, "/v1/schedules", `{"target":"demo","payload":{},"cron":"61 * * * *"}`, auth)
+			h.call("an unknown time zone is refused", http.MethodPost, "/v1/schedules", `{"target":"demo","payload":{},"cron":"@daily","timezone":"Mars/Olympus"}`, auth)
+			h.call("a payload whose runs would fail is refused", http.MethodPost, "/v1/schedules", `{"target":"demo","payload":{"time-series":[{"type":"resolvent-tidal"}]},"cron":"@daily"}`, auth)
+			h.call("an unknown target is refused", http.MethodPost, "/v1/schedules", `{"target":"hydra","payload":{},"cron":"@daily"}`, auth)
+		},
+	},
+	{
 		// A delayed run: not_before keeps the request in received until the
 		// time arrives, visible in the audit trail and echoed by GET for the
 		// job's whole life; the queue then runs it like any other request.
 		name: "delayed-request",
 		run: func(t *testing.T, h *harness) {
 			auth := map[string]string{"X-API-Key": clientKey}
-			soon := time.Now().Add(700 * time.Millisecond).UTC().Format(time.RFC3339)
+			// Far enough ahead that the immediate read below reliably sees the
+			// request still waiting, even on a loaded CI runner.
+			soon := time.Now().Add(2 * time.Second).UTC().Format(time.RFC3339)
 			id := h.post("submit with not_before shortly ahead", `{"target":"demo","payload":{"time-series":[]},"not_before":"`+soon+`"}`, auth)
 			h.get("still received while it waits", "/v1/requests/"+id, auth)
 			h.await("it runs once the time arrives", id)

@@ -31,6 +31,7 @@ type Metrics struct {
 	upstreamDuration *prometheus.HistogramVec
 	upstreamTotal    *prometheus.CounterVec
 	cacheLookups     *prometheus.CounterVec
+	scheduleRuns     *prometheus.CounterVec
 	scrapeErrors     prometheus.Counter
 }
 
@@ -55,11 +56,14 @@ func New(states StateCounter) *Metrics {
 		cacheLookups: prometheus.NewCounterVec(prometheus.CounterOpts{
 			Name: "tentacron_series_cache_lookups_total", Help: "Series cache lookups by result (hit or miss).",
 		}, []string{"result"}),
+		scheduleRuns: prometheus.NewCounterVec(prometheus.CounterOpts{
+			Name: "tentacron_schedule_runs_total", Help: "Runs materialised from schedules, by target.",
+		}, []string{"target"}),
 		scrapeErrors: prometheus.NewCounter(prometheus.CounterOpts{
 			Name: "tentacron_metrics_scrape_errors_total", Help: "Scrapes on which the queue depth could not be read from the store.",
 		}),
 	}
-	m.registry.MustRegister(m.jobsTotal, m.failuresTotal, m.upstreamDuration, m.upstreamTotal, m.cacheLookups, m.scrapeErrors,
+	m.registry.MustRegister(m.jobsTotal, m.failuresTotal, m.upstreamDuration, m.upstreamTotal, m.cacheLookups, m.scheduleRuns, m.scrapeErrors,
 		collectors.NewGoCollector(), collectors.NewProcessCollector(collectors.ProcessCollectorOpts{}))
 	if states != nil {
 		m.registry.MustRegister(&stateCollector{states: states, errors: m.scrapeErrors})
@@ -82,6 +86,14 @@ func (m *Metrics) JobFinished(target, outcome, code string) {
 	if code != "" {
 		m.failuresTotal.WithLabelValues(target, code).Inc()
 	}
+}
+
+// ScheduleRun records a run materialised from a schedule.
+func (m *Metrics) ScheduleRun(target string) {
+	if m == nil {
+		return
+	}
+	m.scheduleRuns.WithLabelValues(target).Inc()
 }
 
 // CacheLookup records a series-cache hit or miss.

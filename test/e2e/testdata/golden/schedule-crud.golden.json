@@ -1,0 +1,243 @@
+[
+  {
+    "request": "POST /v1/schedules",
+    "response": {
+      "created_at": "«ts»",
+      "cron": "@every 2s",
+      "id": "«schedule-1»",
+      "links": {
+        "runs": "/v1/schedules/«schedule-1»/runs",
+        "self": "/v1/schedules/«schedule-1»"
+      },
+      "next_run_at": "«ts»",
+      "priority": 1,
+      "target": "demo",
+      "timezone": "UTC",
+      "updated_at": "«ts»"
+    },
+    "status": 201,
+    "step": "create a schedule that runs every two seconds"
+  },
+  {
+    "request": "GET /v1/schedules/«schedule-1»",
+    "response": {
+      "created_at": "«ts»",
+      "cron": "@every 2s",
+      "id": "«schedule-1»",
+      "links": {
+        "runs": "/v1/schedules/«schedule-1»/runs",
+        "self": "/v1/schedules/«schedule-1»"
+      },
+      "next_run_at": "«ts»",
+      "priority": 1,
+      "target": "demo",
+      "timezone": "UTC",
+      "updated_at": "«ts»"
+    },
+    "status": 200,
+    "step": "read it back"
+  },
+  {
+    "request": "GET /v1/schedules/«schedule-1»",
+    "response": {
+      "error": {
+        "code": "not_found",
+        "message": "no such schedule"
+      }
+    },
+    "status": 404,
+    "step": "another client cannot see it"
+  },
+  {
+    "request": "GET /v1/schedules",
+    "response": {
+      "items": [
+        {
+          "created_at": "«ts»",
+          "cron": "@every 2s",
+          "id": "«schedule-1»",
+          "links": {
+            "runs": "/v1/schedules/«schedule-1»/runs",
+            "self": "/v1/schedules/«schedule-1»"
+          },
+          "next_run_at": "«ts»",
+          "priority": 1,
+          "target": "demo",
+          "timezone": "UTC",
+          "updated_at": "«ts»"
+        }
+      ]
+    },
+    "status": 200,
+    "step": "the admin lists every client's schedules"
+  },
+  {
+    "request": "GET /v1/schedules/«schedule-1»/runs",
+    "response": {
+      "items": []
+    },
+    "status": 200,
+    "step": "no runs yet"
+  },
+  {
+    "request": "GET /v1/schedules/«schedule-1»/runs",
+    "response": {
+      "items": [
+        {
+          "attempts": 1,
+          "completed_at": "«ts»",
+          "created_at": "«ts»",
+          "error": null,
+          "id": "«job-1»",
+          "options": {
+            "cache": "refresh"
+          },
+          "priority": 1,
+          "result": {
+            "target_response": {
+              "ok": true
+            },
+            "target_status": 200
+          },
+          "state": "completed",
+          "target": "demo",
+          "updated_at": "«ts»"
+        }
+      ]
+    },
+    "status": 200,
+    "step": "the first run has completed"
+  },
+  {
+    "request": "GET /v1/schedules/«schedule-1»",
+    "response": {
+      "created_at": "«ts»",
+      "cron": "@every 2s",
+      "id": "«schedule-1»",
+      "last_job_id": "«job-1»",
+      "last_run_at": "«ts»",
+      "links": {
+        "runs": "/v1/schedules/«schedule-1»/runs",
+        "self": "/v1/schedules/«schedule-1»"
+      },
+      "next_run_at": "«ts»",
+      "priority": 1,
+      "target": "demo",
+      "timezone": "UTC",
+      "updated_at": "«ts»"
+    },
+    "status": 200,
+    "step": "the schedule records its last run"
+  },
+  {
+    "request": "GET /v1/requests/«job-1»",
+    "response": {
+      "attempts": 1,
+      "completed_at": "«ts»",
+      "created_at": "«ts»",
+      "error": null,
+      "id": "«job-1»",
+      "options": {
+        "cache": "refresh"
+      },
+      "priority": 1,
+      "result": {
+        "target_response": {
+          "ok": true
+        },
+        "target_status": 200
+      },
+      "state": "completed",
+      "target": "demo",
+      "updated_at": "«ts»"
+    },
+    "status": 200,
+    "step": "the run is an ordinary request: cache refresh, the schedule's priority"
+  },
+  {
+    "request": "DELETE /v1/schedules/«schedule-1»",
+    "response": "",
+    "status": 204,
+    "step": "delete it"
+  },
+  {
+    "request": "GET /v1/schedules/«schedule-1»",
+    "response": {
+      "error": {
+        "code": "not_found",
+        "message": "no such schedule"
+      }
+    },
+    "status": 404,
+    "step": "gone"
+  },
+  {
+    "request": "GET /v1/requests/«job-1»",
+    "response": {
+      "attempts": 1,
+      "completed_at": "«ts»",
+      "created_at": "«ts»",
+      "error": null,
+      "id": "«job-1»",
+      "options": {
+        "cache": "refresh"
+      },
+      "priority": 1,
+      "result": {
+        "target_response": {
+          "ok": true
+        },
+        "target_status": 200
+      },
+      "state": "completed",
+      "target": "demo",
+      "updated_at": "«ts»"
+    },
+    "status": 200,
+    "step": "the run outlives the schedule"
+  },
+  {
+    "request": "POST /v1/schedules",
+    "response": {
+      "error": {
+        "code": "invalid_parameter",
+        "message": "cron \"61 * * * *\": end of range (61) above maximum (59): 61"
+      }
+    },
+    "status": 400,
+    "step": "an invalid cron expression is refused"
+  },
+  {
+    "request": "POST /v1/schedules",
+    "response": {
+      "error": {
+        "code": "invalid_parameter",
+        "message": "timezone \"Mars/Olympus\" is unknown"
+      }
+    },
+    "status": 400,
+    "step": "an unknown time zone is refused"
+  },
+  {
+    "request": "POST /v1/schedules",
+    "response": {
+      "error": {
+        "code": "unknown_resolvent",
+        "message": "no resolvent config for type \"resolvent-tidal\""
+      }
+    },
+    "status": 400,
+    "step": "a payload whose runs would fail is refused"
+  },
+  {
+    "request": "POST /v1/schedules",
+    "response": {
+      "error": {
+        "code": "unknown_target",
+        "message": "target \"hydra\" is not configured"
+      }
+    },
+    "status": 422,
+    "step": "an unknown target is refused"
+  }
+]

@@ -312,6 +312,47 @@ state, non-positive limit, malformed timestamp or cursor, a client filter
 without an admin key) answer `400 invalid_parameter`. No total count is
 returned.
 
+## Schedules
+
+A schedule is a recurring submission: the same target and payload, run at
+every time its cron expression names. Each due time materialises into an
+ordinary request — visible under `GET /v1/requests`, cancellable, with its
+audit trail — created with the idempotency key `schedule:<id>:<due time>`,
+so a restart or a duplicate scheduler tick can never produce a second run.
+Runs default to `options.cache: refresh` (a recurring run exists to pick up
+fresh inputs); pass `options` to change that. A run is never created before
+its due time and at most `worker.scheduler_interval` after it. Due times
+missed while the service was down collapse into one run; the next due time
+is then computed from the current time.
+
+| Method and path | Description |
+|---|---|
+| `POST /v1/schedules` | Create. Body: `target`, `payload`, `cron`, optional `timezone` (IANA name, default `UTC`), `priority`, `options`. `201` with the schedule and its `next_run_at`. |
+| `GET /v1/schedules` | The caller's schedules, oldest first, at most 100 (`items`). An admin key lists every client's, or one client's with `?client=`. |
+| `GET /v1/schedules/{id}` | One schedule: `cron`, `timezone`, `next_run_at`, `last_run_at`, `last_job_id`, `links.runs`. |
+| `DELETE /v1/schedules/{id}` | `204`; runs already created stay. |
+| `GET /v1/schedules/{id}/runs` | The runs, newest first, with the request list's `state`, `limit` and `cursor` parameters. |
+
+`cron` takes five fields (`minute hour day-of-month month day-of-week`,
+e.g. `30 6 * * 1-5`) or a descriptor: `@hourly`, `@daily`, `@weekly`,
+`@monthly`, `@yearly`, `@every <duration>` (e.g. `@every 6h`). The
+expression is evaluated in `timezone`, so `30 6 * * *` with
+`Europe/Berlin` follows daylight-saving time. The payload is inspected as
+`POST /v1/requests/validate` would; a schedule whose every run would fail
+(`invalid_payload`, `unknown_resolvent`, `target_error`) is refused with
+`400`, an unknown target with `422`, an invalid `cron` or `timezone` with
+`400 invalid_parameter`. Another client's schedule answers `404`.
+
+```json
+{
+  "id": "3c4d…", "target": "buem", "cron": "30 6 * * *", "timezone": "Europe/Berlin",
+  "next_run_at": "2026-09-06T04:30:00Z",
+  "last_run_at": "2026-09-05T04:30:00Z", "last_job_id": "9a1f…",
+  "created_at": "2026-09-01T12:00:00Z", "updated_at": "2026-09-05T04:30:00Z",
+  "links": { "self": "/v1/schedules/3c4d…", "runs": "/v1/schedules/3c4d…/runs" }
+}
+```
+
 ## Health and build
 
 - `GET /healthz` — liveness, always `200` while the process runs;

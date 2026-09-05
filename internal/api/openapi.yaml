@@ -23,6 +23,8 @@ security:
 tags:
   - name: requests
     description: Submit, dry-run and follow orchestration requests.
+  - name: schedules
+    description: Recurring submissions, materialised into ordinary requests at every due time.
   - name: discovery
     description: What this deployment can do, for frontends.
   - name: system
@@ -229,6 +231,144 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
+
+  /v1/schedules:
+    post:
+      tags: [schedules]
+      summary: Create a recurring submission
+      description: |
+        The same target and payload, submitted at every time the cron
+        expression names (five fields, or `@hourly`, `@daily`, `@weekly`,
+        `@monthly`, `@yearly`, `@every <duration>`), interpreted in
+        `timezone` (an IANA name, default UTC). Runs are ordinary requests
+        created with the idempotency key `schedule:<id>:<due time>`, default
+        `options.cache: refresh`, and never earlier than their due time. The
+        payload is inspected like a dry run, so a schedule whose every run
+        would fail is refused.
+      operationId: createSchedule
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ScheduleRequest"
+      responses:
+        "201":
+          description: The schedule with its first due time.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Schedule"
+        "400":
+          description: Malformed body or payload, an invalid `cron`, `timezone` or `priority`, or a payload the dry run rejects (`invalid_payload`, `unknown_resolvent`, `target_error`).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "422":
+          description: The target is not configured.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+    get:
+      tags: [schedules]
+      summary: List schedules
+      description: The caller's schedules, oldest first, at most 100. An admin key lists every client's, or one client's with `client`.
+      operationId: listSchedules
+      parameters:
+        - name: client
+          in: query
+          schema: { type: string }
+          description: Admin keys only.
+      responses:
+        "200":
+          description: The schedules.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items:
+                    type: array
+                    items: { $ref: "#/components/schemas/Schedule" }
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /v1/schedules/{id}:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema: { type: string }
+    get:
+      tags: [schedules]
+      summary: Read a schedule
+      operationId: getSchedule
+      responses:
+        "200":
+          description: The schedule.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Schedule"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+    delete:
+      tags: [schedules]
+      summary: Delete a schedule
+      description: Runs already created stay as ordinary requests.
+      operationId: deleteSchedule
+      responses:
+        "204":
+          description: Deleted.
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /v1/schedules/{id}/runs:
+    get:
+      tags: [schedules]
+      summary: List a schedule's runs
+      description: The requests the schedule created, newest first, with the request list's `state`, `limit` and `cursor` parameters.
+      operationId: listScheduleRuns
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: string }
+        - name: state
+          in: query
+          schema: { $ref: "#/components/schemas/State" }
+        - name: limit
+          in: query
+          schema: { type: integer, minimum: 1, maximum: 200, default: 50 }
+        - name: cursor
+          in: query
+          schema: { type: string }
+      responses:
+        "200":
+          description: One page of runs.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/JobList"
+        "400":
+          description: Invalid `state`, `limit` or `cursor`.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
 
   /v1/targets:
     get:
@@ -606,6 +746,64 @@ components:
                          invalid_resource_response, target_error, target_job_failed, target_timeout,
                          max_attempts_exceeded, internal]
                 message: { type: string }
+    ScheduleRequest:
+      type: object
+      required: [target, payload, cron]
+      properties:
+        target: { type: string }
+        payload:
+          type: object
+          description: The body every run resolves and forwards.
+        cron:
+          type: string
+          description: Five fields (`30 6 * * *`) or a descriptor (`@daily`, `@every 6h`).
+        timezone:
+          type: string
+          default: UTC
+          description: IANA zone name the expression is evaluated in.
+        priority:
+          type: integer
+          minimum: -10
+          maximum: 10
+          default: 0
+        options:
+          type: object
+          properties:
+            cache:
+              type: string
+              enum: [use, bypass, refresh]
+              description: Defaults to `refresh` for runs, so every run picks up fresh inputs.
+        api_key:
+          type: string
+          deprecated: true
+          description: Fallback for the `X-API-Key` header.
+    Schedule:
+      type: object
+      required: [id, target, cron, timezone, next_run_at, created_at, updated_at, links]
+      properties:
+        id: { type: string }
+        target: { type: string }
+        cron: { type: string }
+        timezone: { type: string }
+        priority:
+          type: integer
+          description: Present when not the default 0.
+        options:
+          type: object
+          properties:
+            cache: { type: string, enum: [bypass, refresh] }
+        next_run_at: { type: string, format: date-time }
+        last_run_at: { type: string, format: date-time }
+        last_job_id:
+          type: string
+          description: The request created for the most recent due time.
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+        links:
+          type: object
+          properties:
+            self: { type: string }
+            runs: { type: string }
     BatchRequest:
       type: object
       required: [requests]

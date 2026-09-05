@@ -19,6 +19,7 @@ import (
 	"runtime/debug"
 	"strings"
 	"syscall"
+	_ "time/tzdata" // schedules name IANA zones; the distroless image has no zoneinfo
 
 	"github.com/enerplanet/tentacron/internal/api"
 	"github.com/enerplanet/tentacron/internal/config"

@@ -75,6 +75,7 @@ the `priority` a key may request (`-10`..`10`, default: the full range).
 | `max_attempts` | `5` | Processing attempts before `max_attempts_exceeded`. |
 | `backoff_base` / `backoff_max` | `2s` / `60s` | Exponential backoff bounds (±20 % jitter). |
 | `job_timeout` | `5m` | Deadline per processing attempt (resolution + forwarding); hitting it requeues the job. Must cover every target's `timeout` plus the longest resolvent timeout (see the timeout budget note under targets); a target may override it. |
+| `scheduler_interval` | `30s` | How often due schedules are materialised into requests; a run is at most this late. |
 
 ## upstream
 

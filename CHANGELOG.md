@@ -10,6 +10,14 @@ under "Changed" with the keys or fields concerned.
 
 ### Added
 
+- Recurring runs: `POST /v1/schedules` (with `GET`, `DELETE` and
+  `GET /v1/schedules/{id}/runs`) takes a target, payload, cron expression
+  (five fields or `@daily`-style descriptors) and IANA time zone. A
+  scheduler loop materialises every due time into an ordinary request under
+  the idempotency key `schedule:<id>:<due time>`, so restarts and duplicate
+  ticks never double a run; runs default to `cache: refresh`. New setting
+  `worker.scheduler_interval` (default 30s), new metric
+  `tentacron_schedule_runs_total`.
 - Delayed runs: `not_before` (RFC 3339, at most 30 days ahead) on a
   submission or batch item keeps the request in `received` until then; GET
   echoes it for the job's whole life and the audit trail marks the delay.

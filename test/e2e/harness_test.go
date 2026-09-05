@@ -174,6 +174,7 @@ type harness struct {
 
 	steps []map[string]any
 	ids   []string // job ids in discovery order -> «job-N»
+	scIDs []string // schedule ids in discovery order -> «schedule-N»
 }
 
 func writeReply(w http.ResponseWriter, r reply) {
@@ -331,6 +332,8 @@ func goldenConfig(t *testing.T, resourceURL, targetURL string) *config.Config {
 			// Generous: a job timeout firing under CI load would change
 			// attempts/audit lines and flake the goldens.
 			JobTimeout: dur(60 * time.Second),
+			// Fast enough that a schedule's run appears within a golden step.
+			SchedulerInterval: dur(10 * time.Millisecond),
 		},
 		Cache:      config.Cache{DefaultTTL: dur(time.Hour), CleanupInterval: dur(time.Hour)},
 		Targets:    goldenTargets(targetURL),
@@ -552,6 +555,95 @@ func (h *harness) postBatch(label, body string, hdr map[string]string) []string 
 		"status": resp.StatusCode, "response": decodeAny(respBody),
 	})
 	return accepted
+}
+
+// call sends any request and records it; ids in the response (a request's
+// or a schedule's own, a schedule's last_job_id, list items) are registered
+// for normalisation. The decoded response object is returned, nil when the
+// body is not an object.
+func (h *harness) call(label, method, path, body string, hdr map[string]string) map[string]any {
+	h.t.Helper()
+	var rd io.Reader
+	if body != "" {
+		rd = strings.NewReader(body)
+	}
+	req, _ := http.NewRequest(method, h.api.URL+path, rd)
+	if body != "" {
+		req.Header.Set("Content-Type", "application/json")
+	}
+	for k, v := range hdr {
+		req.Header.Set(k, v)
+	}
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		h.t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	respBody, _ := io.ReadAll(resp.Body)
+	doc := decodeAny(respBody)
+	h.registerIDs(doc)
+	h.record(map[string]any{
+		"step": label, "request": method + " " + path,
+		"status": resp.StatusCode, "response": scrubTimes(doc),
+	})
+	m, _ := doc.(map[string]any)
+	return m
+}
+
+// registerIDs notes every request and schedule id in a response so the
+// transcript can name them «job-N» / «schedule-N».
+func (h *harness) registerIDs(v any) {
+	m, ok := v.(map[string]any)
+	if !ok {
+		return
+	}
+	if id, _ := m["id"].(string); id != "" {
+		if _, isSchedule := m["cron"]; isSchedule {
+			if !slices.Contains(h.scIDs, id) {
+				h.scIDs = append(h.scIDs, id)
+			}
+		} else if !slices.Contains(h.ids, id) {
+			h.ids = append(h.ids, id)
+		}
+	}
+	if id, _ := m["last_job_id"].(string); id != "" && !slices.Contains(h.ids, id) {
+		h.ids = append(h.ids, id)
+	}
+	if items, ok := m["items"].([]any); ok {
+		for _, it := range items {
+			h.registerIDs(it)
+		}
+	}
+}
+
+// awaitRuns polls a schedule's runs until at least n exist and every one is
+// terminal, then records the listing.
+func (h *harness) awaitRuns(label, scheduleID string, n int) {
+	h.t.Helper()
+	path := "/v1/schedules/" + scheduleID + "/runs"
+	hdr := map[string]string{"X-API-Key": adminKey}
+	deadline := time.Now().Add(15 * time.Second)
+	for time.Now().Before(deadline) {
+		_, body := h.getOnce(path, hdr)
+		var page struct {
+			Items []struct {
+				State string `json:"state"`
+			} `json:"items"`
+		}
+		_ = json.Unmarshal(body, &page)
+		done := len(page.Items) >= n
+		for _, it := range page.Items {
+			if !store.IsTerminal(it.State) {
+				done = false
+			}
+		}
+		if done {
+			h.call(label, http.MethodGet, path, "", hdr)
+			return
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	h.t.Fatalf("schedule %s never reached %d terminal run(s)", scheduleID, n)
 }
 
 // validate sends a create-shaped body to the dry-run endpoint and records
@@ -839,7 +931,7 @@ func scrubTimes(v any) any {
 		return v
 	}
 	scrub := func(obj map[string]any) {
-		for _, k := range []string{"created_at", "updated_at", "completed_at", "not_before"} {
+		for _, k := range []string{"created_at", "updated_at", "completed_at", "not_before", "next_run_at", "last_run_at"} {
 			if _, present := obj[k]; present {
 				obj[k] = "«ts»"
 			}
@@ -880,6 +972,9 @@ var (
 func (h *harness) normalize(s string) string {
 	for i, id := range h.ids {
 		s = strings.ReplaceAll(s, id, fmt.Sprintf("«job-%d»", i+1))
+	}
+	for i, id := range h.scIDs {
+		s = strings.ReplaceAll(s, id, fmt.Sprintf("«schedule-%d»", i+1))
 	}
 	s = addrPattern.ReplaceAllString(s, "«upstream»")
 	s = bareAddrPattern.ReplaceAllString(s, "«addr»")

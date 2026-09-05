@@ -342,10 +342,13 @@ type ListFilter struct {
 	State  string
 	Client string
 	Target string
-	Since  *time.Time
-	Until  *time.Time
-	Before *Cursor
-	Limit  int
+	// IdempotencyPrefix selects jobs whose idempotency key starts with it —
+	// the runs of a schedule (see RunKeyPrefix).
+	IdempotencyPrefix string
+	Since             *time.Time
+	Until             *time.Time
+	Before            *Cursor
+	Limit             int
 }
 
 // clauses renders the filter as SQL conditions with their bound values.
@@ -358,6 +361,9 @@ func (f ListFilter) clauses() (where []string, args []any) {
 	}
 	if f.Target != "" {
 		where, args = append(where, "target = ?"), append(args, f.Target)
+	}
+	if f.IdempotencyPrefix != "" {
+		where, args = append(where, `idempotency_key LIKE ? ESCAPE '\'`), append(args, escapeLike(f.IdempotencyPrefix)+"%")
 	}
 	if f.Since != nil {
 		where, args = append(where, "created_at >= ?"), append(args, ts(*f.Since))

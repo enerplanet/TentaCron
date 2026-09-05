@@ -139,6 +139,7 @@ docker run -d -p 8080:8080 \
 | `GET /v1/requests/{id}` | State, attempts, result (inline JSON or `result.href`), error. `?wait=25s` long-polls until terminal. |
 | `GET /v1/requests/{id}/result` | Streams a stored result (inline JSON or a result file such as a MEME bundle). |
 | `GET /v1/requests/{id}/events` | The request's audit trail: every state transition with its detail. |
+| `POST /v1/schedules`, `GET /v1/schedules[/{id}]`, `DELETE /v1/schedules/{id}`, `GET /v1/schedules/{id}/runs` | Recurring submissions on a cron expression in a time zone; every due time becomes an ordinary request. |
 | `GET /v1/requests?state=failed&target=meme&limit=50` | List the caller's requests, newest first, with cursor pagination (every client's for an `admin` key). |
 | `GET /healthz`, `GET /readyz`, `GET /version` | Liveness, readiness, build. |
 | `GET /openapi.yaml` | The OpenAPI 3.1 description of the running build. |

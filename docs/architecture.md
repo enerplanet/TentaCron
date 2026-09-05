@@ -18,6 +18,7 @@ flowchart LR
     W -->|resolved or proxied payload| T[Target API meme / buem / ignis]
     W -->|"poll job {id}"| T
     W -->|series cache| DB
+    S[Scheduler] -->|"due schedule → job"| DB
 ```
 
 ## Request lifecycle
@@ -166,6 +167,28 @@ SQLite *is* the queue — no external broker:
   `job_timeout` and `max_attempts` override the worker defaults.
 - Workers wake on a nudge from the API when a job is accepted and otherwise
   every `worker.poll_interval` to pick up scheduled retries and poll ticks.
+
+## Schedules
+
+A schedule row holds a target, payload, cron expression, time zone,
+priority, options and its next due time. A scheduler loop in the worker
+process wakes every `worker.scheduler_interval`, reads the due schedules and
+creates one ordinary job per schedule with the idempotency key
+`schedule:<id>:<due time>`, then advances `next_run_at` with a
+compare-and-set on the due time. Two properties fall out of that:
+
+- **No duplicated run.** A restart racing the old process, or two ticks
+  looking at the same due time, both create "the" run — the idempotency key
+  makes the second creation a replay of the first, and only one of them wins
+  the compare-and-set that moves the schedule on.
+- **No catch-up storm.** After downtime the next due time is computed from
+  now, so a schedule that missed a hundred runs runs once.
+
+A run is never created before its due time, and `not_before` on ordinary
+requests reuses the same queue mechanism (`next_attempt_at`) for one-off
+delays. Runs default to `cache: refresh` so a daily rerun sees today's
+inputs; the run job carries the schedule's priority and client, and is read,
+listed and cancelled like any request.
 
 ## Restart safety
 

@@ -183,6 +183,19 @@ A background sweeper (every `cache.cleanup_interval`):
 - compacts the database (incremental vacuum, WAL checkpoint) so the file
   shrinks after pruning.
 
+## Schedules
+
+The scheduler runs inside the worker process and wakes every
+`worker.scheduler_interval` (default 30 s): a run is never created before
+its due time and at most one interval after it. Time zones come from the
+binary's embedded IANA database, so `Europe/Berlin` works in the distroless
+image; daylight-saving transitions follow the zone. After downtime a
+schedule runs once, not once per missed due time. The runs of a schedule
+are ordinary requests: they age out under `storage.retention` like any
+other, and `GET /v1/schedules/{id}/runs` shows what is left. Deleting a
+schedule stops future runs and leaves existing ones. Runs are counted by
+`tentacron_schedule_runs_total{target}`.
+
 ## Backups and storage growth
 
 The SQLite file is the whole state: back it up like any other database.
