@@ -40,6 +40,7 @@ COPY --from=build --chown=nonroot:nonroot /out/data /data
 WORKDIR /
 VOLUME ["/data"]
 EXPOSE 8080
-USER nonroot:nonroot
+# Numeric ids: Kubernetes runAsNonRoot rejects a symbolic user it cannot resolve.
+USER 65532:65532
 ENTRYPOINT ["/usr/local/bin/tentacron"]
 CMD ["-config", "/etc/tentacron/config.yaml"]
