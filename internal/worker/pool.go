@@ -11,18 +11,26 @@ import (
 
 	"github.com/enerplanet/tentacron/internal/config"
 	"github.com/enerplanet/tentacron/internal/metrics"
+	"github.com/enerplanet/tentacron/internal/notify"
 	"github.com/enerplanet/tentacron/internal/store"
 	"github.com/enerplanet/tentacron/internal/upstream"
 )
 
 // Pool runs the worker goroutines and the housekeeping sweeper.
 type Pool struct {
-	cfg     *config.Config
-	store   *store.Store
-	client  *upstream.Client
-	logger  *slog.Logger
-	nudge   <-chan struct{}
-	metrics *metrics.Metrics // nil-safe: a nil receiver records nothing
+	cfg      *config.Config
+	store    *store.Store
+	client   *upstream.Client
+	logger   *slog.Logger
+	nudge    <-chan struct{}
+	metrics  *metrics.Metrics // nil-safe: a nil receiver records nothing
+	notifier *notify.Hub      // nil-safe: wakes long-polling reads on terminal transitions
+}
+
+// WithNotifier wakes long-polling API reads when a job ends.
+func (p *Pool) WithNotifier(h *notify.Hub) *Pool {
+	p.notifier = h
+	return p
 }
 
 // New builds a Pool. nudge wakes an idle worker when the API accepts a job.

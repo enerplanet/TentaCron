@@ -8,6 +8,7 @@ import (
 	"net/http"
 
 	"github.com/enerplanet/tentacron/internal/config"
+	"github.com/enerplanet/tentacron/internal/notify"
 	"github.com/enerplanet/tentacron/internal/store"
 	"github.com/enerplanet/tentacron/internal/upstream"
 )
@@ -31,6 +32,16 @@ type Server struct {
 	// upstream, when set, lets a cancellation tell a poll-mode target to
 	// stop its job (cancel_url_template).
 	upstream *upstream.Client
+	// notifier wakes long-polling reads when a job ends; nil falls back to
+	// periodic re-reads.
+	notifier *notify.Hub
+}
+
+// WithNotifier wakes long-polling reads on terminal transitions instead of
+// leaving them to the one-second fallback re-read.
+func (s *Server) WithNotifier(h *notify.Hub) *Server {
+	s.notifier = h
+	return s
 }
 
 // WithUpstream enables best-effort target notifications on cancellation.

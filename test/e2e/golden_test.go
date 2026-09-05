@@ -765,6 +765,20 @@ var apiContractScenarios = []scenario{
 		},
 	},
 	{
+		// ?wait= turns the status read into a long poll: one call returns
+		// the terminal state as soon as the worker gets there, instead of a
+		// client-side polling loop.
+		name:  "long-poll",
+		fakes: fakes{directDelay: func(int64) time.Duration { return 300 * time.Millisecond }},
+		run: func(t *testing.T, h *harness) {
+			auth := map[string]string{"X-API-Key": clientKey}
+			id := h.post("submit to a slow target", requestBody("demo", `{"time-series":[]}`), nil)
+			h.get("long-poll until it completes", "/v1/requests/"+id+"?wait=10s", auth)
+			h.get("waiting on a finished request answers at once", "/v1/requests/"+id+"?wait=10s", auth)
+			h.get("an invalid wait is refused", "/v1/requests/"+id+"?wait=soon", auth)
+		},
+	},
+	{
 		name: "read-endpoint-errors",
 		run: func(t *testing.T, h *harness) {
 			auth := map[string]string{"X-API-Key": clientKey}

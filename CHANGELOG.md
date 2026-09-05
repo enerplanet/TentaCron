@@ -10,6 +10,10 @@ under "Changed" with the keys or fields concerned.
 
 ### Added
 
+- `GET /v1/requests/{id}?wait=25s` long-polls: the call returns the moment
+  the request reaches a terminal state (workers and cancellations wake it
+  through an in-process notifier) or when the wait elapses, clamped below
+  the server's write timeout.
 - `DELETE /v1/requests/{id}` cancels a queued request or one awaiting its
   target (the target is told to stop its job when it configures
   `response.poll.cancel_url_template`); requests being processed or already

@@ -1,0 +1,70 @@
+[
+  {
+    "request": "POST /v1/requests",
+    "response": {
+      "id": "«job-1»",
+      "links": {
+        "self": "/v1/requests/«job-1»"
+      },
+      "state": "received"
+    },
+    "status": 202,
+    "step": "submit to a slow target"
+  },
+  {
+    "content_type": "application/json",
+    "request": "GET /v1/requests/«job-1»?wait=10s",
+    "response": {
+      "attempts": 1,
+      "completed_at": "«ts»",
+      "created_at": "«ts»",
+      "error": null,
+      "id": "«job-1»",
+      "result": {
+        "target_response": {
+          "ok": true
+        },
+        "target_status": 200
+      },
+      "state": "completed",
+      "target": "demo",
+      "updated_at": "«ts»"
+    },
+    "status": 200,
+    "step": "long-poll until it completes"
+  },
+  {
+    "content_type": "application/json",
+    "request": "GET /v1/requests/«job-1»?wait=10s",
+    "response": {
+      "attempts": 1,
+      "completed_at": "«ts»",
+      "created_at": "«ts»",
+      "error": null,
+      "id": "«job-1»",
+      "result": {
+        "target_response": {
+          "ok": true
+        },
+        "target_status": 200
+      },
+      "state": "completed",
+      "target": "demo",
+      "updated_at": "«ts»"
+    },
+    "status": 200,
+    "step": "waiting on a finished request answers at once"
+  },
+  {
+    "content_type": "application/json",
+    "request": "GET /v1/requests/«job-1»?wait=soon",
+    "response": {
+      "error": {
+        "code": "invalid_parameter",
+        "message": "wait must be a non-negative duration such as 25s"
+      }
+    },
+    "status": 400,
+    "step": "an invalid wait is refused"
+  }
+]

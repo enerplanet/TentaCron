@@ -592,9 +592,11 @@ func (p *Pool) markCompleted(bg context.Context, job *store.Job, status int, bod
 		p.logger.Error("mark completed failed", "job_id", job.ID, "error", err)
 	case path != "":
 		p.metrics.JobFinished(job.Target, "completed", "")
+		p.notifier.Notify(job.ID)
 		p.logger.Info("job completed with file result", "job_id", job.ID, "target", job.Target, "result_path", path)
 	default:
 		p.metrics.JobFinished(job.Target, "completed", "")
+		p.notifier.Notify(job.ID)
 		p.logger.Info("job completed", "job_id", job.ID, "target", job.Target)
 	}
 }
@@ -689,5 +691,6 @@ func (p *Pool) failJob(bg context.Context, job *store.Job, code, message string)
 		return
 	}
 	p.metrics.JobFinished(job.Target, "failed", code)
+	p.notifier.Notify(job.ID)
 	p.logger.Warn("job failed", "job_id", job.ID, "target", job.Target, "code", code, "message", message)
 }

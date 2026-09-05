@@ -150,6 +150,16 @@ configuration. Both require a key; neither reveals URLs or credentials.
 
 ## GET /v1/requests/{id}
 
+Add `?wait=25s` to long-poll: the call blocks until the request reaches a
+terminal state or the wait elapses, then answers with the freshest state —
+one call instead of a polling loop. The wait is clamped to
+`server.write_timeout` minus five seconds (a minute when no write timeout
+is configured); an invalid or negative value answers `400 invalid_parameter`.
+A request that is already terminal answers at once. Workers wake waiting
+calls the moment a request ends, so a completion arrives within
+milliseconds; the wait is bounded, so a client loops on `wait` until the
+state is terminal.
+
 ```json
 {
   "id": "6f1c9be2…",

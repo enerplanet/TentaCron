@@ -31,6 +31,7 @@ import (
 
 	"github.com/enerplanet/tentacron/internal/api"
 	"github.com/enerplanet/tentacron/internal/config"
+	"github.com/enerplanet/tentacron/internal/notify"
 	"github.com/enerplanet/tentacron/internal/store"
 	"github.com/enerplanet/tentacron/internal/upstream"
 	"github.com/enerplanet/tentacron/internal/worker"
@@ -441,14 +442,16 @@ func (h *harness) startStack(cfg *config.Config) {
 	h.st = st
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
 	nudge := make(chan struct{}, 1)
-	pool := worker.New(cfg, st, upstream.New(cfg.Upstream.MaxResponseBytes, cfg.UpstreamSecrets()), logger, nudge)
+	hub := notify.New()
+	pool := worker.New(cfg, st, upstream.New(cfg.Upstream.MaxResponseBytes, cfg.UpstreamSecrets()), logger, nudge).WithNotifier(hub)
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
 		pool.Run(ctx)
 	}()
-	h.api = httptest.NewServer(api.New(cfg, st, logger, nudge).WithUpstream(upstream.New(cfg.Upstream.MaxResponseBytes, cfg.UpstreamSecrets())).Handler())
+	h.api = httptest.NewServer(api.New(cfg, st, logger, nudge).
+		WithUpstream(upstream.New(cfg.Upstream.MaxResponseBytes, cfg.UpstreamSecrets())).WithNotifier(hub).Handler())
 	h.t.Cleanup(func() {
 		h.api.Close()
 		cancel()

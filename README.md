@@ -132,7 +132,7 @@ docker run -d -p 8080:8080 \
 | `POST /v1/requests` | Submit `{target, payload}`; returns `202` + id. Supports an `Idempotency-Key` header. |
 | `POST /v1/requests/validate` | Dry run: which resolvents the payload contains (paths, cache state) and what would fail, without submitting. |
 | `GET /v1/targets`, `GET /v1/resolvents` | Discovery: configured targets and resolvent types, no URLs or credentials. |
-| `GET /v1/requests/{id}` | State, attempts, result (inline JSON or `result.href`), error. |
+| `GET /v1/requests/{id}` | State, attempts, result (inline JSON or `result.href`), error. `?wait=25s` long-polls until terminal. |
 | `GET /v1/requests/{id}/result` | Streams a stored result (inline JSON or a result file such as a MEME bundle). |
 | `GET /v1/requests/{id}/events` | The request's audit trail: every state transition with its detail. |
 | `GET /v1/requests?state=failed&target=meme&limit=50` | List the caller's requests, newest first, with cursor pagination (every client's for an `admin` key). |

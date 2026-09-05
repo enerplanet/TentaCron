@@ -351,6 +351,9 @@ func (s *Server) internalError(w http.ResponseWriter, logMsg string, err error) 
 	writeError(w, http.StatusInternalServerError, CodeInternal, "internal server error")
 }
 
+// handleGet reports a request. With ?wait=DURATION it blocks until the
+// request is terminal or the wait elapses (clamped below the write timeout),
+// then answers with the freshest state — one call instead of a polling loop.
 func (s *Server) handleGet(w http.ResponseWriter, r *http.Request) {
 	id, ok := s.authFromHeader(w, r)
 	if !ok {
@@ -360,7 +363,71 @@ func (s *Server) handleGet(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
+	wait, ok := waitParam(w, r, s.maxWait())
+	if !ok {
+		return
+	}
+	if wait > 0 && !store.IsTerminal(job.State) {
+		job = s.awaitTerminal(r.Context(), job, wait)
+	}
 	writeJSON(w, http.StatusOK, toJobResponse(job))
+}
+
+// maxWait bounds a long poll safely below the server's write timeout, which
+// would otherwise cut the response off; without a configured timeout the
+// cap is a minute.
+func (s *Server) maxWait() time.Duration {
+	if wt := s.cfg.Server.WriteTimeout.Std(); wt > 0 {
+		return max(wt-5*time.Second, time.Second)
+	}
+	return time.Minute
+}
+
+// waitParam parses ?wait=; longer waits are clamped to the cap.
+func waitParam(w http.ResponseWriter, r *http.Request, maxWait time.Duration) (time.Duration, bool) {
+	raw := r.URL.Query().Get("wait")
+	if raw == "" {
+		return 0, true
+	}
+	d, err := time.ParseDuration(raw)
+	if err != nil || d < 0 {
+		writeError(w, http.StatusBadRequest, CodeInvalidParameter, "wait must be a non-negative duration such as 25s")
+		return 0, false
+	}
+	return min(d, maxWait), true
+}
+
+// awaitTerminal blocks until the job is terminal, the wait elapses or the
+// client goes away, re-reading the job on every wake-up. The notifier is
+// registered before each read, so a transition in between cannot be missed;
+// a one-second fallback re-read covers a missing notifier.
+func (s *Server) awaitTerminal(ctx context.Context, job *store.Job, wait time.Duration) *store.Job {
+	deadline := time.NewTimer(wait)
+	defer deadline.Stop()
+	fallback := time.NewTicker(time.Second)
+	defer fallback.Stop()
+	for {
+		woke := s.notifier.Wait(job.ID)
+		fresh, err := s.store.GetJob(ctx, job.ID)
+		if err == nil {
+			job = fresh
+		}
+		if err != nil || store.IsTerminal(job.State) {
+			s.notifier.Forget(job.ID, woke)
+			return job
+		}
+		select {
+		case <-woke:
+		case <-fallback.C:
+		case <-deadline.C:
+			s.notifier.Forget(job.ID, woke)
+			return job
+		case <-ctx.Done():
+			s.notifier.Forget(job.ID, woke)
+			return job
+		}
+		s.notifier.Forget(job.ID, woke)
+	}
 }
 
 type listResponse struct {
@@ -570,6 +637,7 @@ func (s *Server) handleCancel(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.logger.Info("job cancelled", "job_id", job.ID, "target", job.Target, "client", id.name, "was", job.State)
+	s.notifier.Notify(job.ID)
 	if job.State == store.StateAwaitingTarget {
 		s.notifyTargetCancel(job)
 	}

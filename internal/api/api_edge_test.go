@@ -19,6 +19,7 @@ import (
 	"time"
 
 	"github.com/enerplanet/tentacron/internal/config"
+	"github.com/enerplanet/tentacron/internal/notify"
 	"github.com/enerplanet/tentacron/internal/plan"
 	"github.com/enerplanet/tentacron/internal/store"
 	"github.com/enerplanet/tentacron/internal/upstream"
@@ -1019,5 +1020,55 @@ func TestCancelRequest(t *testing.T) {
 	}
 	if rec := e.do(t, "DELETE", "/v1/requests/"+done, "", nil); rec.Code != http.StatusUnauthorized {
 		t.Errorf("unauthenticated cancel: %d", rec.Code)
+	}
+}
+
+// ?wait= long-polls: the read returns as soon as the job ends (woken by the
+// notifier), or with the current state when the wait elapses; invalid waits
+// are refused and terminal jobs answer at once.
+func TestLongPollWait(t *testing.T) {
+	hub := notify.New()
+	e := newEnvWith(t, func(c *config.Config) { c.Server.WriteTimeout = config.Duration(30 * time.Second) }, nil)
+	e.server.WithNotifier(hub)
+	created := decodeBody[createResponse](t, e.do(t, "POST", "/v1/requests", validBody, nil))
+	go func() {
+		time.Sleep(150 * time.Millisecond)
+		_ = e.store.MarkFailed(context.Background(), created.ID, "target_error", "done waiting")
+		hub.Notify(created.ID)
+	}()
+	start := time.Now()
+	rec := e.do(t, "GET", "/v1/requests/"+created.ID+"?wait=10s", "", authHdr)
+	if rec.Code != http.StatusOK || decodeBody[jobResponse](t, rec).State != store.StateFailed {
+		t.Fatalf("long poll: %d %s", rec.Code, rec.Body.String())
+	}
+	if took := time.Since(start); took > 5*time.Second {
+		t.Errorf("the wake-up took %v; the notifier should end the wait within milliseconds", took)
+	}
+	if hub.Pending() != 0 {
+		t.Errorf("waiters must be forgotten after the wake-up, %d left", hub.Pending())
+	}
+	pending := decodeBody[createResponse](t, e.do(t, "POST", "/v1/requests", validBody, nil))
+	start = time.Now()
+	rec = e.do(t, "GET", "/v1/requests/"+pending.ID+"?wait=200ms", "", authHdr)
+	if rec.Code != http.StatusOK || decodeBody[jobResponse](t, rec).State != store.StateReceived || time.Since(start) < 150*time.Millisecond {
+		t.Errorf("elapsed wait must answer with the current state after the wait: %d %s in %v", rec.Code, rec.Body.String(), time.Since(start))
+	}
+	if hub.Pending() != 0 {
+		t.Errorf("a timed-out waiter must be forgotten, %d left", hub.Pending())
+	}
+	for _, q := range []string{"?wait=soon", "?wait=-1s"} {
+		if rec := e.do(t, "GET", "/v1/requests/"+pending.ID+q, "", authHdr); rec.Code != http.StatusBadRequest || errCode(t, rec) != CodeInvalidParameter {
+			t.Errorf("%s: %d %s", q, rec.Code, rec.Body.String())
+		}
+	}
+	start = time.Now()
+	if rec := e.do(t, "GET", "/v1/requests/"+created.ID+"?wait=10s", "", authHdr); rec.Code != http.StatusOK || time.Since(start) > time.Second {
+		t.Errorf("a terminal job must answer at once: %d in %v", rec.Code, time.Since(start))
+	}
+	if got := e.server.maxWait(); got != 25*time.Second {
+		t.Errorf("maxWait = %v, want write_timeout - 5s", got)
+	}
+	if got := (&Server{cfg: &config.Config{}}).maxWait(); got != time.Minute {
+		t.Errorf("maxWait without a write timeout = %v, want 1m", got)
 	}
 }

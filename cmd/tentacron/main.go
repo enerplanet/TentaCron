@@ -23,6 +23,7 @@ import (
 	"github.com/enerplanet/tentacron/internal/api"
 	"github.com/enerplanet/tentacron/internal/config"
 	"github.com/enerplanet/tentacron/internal/metrics"
+	"github.com/enerplanet/tentacron/internal/notify"
 	"github.com/enerplanet/tentacron/internal/store"
 	"github.com/enerplanet/tentacron/internal/upstream"
 	"github.com/enerplanet/tentacron/internal/worker"
@@ -177,10 +178,11 @@ func serveFromConfig(path string, logger *slog.Logger, level *slog.LevelVar) err
 	}
 
 	m := metrics.New(st)
+	hub := notify.New()
 	nudge := make(chan struct{}, 1)
 	client := upstream.New(cfg.Upstream.MaxResponseBytes, cfg.UpstreamSecrets()).WithMetrics(m)
-	pool := worker.New(cfg, st, client, logger, nudge).WithMetrics(m)
-	apiServer := api.New(cfg, st, logger, nudge).WithUpstream(client)
+	pool := worker.New(cfg, st, client, logger, nudge).WithMetrics(m).WithNotifier(hub)
+	apiServer := api.New(cfg, st, logger, nudge).WithUpstream(client).WithNotifier(hub)
 	apiServer.Build = buildInfo()
 	servers := []*http.Server{newHTTPServer(cfg, apiServer.Handler())}
 	if ms := newMetricsServer(cfg, m); ms != nil {

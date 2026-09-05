@@ -227,9 +227,19 @@ paths:
     get:
       tags: [requests]
       summary: Read a request
+      description: |
+        With `wait`, the call blocks until the request reaches a terminal state
+        or the wait elapses (clamped a few seconds below the server's write
+        timeout), then answers with the freshest state — one call instead of a
+        polling loop.
       operationId: getRequest
       parameters:
         - $ref: "#/components/parameters/RequestID"
+        - name: wait
+          in: query
+          description: Long-poll duration such as `25s`; omitted or `0` answers at once.
+          schema:
+            type: string
       responses:
         "200":
           description: The request's state, attempts, result and error.
@@ -237,6 +247,8 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/Job"
+        "400":
+          $ref: "#/components/responses/BadRequest"
         "401":
           $ref: "#/components/responses/Unauthorized"
         "404":
