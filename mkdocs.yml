@@ -120,6 +120,7 @@ nav:
   - Service:
       - Architecture: architecture.md
       - API Reference: api.md
+      - OpenAPI: openapi.md
       - Configuration: configuration.md
       - Operations: operations.md
   - Decisions:

@@ -35,17 +35,33 @@ func New(cfg *config.Config, st *store.Store, logger *slog.Logger, nudge chan<- 
 	return &Server{cfg: cfg, store: st, logger: logger, nudge: nudge}
 }
 
+// route is one endpoint of the API. The OpenAPI description in openapi.yaml
+// lists exactly these; a test keeps the two in lockstep.
+type route struct {
+	method, pattern string
+	handler         http.HandlerFunc
+}
+
+func (s *Server) routes() []route {
+	return []route{
+		{http.MethodPost, "/v1/requests", s.handleCreate},
+		{http.MethodGet, "/v1/requests", s.handleList},
+		{http.MethodGet, "/v1/requests/{id}", s.handleGet},
+		{http.MethodGet, "/v1/requests/{id}/result", s.handleResult},
+		{http.MethodGet, "/v1/requests/{id}/events", s.handleEvents},
+		{http.MethodGet, "/healthz", s.handleHealthz},
+		{http.MethodGet, "/readyz", s.handleReadyz},
+		{http.MethodGet, "/version", s.handleVersion},
+		{http.MethodGet, "/openapi.yaml", s.handleOpenAPI},
+	}
+}
+
 // Handler returns the fully wired HTTP handler.
 func (s *Server) Handler() http.Handler {
 	mux := http.NewServeMux()
-	mux.HandleFunc("POST /v1/requests", s.handleCreate)
-	mux.HandleFunc("GET /v1/requests", s.handleList)
-	mux.HandleFunc("GET /v1/requests/{id}", s.handleGet)
-	mux.HandleFunc("GET /v1/requests/{id}/result", s.handleResult)
-	mux.HandleFunc("GET /v1/requests/{id}/events", s.handleEvents)
-	mux.HandleFunc("GET /healthz", s.handleHealthz)
-	mux.HandleFunc("GET /readyz", s.handleReadyz)
-	mux.HandleFunc("GET /version", s.handleVersion)
+	for _, rt := range s.routes() {
+		mux.HandleFunc(rt.method+" "+rt.pattern, rt.handler)
+	}
 	return s.withRecovery(s.withRequestLog(jsonFallback(mux)))
 }
 

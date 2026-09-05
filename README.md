@@ -134,11 +134,13 @@ docker run -d -p 8080:8080 \
 | `GET /v1/requests/{id}/events` | The request's audit trail: every state transition with its detail. |
 | `GET /v1/requests?state=failed&target=meme&limit=50` | List the caller's requests, newest first, with cursor pagination (every client's for an `admin` key). |
 | `GET /healthz`, `GET /readyz`, `GET /version` | Liveness, readiness, build. |
+| `GET /openapi.yaml` | The OpenAPI 3.1 description of the running build. |
 
 All `/v1` endpoints authenticate with the `X-API-Key` header; a key's `role`
 (`client` or `admin`) decides whether it sees only its own requests or all.
 
-See [docs/api.md](docs/api.md) for the full reference,
+See [docs/api.md](docs/api.md) for the full reference (also as
+[OpenAPI](docs/openapi.md)),
 [docs/configuration.md](docs/configuration.md) for every config key,
 [docs/architecture.md](docs/architecture.md) for the design and
 [docs/operations.md](docs/operations.md) for deployment and failure handling.

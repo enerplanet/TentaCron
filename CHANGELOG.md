@@ -10,6 +10,9 @@ under "Changed" with the keys or fields concerned.
 
 ### Added
 
+- An OpenAPI 3.1 description of the API, served by the running service at
+  `GET /openapi.yaml`, rendered on the docs site and validated in CI; a test
+  keeps it in lockstep with the registered routes.
 - `tentacron backup -config FILE DEST` writes a consistent, compacted
   snapshot of the database with `VACUUM INTO` while the service runs. New
   databases use incremental auto-vacuum and every housekeeping sweep hands

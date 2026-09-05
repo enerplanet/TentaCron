@@ -1,0 +1,439 @@
+openapi: 3.1.0
+info:
+  title: Tentacron
+  version: "1"
+  summary: Orchestration and resolvent API for renewable-energy modelling workflows.
+  description: |
+    Submit a model payload that still contains resolvent objects; tentacron
+    resolves them through the configured resource APIs, forwards the completed
+    payload to the target and, for asynchronous targets, polls the target's job
+    to completion. Every request is durable and auditable.
+
+    Authenticate every `/v1` call with the `X-API-Key` header. A key's role
+    decides whether it reads only its own requests (`client`) or every request
+    (`admin`). The API changes only additively within `/v1`; clients must ignore
+    fields they do not know.
+  license:
+    name: MIT
+    identifier: MIT
+servers:
+  - url: /
+security:
+  - ApiKeyAuth: []
+tags:
+  - name: requests
+    description: Submit and follow orchestration requests.
+  - name: system
+    description: Health, build and this description. Unauthenticated.
+
+paths:
+  /v1/requests:
+    post:
+      tags: [requests]
+      summary: Submit a request
+      description: |
+        Persists the request and answers `202` at once. Poll `GET /v1/requests/{id}`
+        for progress. An `Idempotency-Key` (at most 255 bytes, scoped to the
+        client) makes a resubmission of the identical request return the stored
+        one instead of creating a duplicate; reusing the key with a different
+        target or payload answers `409`.
+      operationId: createRequest
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateRequest"
+      responses:
+        "202":
+          description: Accepted; the request's id and initial state.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Accepted"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "409":
+          description: The Idempotency-Key was already used with a different target or payload.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "413":
+          description: The body exceeds `server.max_body_bytes`.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "415":
+          description: "`Content-Type: application/json` is required."
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "422":
+          description: The target is not configured.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+    get:
+      tags: [requests]
+      summary: List requests
+      description: |
+        Newest first: the caller's own requests, or every client's for an admin
+        key. A full page carries `next_cursor`; pass it back as `cursor` with the
+        same filters for the next page. No total count is returned.
+      operationId: listRequests
+      parameters:
+        - name: state
+          in: query
+          schema:
+            $ref: "#/components/schemas/State"
+        - name: target
+          in: query
+          schema:
+            type: string
+        - name: client
+          in: query
+          description: Admin keys only (a client may name itself).
+          schema:
+            type: string
+        - name: since
+          in: query
+          description: Inclusive lower bound on `created_at`, RFC 3339.
+          schema:
+            type: string
+            format: date-time
+        - name: until
+          in: query
+          description: Exclusive upper bound on `created_at`, RFC 3339.
+          schema:
+            type: string
+            format: date-time
+        - name: limit
+          in: query
+          description: Page size, default 50, capped at 200.
+          schema:
+            type: integer
+            minimum: 1
+        - name: cursor
+          in: query
+          description: The `next_cursor` of the previous page. Opaque.
+          schema:
+            type: string
+      responses:
+        "200":
+          description: One page of requests.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/JobList"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /v1/requests/{id}:
+    get:
+      tags: [requests]
+      summary: Read a request
+      operationId: getRequest
+      parameters:
+        - $ref: "#/components/parameters/RequestID"
+      responses:
+        "200":
+          description: The request's state, attempts, result and error.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Job"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /v1/requests/{id}/result:
+    get:
+      tags: [requests]
+      summary: Download the result
+      description: |
+        Inline JSON results as `application/json`; file results with their
+        recorded content type, `Content-Disposition`, `Accept-Ranges` and
+        `Range` support. `404` while the request is not completed, when it
+        completed without a body, or after retention pruned the result.
+      operationId: getResult
+      parameters:
+        - $ref: "#/components/parameters/RequestID"
+        - name: Range
+          in: header
+          schema:
+            type: string
+      responses:
+        "200":
+          description: The stored result.
+          content:
+            application/json: {}
+            application/octet-stream: {}
+        "206":
+          description: The requested byte range of a file result.
+          content:
+            application/octet-stream: {}
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+    head:
+      tags: [requests]
+      summary: Result headers only
+      operationId: headResult
+      parameters:
+        - $ref: "#/components/parameters/RequestID"
+      responses:
+        "200":
+          description: Headers of the stored result, including `Content-Length`.
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /v1/requests/{id}/events:
+    get:
+      tags: [requests]
+      summary: Read the audit trail
+      operationId: getEvents
+      parameters:
+        - $ref: "#/components/parameters/RequestID"
+      responses:
+        "200":
+          description: Every state transition, oldest first.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EventList"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /healthz:
+    get:
+      tags: [system]
+      summary: Liveness
+      operationId: healthz
+      security: []
+      responses:
+        "200":
+          description: The process runs.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status: { type: string, const: ok }
+                  version: { type: string }
+  /readyz:
+    get:
+      tags: [system]
+      summary: Readiness
+      operationId: readyz
+      security: []
+      responses:
+        "200":
+          description: Migrations ran and the database answers.
+        "503":
+          description: The database is not reachable.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+  /version:
+    get:
+      tags: [system]
+      summary: Build information
+      operationId: version
+      security: []
+      responses:
+        "200":
+          description: The running build.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  version: { type: string }
+                  go: { type: string }
+                  revision: { type: string }
+                  built: { type: string }
+  /openapi.yaml:
+    get:
+      tags: [system]
+      summary: This description
+      operationId: openapi
+      security: []
+      responses:
+        "200":
+          description: The OpenAPI document of the running build.
+          content:
+            application/yaml: {}
+
+components:
+  securitySchemes:
+    ApiKeyAuth:
+      type: apiKey
+      in: header
+      name: X-API-Key
+  parameters:
+    RequestID:
+      name: id
+      in: path
+      required: true
+      schema:
+        type: string
+        pattern: "^[0-9a-f]{32}$"
+    IdempotencyKey:
+      name: Idempotency-Key
+      in: header
+      schema:
+        type: string
+        maxLength: 255
+  responses:
+    BadRequest:
+      description: Malformed body, missing field or invalid parameter.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    Unauthorized:
+      description: Missing or unknown API key.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    NotFound:
+      description: No such request — or another client's request, which is indistinguishable.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+  schemas:
+    State:
+      type: string
+      enum: [received, resolving, forwarding, awaiting_target, completed, failed]
+    Error:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: object
+          required: [code, message]
+          properties:
+            code:
+              type: string
+              enum: [invalid_json, missing_field, unauthorized, unknown_target, idempotency_conflict,
+                     payload_too_large, unsupported_media_type, not_found, method_not_allowed,
+                     invalid_parameter, internal]
+            message:
+              type: string
+    CreateRequest:
+      type: object
+      required: [target, payload]
+      properties:
+        target:
+          type: string
+          description: A target name from the configuration.
+        payload:
+          type: object
+          description: The body to resolve and forward. Resolvent objects carry a `type` starting with `resolvent-`.
+        priority:
+          type: integer
+          minimum: -10
+          maximum: 10
+          default: 0
+          description: Higher priorities are claimed first; capped per key.
+        api_key:
+          type: string
+          deprecated: true
+          description: Fallback for the `X-API-Key` header; the header wins when both are present.
+    Accepted:
+      type: object
+      required: [id, state, links]
+      properties:
+        id: { type: string }
+        state: { $ref: "#/components/schemas/State" }
+        links:
+          type: object
+          properties:
+            self: { type: string }
+    Job:
+      type: object
+      required: [id, target, state, attempts, created_at, updated_at, result, error]
+      properties:
+        id: { type: string }
+        target: { type: string }
+        state: { $ref: "#/components/schemas/State" }
+        attempts: { type: integer }
+        priority:
+          type: integer
+          description: Present when not the default 0.
+        target_job_id:
+          type: string
+          description: The asynchronous target's own job id, once accepted.
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+        completed_at: { type: string, format: date-time }
+        result:
+          oneOf:
+            - type: "null"
+            - type: object
+              properties:
+                target_status: { type: integer }
+                target_response:
+                  description: Inline JSON result (results up to 256 KiB).
+                href:
+                  type: string
+                  description: Download path of a file result.
+                content_type: { type: string }
+        error:
+          oneOf:
+            - type: "null"
+            - type: object
+              required: [code, message]
+              properties:
+                code:
+                  type: string
+                  enum: [invalid_payload, unknown_target, unknown_resolvent, resource_error,
+                         invalid_resource_response, target_error, target_job_failed, target_timeout,
+                         max_attempts_exceeded, internal]
+                message: { type: string }
+    JobList:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items: { $ref: "#/components/schemas/Job" }
+        next_cursor:
+          type: string
+          description: Present only when more items match.
+    EventList:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            type: object
+            required: [to_state, detail, created_at]
+            properties:
+              from_state: { $ref: "#/components/schemas/State" }
+              to_state: { $ref: "#/components/schemas/State" }
+              detail: { type: string }
+              created_at:
+                type: string
+                format: date-time
+                description: Millisecond precision.

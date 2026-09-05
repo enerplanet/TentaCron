@@ -1,6 +1,8 @@
 # API Reference
 
-All requests and responses are JSON. Errors always use one shape:
+All requests and responses are JSON. The same contract is available as an
+[OpenAPI 3.1 document](openapi.md), served by the running service at
+`GET /openapi.yaml`. Errors always use one shape:
 
 ```json
 { "error": { "code": "unknown_target", "message": "target \"buem2\" is not configured" } }
@@ -196,6 +198,7 @@ returned.
 - `GET /version` — the running build: `version`, `go`, and `revision` /
   `built` when the binary was built inside the repository. Unauthenticated,
   reveals no configuration.
+- `GET /openapi.yaml` — the OpenAPI description of this build.
 
 Prometheus metrics are not on this listener; see
 [Operations → Metrics](operations.md#metrics).
