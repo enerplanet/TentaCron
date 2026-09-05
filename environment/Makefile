@@ -3,7 +3,8 @@
 #
 #   make -C environment build   # build the image
 #   make -C environment test    # run the Go suite inside the container
-#   make -C environment run     # serve the API
+#   make -C environment run     # serve the API from the dev image
+#   make -C environment run-release # serve the published release image
 #   make -C environment shell   # interactive shell in the image
 #
 # ENV=dev (default) or prod selects .env.$(ENV).
@@ -15,7 +16,7 @@ COMPOSE_BIN := $(shell docker compose version >/dev/null 2>&1 && echo "docker co
 COMPOSE  := $(COMPOSE_BIN) --env-file $(ENV_FILE) -f docker-compose.yml
 
 .DEFAULT_GOAL := help
-.PHONY: build test run shell help
+.PHONY: build test run run-release shell help
 
 build: ## Build the environment image (Go toolchain + tooling)
 	$(COMPOSE) build
@@ -23,8 +24,11 @@ build: ## Build the environment image (Go toolchain + tooling)
 test: ## Build and run the Go test suite inside the container
 	$(COMPOSE) run --rm test
 
-run: ## Run the API in the container
+run: ## Run the API from the development image (sources bind-mounted)
 	$(COMPOSE) up api
+
+run-release: ## Run the published release image (RELEASE_IMAGE in the env file)
+	$(COMPOSE) up api-release
 
 shell: ## Interactive shell in the environment image
 	$(COMPOSE) run --rm shell

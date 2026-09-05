@@ -1,12 +1,16 @@
 # Changelog
 
 All notable changes to tentacron are documented here. The format follows
-[Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versioning will
-follow [SemVer](https://semver.org/) once the first release is tagged.
+[Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and versioning
+follows [SemVer](https://semver.org/). Before 1.0, a minor release may
+tighten configuration validation or extend API responses; both are listed
+under "Changed" with the keys or fields concerned.
 
 ## [Unreleased]
 
-Initial development of the tentacron orchestration and resolvent API.
+## [0.1.0] - 2026-09-05
+
+Initial release of the tentacron orchestration and resolvent API.
 
 ### Changed
 
@@ -77,3 +81,6 @@ Initial development of the tentacron orchestration and resolvent API.
   tier (`make live`) for real-upstream verification.
 - Containerized build/test environment (`environment/`, meme-style) and
   mkdocs documentation (architecture, API, configuration, operations).
+
+[Unreleased]: https://github.com/enerplanet/tentacron/compare/v0.1.0...HEAD
+[0.1.0]: https://github.com/enerplanet/tentacron/releases/tag/v0.1.0

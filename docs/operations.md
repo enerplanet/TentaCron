@@ -2,6 +2,11 @@
 
 ## Deployment
 
+Releases are tagged `vX.Y.Z`. Every tag publishes static binaries with
+checksums on the GitHub release and a multi-architecture image at
+`ghcr.io/enerplanet/tentacron`, built from the root `Dockerfile`: a
+distroless base, a non-root user, and `/data` as the only writable path.
+
 - **Single instance.** SQLite doubles as the job queue, so run exactly one
   replica. Horizontal scaling would require moving to Postgres/a broker —
   out of scope for v1.
@@ -13,15 +18,29 @@
   `TENTACRON_KEY_FRONTEND`, `TENTACRON_KEY_BATCH`, `MEME_API_KEY`,
   `BUEM_API_KEY`, `PV1_API_KEY`, `WIND_API_KEY`, `WEATHER_API_KEY` and
   `IGNIS_API_KEY`.
-- **Persistent storage** for `storage.path` and `storage.results_dir`
-  (the containerized setup writes both under the bind-mounted repo's `data/`).
+- **Persistent storage** for `storage.path` and `storage.results_dir`. In
+  the image both belong under `/data` — the default relative paths
+  (`./data/tentacron.db`, `./data/results`) resolve there — so mount a
+  volume at `/data`. A bind-mounted host directory must be writable by
+  uid 65532 (the distroless `nonroot` user).
 
 ```bash
-make -C environment build ENV=prod   # containerized (see environment/README.md)
-make -C environment run   ENV=prod   # publishes on :80, settings from environment/.env.prod
-# or directly on the host:
+# Container: pinned release image, read-only config, named volume for /data
+docker run -d --name tentacron -p 8080:8080 \
+  -v /etc/tentacron/config.yaml:/etc/tentacron/config.yaml:ro \
+  -v tentacron-data:/data \
+  --env-file /etc/tentacron/secrets.env \
+  ghcr.io/enerplanet/tentacron:0.1.0
+
+# Compose: the same service wired in environment/ (settings from .env.prod)
+make -C environment run-release ENV=prod
+
+# Host: a release binary from the GitHub release, or a local build
 make build && ./bin/tentacron -config /etc/tentacron/config.yaml
 ```
+
+The development image (`make -C environment run`) bind-mounts the sources,
+compiles at start and runs as root; it is for local work, not deployment.
 
 Before pointing production traffic at a config, run one real request through
 it with the env-gated live tier (`make live`, see

@@ -41,6 +41,30 @@ services:
       - "${HOST_PORT:-8080}:${PORT:-8080}"
     command: make run
 
+  # Production deployment: the published distroless image (built by the
+  # release workflow from the root Dockerfile), read-only config, a named
+  # volume for the SQLite store and result files, non-root. Select the tag
+  # with RELEASE_IMAGE in the env file.
+  #   make -C environment run-release ENV=prod
+  api-release:
+    image: ${RELEASE_IMAGE:-ghcr.io/enerplanet/tentacron:latest}
+    environment:
+      - PORT=${PORT:-8080}
+      - TENTACRON_KEY_FRONTEND=${TENTACRON_KEY_FRONTEND:?set in environment/.env.dev|prod}
+      - TENTACRON_KEY_BATCH=${TENTACRON_KEY_BATCH:?set in environment/.env.dev|prod}
+      - MEME_API_KEY=${MEME_API_KEY:?set in environment/.env.dev|prod}
+      - BUEM_API_KEY=${BUEM_API_KEY:?set in environment/.env.dev|prod}
+      - PV1_API_KEY=${PV1_API_KEY:?set in environment/.env.dev|prod}
+      - WIND_API_KEY=${WIND_API_KEY:?set in environment/.env.dev|prod}
+      - WEATHER_API_KEY=${WEATHER_API_KEY:?set in environment/.env.dev|prod}
+      - IGNIS_API_KEY=${IGNIS_API_KEY:?set in environment/.env.dev|prod}
+    volumes:
+      - ./config.yaml:/etc/tentacron/config.yaml:ro
+      - tentacron-data:/data
+    ports:
+      - "${HOST_PORT:-8080}:${PORT:-8080}"
+    restart: unless-stopped
+
   # One-shot: compile everything and run the Go test suite.
   test:
     image: ${IMAGE_TAG:-tentacron-env:latest}
@@ -70,3 +94,4 @@ services:
 volumes:
   go-build:
   go-mod:
+  tentacron-data:

@@ -114,6 +114,15 @@ make -C environment test  ENV=dev   # Go suite inside the container
 make -C environment shell ENV=dev   # interactive shell (go / make / sqlite3)
 ```
 
+Deployments use the published release image instead — distroless, non-root,
+built from the root [`Dockerfile`](Dockerfile) on every `v*` tag:
+
+```bash
+docker run -d -p 8080:8080 \
+  -v "$PWD/config.yaml:/etc/tentacron/config.yaml:ro" -v tentacron-data:/data \
+  --env-file secrets.env ghcr.io/enerplanet/tentacron:0.1.0
+```
+
 ## API
 
 | Endpoint | Description |

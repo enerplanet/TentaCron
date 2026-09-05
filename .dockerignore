@@ -1,0 +1,18 @@
+# Build context for the production image (root Dockerfile): only what
+# `go build ./cmd/tentacron` needs. The embedded SQL migrations live under
+# internal/ and stay in.
+.git
+.github
+.venv
+venv
+__pycache__
+.vscode
+bin
+data
+site
+coverage.out
+*.db
+docs
+environment
+examples
+test

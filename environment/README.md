@@ -54,7 +54,8 @@ directly (source the env file first).
 | `PORT` | 8080 | 8080 | port the API listens on inside the container | compose + config |
 | `HOST_PORT` | 8080 | 80 | port published on your machine | compose |
 | `CONFIG` | `environment/config.yaml` | `environment/config.yaml` | config file the API loads | compose → root `make run` |
-| `IMAGE_TAG` | `tentacron-env:dev` | `tentacron-env:prod` | image tag | compose |
+| `IMAGE_TAG` | `tentacron-env:dev` | `tentacron-env:prod` | tag of the development image | compose |
+| `RELEASE_IMAGE` | `ghcr.io/enerplanet/tentacron:latest` | pin a version | published release image for `run-release` | compose |
 | `TENTACRON_KEY_*` | dev placeholders | **change-me** | client keys tentacron accepts | config |
 | `MEME_API_KEY`, `BUEM_API_KEY`, `PV1_API_KEY`, `WIND_API_KEY`, `WEATHER_API_KEY`, `IGNIS_API_KEY` | dev placeholders | **change-me** | credentials tentacron presents to the downstream services (meme, buem-gateway, the PV/wind profile services, weather, ignis) | config |
 
@@ -77,6 +78,24 @@ docker compose --env-file environment/.env.prod \
 Copy either file to add more environments (e.g. `.env.staging`) and select it
 with `ENV=staging`.
 
+## Production: the release image
+
+Deployments use the image the release workflow publishes from the root
+[`Dockerfile`](../Dockerfile) — distroless, non-root, nothing but the
+binary — instead of the development image above. The `api-release` compose
+service wires it with this folder's config mounted read-only and a named
+volume at `/data` for the SQLite store and result files:
+
+```bash
+make -C environment run-release ENV=prod   # RELEASE_IMAGE from .env.prod
+```
+
+Pin `RELEASE_IMAGE` to a version tag (`ghcr.io/enerplanet/tentacron:0.1.0`)
+rather than `latest` in production, and keep `environment/config.yaml`'s
+storage paths under `/data` (the defaults already resolve there). See
+[operations](../docs/operations.md#deployment) for the plain `docker run`
+form.
+
 ## Notes
 
 - Unlike an `API_KEY`-optional service, tentacron **refuses to start** when a
@@ -92,8 +111,10 @@ with `ENV=staging`.
   config needs a matching line in both env files and in
   [`docker-compose.yml`](docker-compose.yml).
 - The `api` service writes its SQLite database and result files to
-  `/src/data` (the bind mount), which is gitignored. The container runs as
-  root, so `data/` contents created via docker are root-owned on the host.
+  `/src/data` (the bind mount), which is gitignored. The development
+  container runs as root, so `data/` contents it creates are root-owned on
+  the host; the release image runs as `nonroot` and writes to its `/data`
+  volume instead.
 - `make -C environment test` runs the host suite (unit, integration, golden
   E2E) inside the container; the env-gated live tier is a host-side
   `make live` with `TENTACRON_LIVE_CONFIG`/`TENTACRON_LIVE_REQUEST` set
