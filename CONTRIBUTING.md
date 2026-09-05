@@ -126,9 +126,10 @@ suite, the build, and the branch/commit linters.
 
 ## Documentation Contributions
 
-Documentation lives in [docs/](docs/) (published with MkDocs, see
-[docs/getting-started/documentation-setup.md](docs/getting-started/documentation-setup.md))
-plus the folder READMEs. Keep wording clear and practical, prefer short
+Documentation lives in [docs/](docs/), published with MkDocs Material
+through `.github/workflows/docs.yml` (build it locally with
+`pip install -r docs/requirements.txt && mkdocs serve`), plus the folder
+READMEs. Keep wording clear and practical, prefer short
 examples, check links and commands, and match the style of the existing
 pages.
 

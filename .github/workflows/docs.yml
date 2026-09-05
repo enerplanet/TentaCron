@@ -3,7 +3,6 @@ name: MkDocs
 on:
   push:
     branches:
-      - master
       - main
 permissions:
   contents: write
@@ -29,4 +28,4 @@ jobs:
           restore-keys: |
             mkdocs-material-
       - run: pip install -r docs/requirements.txt
-      - run: mkdocs gh-deploy --force
+      - run: mkdocs gh-deploy --force --strict

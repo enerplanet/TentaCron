@@ -18,6 +18,16 @@ Initial development of the tentacron orchestration and resolvent API.
   tracking `latest`, and runs `govulncheck` on every push; Dependabot keeps
   Go modules, GitHub Actions and the container base image current.
 
+### Removed
+
+- The organisation-template workflows `sync-legal.yml` and
+  `sync-branch-rules.yml` (and their scripts): they acted on every
+  repository of two GitHub organisations from this service repository. The
+  template-only documentation pages (open-source checklist, repository
+  naming, documentation setup, legal sync, branch rules) left the docs site;
+  the branch-naming and commit-convention pages stay, reworded for this
+  project. The docs deploy now builds in strict mode.
+
 ### Fixed
 
 - Target URL templating: a `null` payload field no longer fills a `{field}`
