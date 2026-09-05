@@ -88,7 +88,7 @@ func TestDispatchAndUsage(t *testing.T) {
 	if code, _, errOut := runCLI(t, "frobnicate"); code != 2 || !strings.Contains(errOut, `unknown command "frobnicate"`) {
 		t.Errorf("unknown command: exit %d, stderr %q", code, errOut)
 	}
-	if code, _, errOut := runCLI(t, "validate", "-config", "x.yaml", "extra"); code != 2 || !strings.Contains(errOut, "unexpected argument") {
+	if code, _, errOut := runCLI(t, "validate", "-config", "x.yaml", "extra"); code != 2 || !strings.Contains(errOut, "expected 0 argument(s), got 1") {
 		t.Errorf("stray argument: exit %d, stderr %q", code, errOut)
 	}
 	if code, out, _ := runCLI(t, "validate", "-h"); code != 0 || !strings.Contains(out, "Usage:") {

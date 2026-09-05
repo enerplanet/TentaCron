@@ -45,6 +45,12 @@ func Open(path string) (*Store, error) {
 			"journal_mode(WAL)",
 			"synchronous(NORMAL)",
 			"foreign_keys(1)",
+			// Takes effect on databases created by tentacron (it must be
+			// set before the first table exists); with it, the sweeper's
+			// incremental vacuum hands freed pages back to the filesystem.
+			// A database created before this setting needs one manual
+			// VACUUM to adopt it — see docs/operations.md.
+			"auto_vacuum(INCREMENTAL)",
 		},
 	}.Encode()
 	db, err := sql.Open("sqlite", dsn)

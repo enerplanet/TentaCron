@@ -70,6 +70,7 @@ invalid, 2 usage error. CI runs it against both reference configs.
 |---|---|
 | `tentacron [serve] -config FILE` | Start the service; `serve` is the default, so `tentacron -config FILE` still works. |
 | `tentacron validate -config FILE` | Load and validate a configuration without starting anything. |
+| `tentacron backup -config FILE DEST` | Write a consistent, compacted copy of the database to `DEST` (safe while the service runs; refuses to overwrite). |
 | `tentacron version` | Print the build version and Go version. |
 
 ## Health and readiness
@@ -177,7 +178,29 @@ A background sweeper (every `cache.cleanup_interval`):
 - prunes terminal jobs older than `storage.retention` in batches of 1,000
   until the backlog is drained, deleting each batch's result files before
   its rows so a crash in between never orphans a file. A first sweep after a
-  long downtime therefore takes several passes instead of one huge delete.
+  long downtime therefore takes several passes instead of one huge delete;
+- compacts the database (incremental vacuum, WAL checkpoint) so the file
+  shrinks after pruning.
+
+## Backups and storage growth
+
+The SQLite file is the whole state: back it up like any other database.
+`tentacron backup -config config.yaml /backups/tentacron-$(date +%F).db`
+takes a consistent snapshot with `VACUUM INTO` while the service runs; the
+sqlite3 CLI's `.backup` command or a continuous replicator such as
+Litestream work as well. Never copy the `.db` file with `cp` while the
+service is writing — the WAL sidecar would be missing from the copy.
+
+Result files under `storage.results_dir` are not in the database; back up
+the directory alongside it if results must survive a restore.
+
+Databases created by tentacron use SQLite's incremental auto-vacuum, and
+every housekeeping sweep hands pages freed by pruning back to the filesystem
+and checkpoints the WAL, so the file tracks the live data rather than its
+historical peak. A database created before this setting existed keeps
+reusing freed pages internally but never shrinks; one manual
+`sqlite3 data/tentacron.db 'PRAGMA auto_vacuum=INCREMENTAL; VACUUM;'`
+while the service is stopped switches it over.
 
 ## Roadmap notes (v2)
 

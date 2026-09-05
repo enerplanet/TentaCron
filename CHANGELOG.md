@@ -10,6 +10,12 @@ under "Changed" with the keys or fields concerned.
 
 ### Added
 
+- `tentacron backup -config FILE DEST` writes a consistent, compacted
+  snapshot of the database with `VACUUM INTO` while the service runs. New
+  databases use incremental auto-vacuum and every housekeeping sweep hands
+  freed pages back to the filesystem and checkpoints the WAL, so the file
+  shrinks after pruning; existing databases adopt the mode with one manual
+  `VACUUM` (documented under Operations).
 - Fair scheduling: workers claim jobs by `priority` (a new optional
   `-10`..`10` field on `POST /v1/requests`, echoed on the job), then
   round-robin across clients so a batch never starves interactive

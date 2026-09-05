@@ -31,9 +31,10 @@ import (
 var version = "dev" // overridden at build time via -ldflags
 
 const usage = `Usage:
-  tentacron [serve] [-config FILE]   start the service (default command)
-  tentacron validate [-config FILE]  load, interpolate and validate a configuration
-  tentacron version                  print build information
+  tentacron [serve] [-config FILE]        start the service (default command)
+  tentacron validate [-config FILE]       load, interpolate and validate a configuration
+  tentacron backup [-config FILE] DEST    write a consistent copy of the database to DEST
+  tentacron version                       print build information
 
 FILE defaults to config.yaml. Exit codes: 0 ok, 1 invalid configuration or
 runtime failure, 2 usage error.
@@ -55,6 +56,8 @@ func run(args []string, stdout, stderr io.Writer) int {
 		return runServe(rest, stdout, stderr)
 	case "validate":
 		return runValidate(rest, stdout, stderr)
+	case "backup":
+		return runBackup(rest, stdout, stderr)
 	case "version":
 		fmt.Fprintf(stdout, "tentacron %s %s %s/%s\n", version, runtime.Version(), runtime.GOOS, runtime.GOARCH)
 		return 0
@@ -67,31 +70,62 @@ func run(args []string, stdout, stderr io.Writer) int {
 	}
 }
 
-// configFlag parses the shared -config flag; a help request prints usage
-// and reports done.
-func configFlag(name string, args []string, stdout, stderr io.Writer) (path string, done bool, code int) {
+// configFlag parses the shared -config flag and exactly positional
+// arguments after it; a help request prints usage and reports done.
+func configFlag(name string, args []string, positional int, stdout, stderr io.Writer) (path string, rest []string, done bool, code int) {
 	fs := flag.NewFlagSet("tentacron "+name, flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	fs.StringVar(&path, "config", "config.yaml", "path to the YAML configuration file")
 	if err := fs.Parse(args); err != nil {
 		if errors.Is(err, flag.ErrHelp) {
 			fmt.Fprint(stdout, usage)
-			return "", true, 0
+			return "", nil, true, 0
 		}
-		return "", true, 2
+		return "", nil, true, 2
 	}
-	if fs.NArg() > 0 {
-		fmt.Fprintf(stderr, "tentacron %s: unexpected argument %q\n\n%s", name, fs.Arg(0), usage)
-		return "", true, 2
+	if fs.NArg() != positional {
+		fmt.Fprintf(stderr, "tentacron %s: expected %d argument(s), got %d\n\n%s", name, positional, fs.NArg(), usage)
+		return "", nil, true, 2
 	}
-	return path, false, 0
+	return path, fs.Args(), false, 0
+}
+
+// runBackup copies the configured database to DEST with VACUUM INTO — a
+// consistent snapshot that is safe to take while the service runs.
+func runBackup(args []string, stdout, stderr io.Writer) int {
+	path, rest, done, code := configFlag("backup", args, 1, stdout, stderr)
+	if done {
+		return code
+	}
+	cfg, err := config.Load(path)
+	if err != nil {
+		fmt.Fprintf(stderr, "%s: %v\n", path, err)
+		return 1
+	}
+	st, err := store.Open(cfg.Storage.Path)
+	if err != nil {
+		fmt.Fprintf(stderr, "open %s: %v\n", cfg.Storage.Path, err)
+		return 1
+	}
+	defer func() { _ = st.Close() }()
+	if err := st.BackupTo(context.Background(), rest[0]); err != nil {
+		fmt.Fprintln(stderr, err)
+		return 1
+	}
+	info, err := os.Stat(rest[0])
+	if err != nil {
+		fmt.Fprintln(stderr, err)
+		return 1
+	}
+	fmt.Fprintf(stdout, "backup written: %s (%d bytes)\n", rest[0], info.Size())
+	return 0
 }
 
 // runValidate loads the configuration exactly as serve would — file, ${ENV}
 // interpolation, defaults, validation — and prints what it found or every
 // problem at once. Meant for deploy pipelines and CI.
 func runValidate(args []string, stdout, stderr io.Writer) int {
-	path, done, code := configFlag("validate", args, stdout, stderr)
+	path, _, done, code := configFlag("validate", args, 0, stdout, stderr)
 	if done {
 		return code
 	}
@@ -108,7 +142,7 @@ func runValidate(args []string, stdout, stderr io.Writer) int {
 }
 
 func runServe(args []string, stdout, stderr io.Writer) int {
-	path, done, code := configFlag("serve", args, stdout, stderr)
+	path, _, done, code := configFlag("serve", args, 0, stdout, stderr)
 	if done {
 		return code
 	}

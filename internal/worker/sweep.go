@@ -26,6 +26,16 @@ func (p *Pool) sweep(ctx context.Context) {
 	p.purgeExpiredSeries(ctx)
 	p.rescueStuckJobs(ctx)
 	p.pruneRetention(ctx)
+	p.compact(ctx)
+}
+
+// compact hands pages freed by the purges above back to the filesystem and
+// checkpoints the WAL, so the database file tracks the live data instead of
+// its historical peak.
+func (p *Pool) compact(ctx context.Context) {
+	if err := p.store.Vacuum(ctx); err != nil {
+		p.logger.Error("database compaction failed", "error", err)
+	}
 }
 
 func (p *Pool) purgeExpiredSeries(ctx context.Context) {
