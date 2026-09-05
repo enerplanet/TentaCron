@@ -6,6 +6,7 @@ import (
 	"crypto/rand"
 	"database/sql"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -54,6 +55,8 @@ type Job struct {
 	NextAttemptAt  *time.Time
 	// Priority orders claims: higher first, -10..10, default 0.
 	Priority int
+	// Options are the processing choices the client made for this job.
+	Options JobOptions
 
 	// Payload as accepted, and after resolvent substitution.
 	Payload         []byte
@@ -78,6 +81,39 @@ type Job struct {
 	CompletedAt *time.Time
 }
 
+// Cache modes a client may request for a job.
+const (
+	CacheUse     = "use"     // default: read and write the series cache
+	CacheBypass  = "bypass"  // neither read nor write it
+	CacheRefresh = "refresh" // fetch fresh, then write
+)
+
+// JobOptions are the per-job processing options, stored as JSON so new
+// options need no schema change. Zero values mean the defaults.
+type JobOptions struct {
+	// Cache is CacheUse (or empty), CacheBypass or CacheRefresh.
+	Cache string `json:"cache,omitempty"`
+}
+
+// IsZero reports whether every option is at its default.
+func (o JobOptions) IsZero() bool { return o == JobOptions{} }
+
+func (o JobOptions) encode() string {
+	b, _ := json.Marshal(o) // a struct of strings cannot fail
+	return string(b)
+}
+
+func decodeOptions(raw string) (JobOptions, error) {
+	var o JobOptions
+	if raw == "" {
+		return o, nil
+	}
+	if err := json.Unmarshal([]byte(raw), &o); err != nil {
+		return o, fmt.Errorf("options %q: %w", raw, err)
+	}
+	return o, nil
+}
+
 // NewID returns a 32-character random hex id.
 func NewID() (string, error) {
 	b := make([]byte, 16)
@@ -87,7 +123,7 @@ func NewID() (string, error) {
 	return hex.EncodeToString(b), nil
 }
 
-const jobColumns = `rowid, id, client, idempotency_key, target, state, attempts, max_attempts, priority,
+const jobColumns = `rowid, id, client, idempotency_key, target, state, attempts, max_attempts, priority, options,
 	next_attempt_at, payload, resolved_payload, target_job_id, poll_deadline,
 	target_status, target_response, result_path, result_content_type,
 	error_code, error_message, created_at, updated_at, completed_at`
@@ -98,6 +134,7 @@ type rowScanner interface{ Scan(dest ...any) error }
 // sql.Null* fields and are folded into the job by toJob.
 type jobRow struct {
 	job                                   Job
+	options                               string
 	idem, nextAt, targetJobID, pollDL     sql.NullString
 	resultPath, resultCT, errCode, errMsg sql.NullString
 	createdAt, updatedAt, completedAt     sql.NullString
@@ -107,7 +144,7 @@ type jobRow struct {
 func scanJob(r rowScanner) (*Job, error) {
 	var row jobRow
 	j := &row.job
-	err := r.Scan(&j.Seq, &j.ID, &j.Client, &row.idem, &j.Target, &j.State, &j.Attempts, &j.MaxAttempts, &j.Priority,
+	err := r.Scan(&j.Seq, &j.ID, &j.Client, &row.idem, &j.Target, &j.State, &j.Attempts, &j.MaxAttempts, &j.Priority, &row.options,
 		&row.nextAt, &j.Payload, &j.ResolvedPayload, &row.targetJobID, &row.pollDL,
 		&row.targetStatus, &j.TargetResponse, &row.resultPath, &row.resultCT,
 		&row.errCode, &row.errMsg, &row.createdAt, &row.updatedAt, &row.completedAt)
@@ -129,6 +166,10 @@ func (row *jobRow) toJob() (*Job, error) {
 	if row.targetStatus.Valid {
 		v := int(row.targetStatus.Int64)
 		j.TargetStatus = &v
+	}
+	var err error
+	if j.Options, err = decodeOptions(row.options); err != nil {
+		return nil, fmt.Errorf("job %s: %w", j.ID, err)
 	}
 	if err := row.parseTimes(j); err != nil {
 		return nil, err
@@ -208,9 +249,9 @@ func insertJob(ctx context.Context, tx *sql.Tx, j *Job, now time.Time) error {
 		idem = j.IdempotencyKey
 	}
 	_, err := tx.ExecContext(ctx, `INSERT INTO jobs
-		(id, client, idempotency_key, target, state, attempts, max_attempts, priority, payload, created_at, updated_at)
-		VALUES (?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?)`,
-		j.ID, j.Client, idem, j.Target, StateReceived, j.MaxAttempts, j.Priority, j.Payload, ts(now), ts(now))
+		(id, client, idempotency_key, target, state, attempts, max_attempts, priority, options, payload, created_at, updated_at)
+		VALUES (?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?)`,
+		j.ID, j.Client, idem, j.Target, StateReceived, j.MaxAttempts, j.Priority, j.Options.encode(), j.Payload, ts(now), ts(now))
 	return err
 }
 

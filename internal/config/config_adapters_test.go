@@ -46,3 +46,48 @@ resolvents:
 		}
 	}
 }
+
+func TestCacheIgnoreFields(t *testing.T) {
+	cfg, err := Load(writeConfig(t, `
+auth:
+  api_keys: [{name: t, key: k}]
+targets:
+  demo:
+    url: "https://demo.example.com/run"
+resolvents:
+  resolvent-a:
+    url: "https://a.example.com/q"
+  resolvent-b:
+    url: "https://b.example.com/q"
+    cache_ignore_fields: [name, comment, requested_by]
+  resolvent-c:
+    url: "https://c.example.com/q"
+    cache_ignore_fields: []
+`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := cfg.Resolvents["resolvent-a"].CacheIgnore(); len(got) != 1 || got[0] != "name" {
+		t.Errorf("default ignore = %v, want [name]", got)
+	}
+	if got := cfg.Resolvents["resolvent-b"].CacheIgnore(); len(got) != 3 {
+		t.Errorf("explicit ignore = %v", got)
+	}
+	if got := cfg.Resolvents["resolvent-c"].CacheIgnore(); got == nil || len(got) != 0 {
+		t.Errorf("explicit empty list must ignore nothing, got %v", got)
+	}
+	_, err = Load(writeConfig(t, `
+auth:
+  api_keys: [{name: t, key: k}]
+targets:
+  demo:
+    url: "https://demo.example.com/run"
+resolvents:
+  resolvent-a:
+    url: "https://a.example.com/q"
+    cache_ignore_fields: [type]
+`))
+	if err == nil || !strings.Contains(err.Error(), `cache_ignore_fields[0]: "type" cannot be ignored`) {
+		t.Errorf("ignoring type must be rejected, got %v", err)
+	}
+}

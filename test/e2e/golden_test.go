@@ -97,6 +97,45 @@ var resolutionScenarios = []scenario{
 		},
 	},
 	{
+		// options.cache: refresh re-fetches a cached series and rewrites the
+		// entry; bypass fetches fresh and leaves the cache alone; the default
+		// serves the cache. The resource call count tells the story.
+		name: "cache-modes",
+		run: func(t *testing.T, h *harness) {
+			payload := `{"time-series":[{"type":"resolvent-pv1","lat":48.83}]}`
+			with := func(mode string) string {
+				return `{"api_key":"` + clientKey + `","target":"demo","options":{"cache":"` + mode + `"},"payload":` + payload + `}`
+			}
+			first := h.post("first request fills the cache", requestBody("demo", payload), nil)
+			h.await("first completes (one fetch)", first)
+			refreshed := h.post("refresh: fetch fresh despite the cache", with("refresh"), nil)
+			h.await("refresh completes (second fetch)", refreshed)
+			h.events("refresh's audit trail (0 from cache)", refreshed)
+			bypassed := h.post("bypass: fetch fresh, touch nothing", with("bypass"), nil)
+			h.await("bypass completes (third fetch)", bypassed)
+			again := h.post("default mode serves the cache again", requestBody("demo", payload), nil)
+			h.await("served from cache (no fetch)", again)
+			h.events("audit trail of the cached run", again)
+			h.get("the option is echoed on the job", "/v1/requests/"+refreshed, map[string]string{"X-API-Key": clientKey})
+			h.counts()
+		},
+	},
+	{
+		// The name label is not part of the cache key: two resolvents that
+		// differ only in name share one fetch and both slots are filled.
+		name: "cache-ignores-name",
+		run: func(t *testing.T, h *harness) {
+			payload := `{"time-series":[
+				{"name":"north_roof","type":"resolvent-pv1","lat":48.83,"capacity_kw":5},
+				{"name":"south_roof","type":"resolvent-pv1","lat":48.83,"capacity_kw":5}
+			]}`
+			id := h.post("submit two resolvents differing only in name", requestBody("demo", payload), nil)
+			h.await("final state", id)
+			h.forwarded("both slots filled from one fetch, names preserved in the markers", "demo")
+			h.counts()
+		},
+	},
+	{
 		name: "unknown-resolvent",
 		run: func(t *testing.T, h *harness) {
 			payload := `{"time-series":[{"type":"resolvent-pv1"},{"type":"resolvent-tidal"}]}`

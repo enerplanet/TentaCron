@@ -93,3 +93,26 @@ func indexOf(s, sub string) int {
 	}
 	return -1
 }
+
+// The plan's cache keys follow each type's cache_ignore_fields: by default
+// the name label is left out, so same-parameter resolvents share a key.
+func TestInspectAppliesCacheIgnoreFields(t *testing.T) {
+	cfg := testConfig()
+	p := Inspect(cfg, "demo", []byte(`{"time-series":[
+		{"type":"resolvent-pv1","name":"north","lat":1},
+		{"type":"resolvent-pv1","name":"south","lat":1},
+		{"type":"resolvent-pv1","name":"south","lat":2}]}`))
+	if !p.OK() || len(p.Found) != 3 {
+		t.Fatalf("plan = %+v", p.Problems)
+	}
+	if p.Found[0].Hash != p.Found[1].Hash || p.Found[1].Hash == p.Found[2].Hash {
+		t.Errorf("name must not split cache keys, lat must: %s %s %s", p.Found[0].Hash[:8], p.Found[1].Hash[:8], p.Found[2].Hash[:8])
+	}
+	strict := cfg.Resolvents["resolvent-pv1"]
+	strict.CacheIgnoreFields = []string{}
+	cfg.Resolvents["resolvent-pv1"] = strict
+	p = Inspect(cfg, "demo", []byte(`{"time-series":[{"type":"resolvent-pv1","name":"north","lat":1},{"type":"resolvent-pv1","name":"south","lat":1}]}`))
+	if p.Found[0].Hash == p.Found[1].Hash {
+		t.Error("an explicit empty ignore list must keep name in the key")
+	}
+}

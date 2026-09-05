@@ -322,6 +322,11 @@ type Resolvent struct {
 	// backend expects ({capacity_kw: peakpower}); unmapped fields keep
 	// their name. GET resolvents only.
 	QueryMap map[string]string `yaml:"query_map"`
+	// CacheIgnoreFields lists resolvent fields left out of the series-cache
+	// key: labels such as name or comment that do not change the series.
+	// nil means the default ["name"]; an explicit empty list ignores
+	// nothing.
+	CacheIgnoreFields []string `yaml:"cache_ignore_fields"`
 	// ResponseMap builds the substituted series object from a backend
 	// whose response is not a time-series object: each key becomes a key
 	// of the series, "$path" values select from the response (with an
@@ -504,6 +509,18 @@ func (t *Target) applyResponseDefaults() {
 	if p.ResultURLTemplate == "" {
 		p.ResultURLTemplate = p.URLTemplate
 	}
+}
+
+// DefaultCacheIgnoreFields are left out of the cache key unless a resolvent
+// lists its own fields.
+var DefaultCacheIgnoreFields = []string{"name"}
+
+// CacheIgnore returns the fields excluded from this resolvent's cache key.
+func (r Resolvent) CacheIgnore() []string {
+	if r.CacheIgnoreFields == nil {
+		return DefaultCacheIgnoreFields
+	}
+	return r.CacheIgnoreFields
 }
 
 func (r *Resolvent) applyDefaults(defaultTTL Duration) {

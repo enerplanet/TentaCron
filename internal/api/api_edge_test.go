@@ -19,7 +19,6 @@ import (
 
 	"github.com/enerplanet/tentacron/internal/config"
 	"github.com/enerplanet/tentacron/internal/plan"
-	"github.com/enerplanet/tentacron/internal/resolver"
 	"github.com/enerplanet/tentacron/internal/store"
 )
 
@@ -896,11 +895,11 @@ func TestValidateDryRun(t *testing.T) {
 		resp.Resolvents[0].Path != "/time-series/0" || resp.Resolvents[0].Name != "pv" || resp.Resolvents[0].Cached {
 		t.Fatalf("dry run = %d %+v", code, resp)
 	}
-	// Prime the cache under the same hash the worker would use; the dry run
-	// then reports the series as cached.
-	root, _ := resolver.Parse([]byte(payload))
-	found, _ := resolver.Find(root, "time-series")
-	if err := e.store.PutSeries(context.Background(), found[0].Hash, "resolvent-pv1", []byte(`{}`), time.Hour); err != nil {
+	// Prime the cache under the key the worker uses (the plan's, which
+	// leaves the name label out); the dry run then reports the series as
+	// cached.
+	key := plan.Inspect(e.server.cfg, "demo", []byte(payload)).Found[0].Hash
+	if err := e.store.PutSeries(context.Background(), key, "resolvent-pv1", []byte(`{}`), time.Hour); err != nil {
 		t.Fatal(err)
 	}
 	if _, resp := validate(`{"target":"demo","payload":` + payload + `}`); !resp.Resolvents[0].Cached {
@@ -923,5 +922,24 @@ func TestValidateDryRun(t *testing.T) {
 	}
 	if jobs, _ := e.store.ListJobs(context.Background(), store.ListFilter{Limit: 10}); len(jobs) != 0 {
 		t.Errorf("dry runs must persist nothing, found %d jobs", len(jobs))
+	}
+}
+
+// options.cache is validated and echoed on the job when it is not the
+// default.
+func TestCacheOptionValidationAndEcho(t *testing.T) {
+	e := newEnv(t)
+	for _, body := range []string{`{"target":"meme","payload":{},"options":{"cache":"maybe"}}`, `{"target":"meme","payload":{},"options":{"cache":5}}`} {
+		if rec := e.do(t, "POST", "/v1/requests", body, authHdr); rec.Code != http.StatusBadRequest {
+			t.Errorf("%s: %d, want 400", body, rec.Code)
+		}
+	}
+	for mode, want := range map[string]string{"refresh": `{"cache":"refresh"}`, "bypass": `{"cache":"bypass"}`, "use": "", "": ""} {
+		body := `{"target":"meme","payload":{},"options":{"cache":"` + mode + `"}}`
+		created := decodeBody[createResponse](t, e.do(t, "POST", "/v1/requests", body, authHdr))
+		doc := decodeBody[map[string]json.RawMessage](t, e.do(t, "GET", "/v1/requests/"+created.ID, "", authHdr))
+		if string(doc["options"]) != want {
+			t.Errorf("mode %q echoed as %s, want %q", mode, doc["options"], want)
+		}
 	}
 }

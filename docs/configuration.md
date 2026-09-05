@@ -90,8 +90,12 @@ the `priority` a key may request (`-10`..`10`, default: the full range).
 | `cleanup_interval` | `15m` | Sweep cadence for expired cache rows, stuck-job rescue and retention pruning. |
 
 Identical resolvent objects (same type + parameters, key order irrelevant)
-share one cache entry — repeated requests don't re-hit the backends. The hash
-covers the whole object, so cosmetic fields such as `name` split entries.
+share one cache entry — repeated requests don't re-hit the backends. The key
+covers the object minus each type's `cache_ignore_fields` (`name` by
+default), so two resolvents that differ only in their label share a fetch.
+A request may set `options.cache` to `refresh` (fetch fresh, rewrite the
+entries — the right mode for a daily rerun that must see today's data) or
+`bypass` (fetch fresh, touch nothing).
 
 ## targets
 
@@ -242,6 +246,7 @@ One entry per resolvent type. Keys must start with `resolvent-`.
 | `target` | – | A configured **direct-mode** target as backend instead of `url`. |
 | `payload_field` | – (whole object) | Resolvent field whose value is sent as the call's payload. |
 | `response_path` | – (whole response) | Dot path extracting the series from the response; numeric segments index arrays. |
+| `cache_ignore_fields` | `[name]` | Fields left out of the series-cache key: labels that do not change the series. An explicit `[]` keeps every field in the key; `type` cannot be listed. |
 | `query_map` | – | GET only: renames resolvent fields to the API's parameter names (`capacity_kw: peakpower`); unmapped fields keep their name. |
 | `response_map` | – | Builds the series object from a response that is not one: keys become series keys, `".path"` values select from the response (`[*]` projects over an array), `{path, scale}` rescales, anything else is a literal. Applied after `response_path`. |
 

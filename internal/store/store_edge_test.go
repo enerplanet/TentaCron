@@ -1017,10 +1017,33 @@ func TestMigrationAddsPriorityToExistingRows(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = s.Close() })
 	job, err := s.GetJob(context.Background(), "old-job")
-	if err != nil || job.Priority != 0 || job.Client != "frontend" {
+	if err != nil || job.Priority != 0 || job.Client != "frontend" || !job.Options.IsZero() {
 		t.Fatalf("existing row after migration: %+v (err %v)", job, err)
 	}
 	if c, err := s.ClaimNext(context.Background(), noPoll); err != nil || c == nil || c.ID != "old-job" {
 		t.Fatalf("existing row must stay claimable: %v %v", c, err)
+	}
+}
+
+// Job options round-trip through their JSON column; a job created without
+// any reads back with defaults, as do rows from before the column existed.
+func TestJobOptionsRoundTrip(t *testing.T) {
+	s := openTest(t)
+	ctx := context.Background()
+	plain := newJob(t, "meme")
+	mustCreate(t, s, plain)
+	tuned := newJob(t, "meme")
+	tuned.Options = JobOptions{Cache: CacheRefresh}
+	mustCreate(t, s, tuned)
+	got, _ := s.GetJob(ctx, plain.ID)
+	if !got.Options.IsZero() {
+		t.Errorf("plain job options = %+v, want defaults", got.Options)
+	}
+	got, _ = s.GetJob(ctx, tuned.ID)
+	if got.Options.Cache != CacheRefresh {
+		t.Errorf("tuned job options = %+v", got.Options)
+	}
+	if _, err := decodeOptions("not json"); err == nil {
+		t.Error("corrupt options must be reported, not ignored")
 	}
 }

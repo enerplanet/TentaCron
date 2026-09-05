@@ -10,6 +10,12 @@ under "Changed" with the keys or fields concerned.
 
 ### Added
 
+- Cache control: `options.cache` on a request selects `use` (default),
+  `refresh` (fetch fresh, rewrite the cache — for reruns that must see new
+  data) or `bypass` (fetch fresh, touch nothing), echoed on the job; a
+  resolvent's `cache_ignore_fields` keeps label fields out of the cache key,
+  `name` by default, so resolvents differing only in their label share one
+  fetch. Job options live in a JSON column added by migration 0003.
 - Response adapters: a resolvent's `response_map` builds the series object
   from a backend that does not speak the series contract (`".path"`
   selections with a `[*]` projection, `{path, scale}` rescaling, literals),
@@ -90,6 +96,9 @@ under "Changed" with the keys or fields concerned.
 
 ### Changed
 
+- The series-cache key leaves out a resolvent's `name` by default (set
+  `cache_ignore_fields: []` on a type to restore the old behaviour); entries
+  cached under the old keys expire with their TTL.
 - GET resolvents no longer send the object's `name` field as a query
   parameter (it is tentacron's label, like `type`).
 - `server.max_body_bytes` caps inbound request bodies only. The JSON

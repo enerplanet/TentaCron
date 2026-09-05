@@ -94,7 +94,7 @@ func (p *Pool) processNew(ctx, bg context.Context, job *store.Job) {
 		p.failJob(bg, job, pl.Problems[0].Code, pl.Problems[0].Message)
 		return
 	}
-	seriesByHash, cached, err := p.fetchAll(ctx, bg, pl.Found)
+	seriesByHash, cached, err := p.fetchAll(ctx, bg, pl.Found, job.Options.Cache)
 	if err != nil {
 		p.failResolution(bg, job, err)
 		return
@@ -187,13 +187,13 @@ type fetchResult struct {
 // failure into a cancellation, making it a scheduling race which resolvent
 // the job's error names. Because feeding follows document order, the first
 // failing resolvent in document order always records its true error.
-func (p *Pool) fetchAll(ctx, bg context.Context, found []*resolver.Found) (map[string][]byte, int, error) {
+func (p *Pool) fetchAll(ctx, bg context.Context, found []*resolver.Found, cacheMode string) (map[string][]byte, int, error) {
 	unique := uniqueByHash(found)
 	results := make(chan fetchResult, len(unique))
 	stop := make(chan struct{})
 	feed := feedResolvents(ctx, unique, stop, results)
 	for range min(p.cfg.Worker.ResolventConcurrency, len(unique)) {
-		go p.fetchLoop(ctx, bg, feed, results)
+		go p.fetchLoop(ctx, bg, feed, results, cacheMode)
 	}
 	return collectFetches(unique, results, stop)
 }
@@ -235,9 +235,9 @@ func feedResolvents(ctx context.Context, unique []*resolver.Found, stop <-chan s
 
 // fetchLoop is one bounded fetcher: it resolves resolvents from feed until
 // the feed closes, sending exactly one result per resolvent.
-func (p *Pool) fetchLoop(ctx, bg context.Context, feed <-chan *resolver.Found, results chan<- fetchResult) {
+func (p *Pool) fetchLoop(ctx, bg context.Context, feed <-chan *resolver.Found, results chan<- fetchResult, cacheMode string) {
 	for f := range feed {
-		body, cached, err := p.fetchOne(ctx, bg, f)
+		body, cached, err := p.fetchOne(ctx, bg, f, cacheMode)
 		results <- fetchResult{hash: f.Hash, body: body, cached: cached, err: err}
 	}
 }
@@ -291,15 +291,19 @@ func pickResolveError(unique []*resolver.Found, errByHash map[string]error) erro
 	return fallback
 }
 
-func (p *Pool) fetchOne(ctx, bg context.Context, f *resolver.Found) (body []byte, cached bool, err error) {
-	// A store error on the cache read is deliberately treated as a miss:
-	// fall through and fetch fresh rather than fail the job over a cache
-	// problem.
-	if body, hit, err := p.store.GetSeries(ctx, f.Hash); err == nil && hit {
-		p.metrics.CacheLookup(true)
-		return body, true, nil
+// fetchOne resolves one resolvent under the job's cache mode: "use" reads
+// and writes the series cache, "refresh" skips the read, "bypass" skips both.
+func (p *Pool) fetchOne(ctx, bg context.Context, f *resolver.Found, cacheMode string) (body []byte, cached bool, err error) {
+	if cacheMode != store.CacheBypass && cacheMode != store.CacheRefresh {
+		// A store error on the cache read is deliberately treated as a miss:
+		// fall through and fetch fresh rather than fail the job over a cache
+		// problem.
+		if body, hit, err := p.store.GetSeries(ctx, f.Hash); err == nil && hit {
+			p.metrics.CacheLookup(true)
+			return body, true, nil
+		}
+		p.metrics.CacheLookup(false)
 	}
-	p.metrics.CacheLookup(false)
 	rcfg := p.cfg.Resolvents[f.Type]
 	body, err = p.callResolventBackend(ctx, f, rcfg)
 	if err != nil {
@@ -330,6 +334,9 @@ func (p *Pool) fetchOne(ctx, bg context.Context, f *resolver.Found) (body []byte
 		// json.Unmarshal accepts "null" into a map without error; caching it
 		// would poison every job sharing this resolvent for the TTL.
 		return nil, false, fmt.Errorf("resource %s returned null instead of a time-series object: %w", f.Type, errBadResourceBody)
+	}
+	if cacheMode == store.CacheBypass {
+		return body, false, nil
 	}
 	if err := p.store.PutSeries(bg, f.Hash, f.Type, body, rcfg.CacheTTL.Std()); err != nil {
 		p.logger.Warn("series cache write failed", "type", f.Type, "error", err)

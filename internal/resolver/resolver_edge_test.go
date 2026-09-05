@@ -335,3 +335,29 @@ func TestParsePathAndValidateResponseMap(t *testing.T) {
 		t.Errorf("valid map rejected: %v", err)
 	}
 }
+
+// Rehash drops label fields from the cache key so two resolvents that differ
+// only in, say, name share one fetch; the object itself is untouched.
+func TestRehashIgnoresLabelFields(t *testing.T) {
+	a := find(t, parse(t, `{"time-series":[{"type":"resolvent-x","name":"north","lat":1}]}`), "time-series")[0]
+	b := find(t, parse(t, `{"time-series":[{"type":"resolvent-x","name":"south","lat":1}]}`), "time-series")[0]
+	c := find(t, parse(t, `{"time-series":[{"type":"resolvent-x","name":"south","lat":2}]}`), "time-series")[0]
+	if a.Hash == b.Hash {
+		t.Fatal("before rehash the names must split the keys")
+	}
+	for _, f := range []*Found{a, b, c} {
+		if err := f.Rehash([]string{"name", "comment"}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if a.Hash != b.Hash || b.Hash == c.Hash {
+		t.Errorf("rehash: a=%s b=%s c=%s", a.Hash[:8], b.Hash[:8], c.Hash[:8])
+	}
+	if a.Object["name"] != "north" {
+		t.Error("the object must keep its fields; only the key changes")
+	}
+	before := c.Hash
+	if err := c.Rehash(nil); err != nil || c.Hash != before {
+		t.Error("an empty ignore list must be a no-op")
+	}
+}

@@ -316,6 +316,11 @@ func (v *validator) adapters(p string, r Resolvent) {
 			v.fail("%s.%v", p, err)
 		}
 	}
+	for i, field := range r.CacheIgnoreFields {
+		if field == "" || field == "type" {
+			v.fail("%s.cache_ignore_fields[%d]: %q cannot be ignored (type identifies the resolvent; fields must be named)", p, i, field)
+		}
+	}
 }
 
 func (v *validator) targetBacked(p string, r Resolvent, targets map[string]Target) {

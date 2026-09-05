@@ -205,6 +205,4 @@ while the service is stopped switches it over.
 ## Roadmap notes (v2)
 
 - Prometheus `/metrics` (job states, upstream latencies, cache hit ratio).
-- Per-type `cache_ignore_fields` so cosmetic fields (e.g. `name`) don't split
-  cache entries.
 - Config hot-reload / key rotation without restart.

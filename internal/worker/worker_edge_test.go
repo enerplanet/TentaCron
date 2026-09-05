@@ -20,8 +20,8 @@ import (
 	"time"
 
 	"github.com/enerplanet/tentacron/internal/config"
-	"github.com/enerplanet/tentacron/internal/plan"
 	"github.com/enerplanet/tentacron/internal/metrics"
+	"github.com/enerplanet/tentacron/internal/plan"
 	"github.com/enerplanet/tentacron/internal/store"
 	"github.com/enerplanet/tentacron/internal/upstream"
 )
@@ -1139,5 +1139,40 @@ func assertNoSpoolFiles(t *testing.T, dir string) {
 		if strings.HasSuffix(e.Name(), ".tmp") {
 			t.Errorf("spool file left behind: %s", e.Name())
 		}
+	}
+}
+
+// Cache modes: refresh fetches fresh and writes, bypass fetches fresh and
+// leaves the cache alone, use serves the cached series.
+func TestCacheModesDriveReadsAndWrites(t *testing.T) {
+	cfg := baseConfig(t)
+	resource, calls := fakeResource(t, 0)
+	target, _ := fakeDirectTarget(t, 200, `{"ok":true}`)
+	cfg.Resolvents["resolvent-pv1"] = resolventCfg(resource.URL)
+	cfg.Targets["demo"] = directTargetCfg(target.URL)
+	st := openStore(t)
+	startPool(t, cfg, st)
+	payload := `{"time-series":[{"type":"resolvent-pv1","lat":48.8}]}`
+	submit := func(mode string) *store.Job {
+		id, _ := store.NewID()
+		if _, _, err := st.CreateJob(context.Background(), &store.Job{ID: id, Target: "demo", MaxAttempts: 3, Payload: []byte(payload), Options: store.JobOptions{Cache: mode}}); err != nil {
+			t.Fatal(err)
+		}
+		return waitForTerminal(t, st, id)
+	}
+	if job := submit(store.CacheBypass); job.State != store.StateCompleted || calls.Load() != 1 {
+		t.Fatalf("bypass: state=%s calls=%d", job.State, calls.Load())
+	}
+	if job := submit(""); job.State != store.StateCompleted || calls.Load() != 2 {
+		t.Fatalf("after bypass nothing may be cached: calls=%d, want a second fetch", calls.Load())
+	}
+	if job := submit(""); job.State != store.StateCompleted || calls.Load() != 2 {
+		t.Fatalf("use must serve the cached series: calls=%d", calls.Load())
+	}
+	if job := submit(store.CacheRefresh); job.State != store.StateCompleted || calls.Load() != 3 {
+		t.Fatalf("refresh must fetch fresh: calls=%d", calls.Load())
+	}
+	if job := submit(""); job.State != store.StateCompleted || calls.Load() != 3 {
+		t.Fatalf("refresh must have written the cache: calls=%d", calls.Load())
 	}
 }

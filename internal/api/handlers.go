@@ -27,6 +27,21 @@ type createRequest struct {
 	Payload json.RawMessage `json:"payload"`
 	// Priority orders claims (-10..10, default 0); capped per client key.
 	Priority *int `json:"priority"`
+	// Options are per-request processing choices.
+	Options *requestOptions `json:"options"`
+}
+
+type requestOptions struct {
+	// Cache is use (default), bypass or refresh.
+	Cache string `json:"cache,omitempty"`
+}
+
+// jobOptions converts the request's options into the stored form.
+func (r createRequest) jobOptions() store.JobOptions {
+	if r.Options == nil || r.Options.Cache == store.CacheUse {
+		return store.JobOptions{}
+	}
+	return store.JobOptions{Cache: r.Options.Cache}
 }
 
 type createResponse struct {
@@ -115,8 +130,18 @@ func validateCreateRequest(req createRequest) (status int, code, msg string) {
 	case req.Priority != nil && (*req.Priority < config.MinPriority || *req.Priority > config.MaxPriority):
 		return http.StatusBadRequest, CodeInvalidParameter,
 			fmt.Sprintf("priority must be between %d and %d", config.MinPriority, config.MaxPriority)
+	case req.Options != nil && !validCacheMode(req.Options.Cache):
+		return http.StatusBadRequest, CodeInvalidParameter, "options.cache must be use, bypass or refresh"
 	}
 	return 0, "", ""
+}
+
+func validCacheMode(mode string) bool {
+	switch mode {
+	case "", store.CacheUse, store.CacheBypass, store.CacheRefresh:
+		return true
+	}
+	return false
 }
 
 func (s *Server) handleCreate(w http.ResponseWriter, r *http.Request) {
@@ -227,6 +252,7 @@ func (s *Server) acceptJob(w http.ResponseWriter, r *http.Request, req createReq
 	if req.Priority != nil {
 		job.Priority = *req.Priority
 	}
+	job.Options = req.jobOptions()
 	created, stored, err := s.store.CreateJob(r.Context(), job)
 	if errors.Is(err, store.ErrIdempotencyConflict) {
 		writeError(w, http.StatusConflict, CodeIdempotencyConflict,
@@ -263,12 +289,17 @@ type jobResponse struct {
 	State       string      `json:"state"`
 	Attempts    int         `json:"attempts"`
 	Priority    int         `json:"priority,omitempty"`
+	Options     *jobOptions `json:"options,omitempty"`
 	TargetJobID string      `json:"target_job_id,omitempty"`
 	CreatedAt   string      `json:"created_at"`
 	UpdatedAt   string      `json:"updated_at"`
 	CompletedAt *string     `json:"completed_at,omitempty"`
 	Result      *resultInfo `json:"result"`
 	Error       *errorInfo  `json:"error"`
+}
+
+type jobOptions struct {
+	Cache string `json:"cache,omitempty"`
 }
 
 type resultInfo struct {
@@ -578,6 +609,9 @@ func toJobResponse(j *store.Job) jobResponse {
 	if j.CompletedAt != nil {
 		s := j.CompletedAt.UTC().Format(time.RFC3339)
 		resp.CompletedAt = &s
+	}
+	if !j.Options.IsZero() {
+		resp.Options = &jobOptions{Cache: j.Options.Cache}
 	}
 	if j.State == store.StateCompleted {
 		resp.Result = resultInfoFor(j)

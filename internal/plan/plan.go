@@ -79,6 +79,15 @@ func Inspect(cfg *config.Config, target string, payload []byte) Plan {
 			p.Problems = append(p.Problems, Problem{CodeUnknownResolvent, fmt.Sprintf("no resolvent config for type %q", typ)})
 		}
 	}
+	// Cache keys leave out each type's label fields, so two resolvents that
+	// differ only in name share one fetch and one cache entry.
+	for _, f := range found {
+		if rcfg, ok := cfg.Resolvents[f.Type]; ok {
+			if err := f.Rehash(rcfg.CacheIgnore()); err != nil {
+				p.Problems = append(p.Problems, Problem{CodeInvalidPayload, err.Error()})
+			}
+		}
+	}
 	return p
 }
 

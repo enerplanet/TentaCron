@@ -440,6 +440,15 @@ components:
           maximum: 10
           default: 0
           description: Higher priorities are claimed first; capped per key.
+        options:
+          type: object
+          description: Per-request processing choices.
+          properties:
+            cache:
+              type: string
+              enum: [use, bypass, refresh]
+              default: use
+              description: "`bypass` neither reads nor writes the series cache; `refresh` fetches fresh and writes."
         api_key:
           type: string
           deprecated: true
@@ -465,6 +474,11 @@ components:
         priority:
           type: integer
           description: Present when not the default 0.
+        options:
+          type: object
+          description: Present when any option differs from its default.
+          properties:
+            cache: { type: string, enum: [bypass, refresh] }
         target_job_id:
           type: string
           description: The asynchronous target's own job id, once accepted.
