@@ -13,6 +13,7 @@ import (
 	"net/http"
 	"strings"
 	"time"
+	"unicode/utf8"
 )
 
 // Error is a classified upstream failure.
@@ -153,7 +154,9 @@ func (c *Client) readCapped(r io.Reader) ([]byte, error) {
 
 // excerpt prepares an upstream body for logs, stored error messages and API
 // responses: configured credentials are redacted before the excerpt is
-// truncated, so a secret can never survive by straddling the cut.
+// truncated, so a secret can never survive by straddling the cut. The cut
+// falls on a rune boundary, so the excerpt stays valid UTF-8, and
+// surrounding whitespace (the newline http.Error appends) is dropped.
 func (c *Client) excerpt(b []byte) string {
 	s := strings.ToValidUTF8(string(b), "")
 	for _, secret := range c.secrets {
@@ -161,8 +164,13 @@ func (c *Client) excerpt(b []byte) string {
 			s = strings.ReplaceAll(s, secret, "[redacted]")
 		}
 	}
+	s = strings.TrimSpace(s)
 	if len(s) > errBodyExcerpt {
-		s = s[:errBodyExcerpt] + "…"
+		cut := errBodyExcerpt
+		for cut > 0 && !utf8.RuneStart(s[cut]) {
+			cut--
+		}
+		s = s[:cut] + "…"
 	}
 	return s
 }

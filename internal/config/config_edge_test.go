@@ -323,7 +323,7 @@ targets:
         url_template: "jobs/{id}"
         status_json_path: state
         done_values: [done]
-`, "url_template: \"jobs/x\" is not a valid http(s) URL"},
+`, "url_template: \"jobs/{id}\" is not a valid http(s) URL"},
 	}
 	for _, tt := range cases {
 		t.Run(tt.name, func(t *testing.T) {

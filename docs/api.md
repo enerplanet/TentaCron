@@ -135,4 +135,6 @@ positive integer). Items have the same shape as `GET /v1/requests/{id}`.
 - `GET /readyz` — `200` once migrations ran and the database answers,
   `503` otherwise.
 
-Any other route answers `404 not_found` in the standard error shape.
+Any other route answers `404 not_found` in the standard error shape; a known
+route with an unsupported method answers `405 method_not_allowed` with an
+`Allow` header listing the accepted methods.

@@ -12,6 +12,7 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
+	"unicode/utf8"
 
 	"github.com/enerplanet/tentacron/internal/config"
 )
@@ -166,6 +167,15 @@ func TestExcerptTruncatesAndRedacts(t *testing.T) {
 	}
 	if got := c.excerpt([]byte("\xff\xfeok")); got != "ok" {
 		t.Errorf("invalid UTF-8 must be stripped, got %q", got)
+	}
+	// 3-byte runes never align with the 512-byte cut: the excerpt must end
+	// on a rune boundary and stay valid UTF-8.
+	multibyte := c.excerpt([]byte(strings.Repeat("€", 300)))
+	if !utf8.ValidString(multibyte) || !strings.HasSuffix(multibyte, "€…") || len(multibyte) > errBodyExcerpt+len("…") {
+		t.Errorf("multibyte cut must fall on a rune boundary: valid=%v len=%d", utf8.ValidString(multibyte), len(multibyte))
+	}
+	if got := c.excerpt([]byte("{\"error\":\"x\"}\n")); got != `{"error":"x"}` {
+		t.Errorf("trailing newline (http.Error) must be trimmed, got %q", got)
 	}
 }
 

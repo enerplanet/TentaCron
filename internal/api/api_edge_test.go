@@ -412,19 +412,29 @@ func TestJobResponseFieldPresence(t *testing.T) {
 	}
 }
 
-// A wrong method on a known path falls through to the JSON catch-all: the
-// error envelope stays uniform (the mux's plain-text 405 never surfaces).
-func TestWrongMethodKeepsJSONEnvelope(t *testing.T) {
+// A wrong method on a known path is a 405 with an Allow header, an unknown
+// path a 404 — both in the JSON envelope; the mux's plain text never
+// surfaces.
+func TestWrongMethodIs405WithAllowInJSONEnvelope(t *testing.T) {
 	e := newEnv(t)
-	for _, tt := range []struct{ method, path string }{
-		{"POST", "/v1/requests/abc"}, {"PUT", "/v1/requests"}, {"DELETE", "/healthz"},
+	for _, tt := range []struct{ method, path, allow string }{
+		{"POST", "/v1/requests/abc", "GET"}, {"PUT", "/v1/requests", "GET"}, {"DELETE", "/healthz", "GET"},
 	} {
 		rec := e.do(t, tt.method, tt.path, "", nil)
-		if rec.Code != http.StatusNotFound || errCode(t, rec) != CodeNotFound {
+		if rec.Code != http.StatusMethodNotAllowed || errCode(t, rec) != CodeMethodNotAllowed {
 			t.Errorf("%s %s: %d %s", tt.method, tt.path, rec.Code, rec.Body.String())
+		}
+		if allow := rec.Header().Get("Allow"); !strings.Contains(allow, tt.allow) {
+			t.Errorf("%s %s: Allow %q must list %s", tt.method, tt.path, allow, tt.allow)
 		}
 		if ct := rec.Header().Get("Content-Type"); ct != "application/json" {
 			t.Errorf("%s %s: content-type %q", tt.method, tt.path, ct)
+		}
+	}
+	for _, tt := range []struct{ method, path string }{{"GET", "/v2/other"}, {"DELETE", "/nope"}, {"POST", "/v1"}} {
+		rec := e.do(t, tt.method, tt.path, "", nil)
+		if rec.Code != http.StatusNotFound || errCode(t, rec) != CodeNotFound || rec.Header().Get("Allow") != "" {
+			t.Errorf("%s %s: %d %s allow=%q", tt.method, tt.path, rec.Code, rec.Body.String(), rec.Header().Get("Allow"))
 		}
 	}
 }

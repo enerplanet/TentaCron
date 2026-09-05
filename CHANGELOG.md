@@ -19,6 +19,10 @@ under "Changed" with the keys or fields concerned.
 
 ### Changed
 
+- A known route called with an unsupported method answers
+  `405 method_not_allowed` with an `Allow` header, in the JSON error
+  envelope; it used to answer `404 not_found`. Unknown routes still answer
+  404.
 - Configuration validation rejects non-positive numeric settings and
   durations: `worker.count`, `worker.resolvent_concurrency`,
   `worker.max_attempts`, `server.max_body_bytes`, every timeout, interval,
@@ -29,6 +33,11 @@ under "Changed" with the keys or fields concerned.
 
 ### Fixed
 
+- Upstream error excerpts are truncated on a rune boundary, so a stored or
+  logged excerpt can no longer end in invalid UTF-8, and surrounding
+  whitespace (the newline `http.Error` appends) is trimmed.
+- The validation error for a malformed poll `url_template` quotes the
+  template as written instead of the `{id}`-substituted probe URL.
 - Retention pruning could stop working for good: the delete bound one SQL
   parameter per job id and SQLite refuses statements with more than 32,766
   of them, so once a sweep selected a larger backlog every sweep failed and
