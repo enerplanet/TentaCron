@@ -8,6 +8,15 @@ under "Changed" with the keys or fields concerned.
 
 ## [Unreleased]
 
+### Added
+
+- Project hygiene for contributors: `SECURITY.md` with private disclosure
+  and supported versions, a pull request template mirroring the
+  contribution checklist, `CODEOWNERS`, architecture decision records under
+  `docs/decisions/` for the choices already taken (Go, SQLite as store and
+  queue, the asynchronous API, polling targets to completion, per-target
+  resolvent location), and an API stability statement in `docs/api.md`.
+
 ## [0.1.0] - 2026-09-05
 
 Initial release of the tentacron orchestration and resolvent API.

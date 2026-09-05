@@ -1,0 +1,3 @@
+# Review ownership. Every path falls back to the maintainer; add narrower
+# rules below as areas gain dedicated owners.
+*       @AndreasWillibaldWeber

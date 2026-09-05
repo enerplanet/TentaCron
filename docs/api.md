@@ -6,6 +6,16 @@ All requests and responses are JSON. Errors always use one shape:
 { "error": { "code": "unknown_target", "message": "target \"buem2\" is not configured" } }
 ```
 
+## Stability
+
+The `/v1` API changes only additively. Fields are never removed or retyped;
+new fields and endpoints may appear in any minor release, so clients must
+ignore fields they do not know. A deprecation is announced in the changelog
+at least one minor release before the removal, and nothing is removed
+before 1.0. Configuration keys follow the same rule; a validation rule that
+becomes stricter is listed under "Changed" in the changelog together with
+the keys it concerns.
+
 ## Authentication
 
 Clients authenticate with a named key from `auth.api_keys`:

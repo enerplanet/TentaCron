@@ -158,6 +158,12 @@ or external services required. Ready-to-send request payloads live in
 [examples/](examples/) (each one is executed by the golden E2E suite), and
 the test pyramid is documented in [test/README.md](test/README.md).
 
+## Security
+
+Report vulnerabilities privately through GitHub's advisory form; see
+[SECURITY.md](SECURITY.md) for scope, response times and what is already in
+place. Design decisions are recorded under [docs/decisions/](docs/decisions/).
+
 ## License
 
 See [LICENSE](LICENSE).

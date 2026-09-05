@@ -122,6 +122,14 @@ nav:
       - API Reference: api.md
       - Configuration: configuration.md
       - Operations: operations.md
+  - Decisions:
+      - Overview: decisions/README.md
+      - ADR-0001 Go single binary: decisions/0001-go-single-binary.md
+      - ADR-0002 SQLite store and queue: decisions/0002-sqlite-store-and-queue.md
+      - ADR-0003 Async job API: decisions/0003-async-job-api.md
+      - ADR-0004 Poll targets to completion: decisions/0004-poll-async-targets-to-completion.md
+      - ADR-0005 Per-target timeseries path: decisions/0005-per-target-timeseries-path.md
+      - Template: decisions/0000-template.md
   - Contributing:
       - Branch Naming: getting-started/branch-naming.md
       - Commit Conventions: getting-started/commit-conventions.md
