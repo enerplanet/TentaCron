@@ -46,7 +46,12 @@ At least one key is required; names must be unique. Every endpoint reads
 the key from the `X-API-Key` header (`POST` still accepts the deprecated
 body field `api_key`). `role` is `client` (default: sees only its own
 requests) or `admin` (sees all). The name appears in logs, scopes the
-client's idempotency keys and is stored on each request.
+client's idempotency keys and is stored on each request. During a rotation
+a key may carry `previous_key`, which is accepted alongside `key` until it
+is removed again (see [Reloading configuration](operations.md#reloading-configuration)).
+
+The configuration is re-read on `SIGHUP`; keys, targets, resolvents,
+callbacks, cache TTLs and the log level take effect without a restart.
 
 **Scheduling per key.** Workers claim jobs by priority first, then
 round-robin across clients (every client's first due job before any

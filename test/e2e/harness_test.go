@@ -524,8 +524,9 @@ func (h *harness) startStack(cfg *config.Config) {
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
 	nudge := make(chan struct{}, 1)
 	hub := notify.New()
-	pool := worker.New(cfg, st, upstream.New(cfg.Upstream.MaxResponseBytes, cfg.UpstreamSecrets()), logger, nudge).WithNotifier(hub)
-	deliverer := callback.New(cfg, st, logger).WithHTTPClient(h.callbacks.Client()).WithNotifier(hub)
+	prov := config.Static(cfg)
+	pool := worker.New(prov, st, upstream.New(cfg.Upstream.MaxResponseBytes, cfg.UpstreamSecrets()), logger, nudge).WithNotifier(hub)
+	deliverer := callback.New(prov, st, logger).WithHTTPClient(h.callbacks.Client()).WithNotifier(hub)
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan struct{})
 	go func() {
@@ -536,7 +537,7 @@ func (h *harness) startStack(cfg *config.Config) {
 		go func() { defer wg.Done(); deliverer.Run(ctx) }()
 		wg.Wait()
 	}()
-	h.api = httptest.NewServer(api.New(cfg, st, logger, nudge).
+	h.api = httptest.NewServer(api.New(prov, st, logger, nudge).
 		WithUpstream(upstream.New(cfg.Upstream.MaxResponseBytes, cfg.UpstreamSecrets())).WithNotifier(hub).Handler())
 	h.t.Cleanup(func() {
 		h.api.Close()

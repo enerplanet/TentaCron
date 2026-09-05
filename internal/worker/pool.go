@@ -18,7 +18,7 @@ import (
 
 // Pool runs the worker goroutines and the housekeeping sweeper.
 type Pool struct {
-	cfg      *config.Config
+	cfgp     *config.Provider
 	store    *store.Store
 	client   *upstream.Client
 	logger   *slog.Logger
@@ -41,8 +41,21 @@ func (p *Pool) WithNotifier(h *notify.Hub) *Pool {
 }
 
 // New builds a Pool. nudge wakes an idle worker when the API accepts a job.
-func New(cfg *config.Config, st *store.Store, client *upstream.Client, logger *slog.Logger, nudge <-chan struct{}) *Pool {
-	return &Pool{cfg: cfg, store: st, client: client, logger: logger, nudge: nudge, clock: realClock{}}
+func New(cfg *config.Provider, st *store.Store, client *upstream.Client, logger *slog.Logger, nudge <-chan struct{}) *Pool {
+	return &Pool{cfgp: cfg, store: st, client: client, logger: logger, nudge: nudge, clock: realClock{}}
+}
+
+// config is the configuration current right now; loops read it per tick.
+// The worker count and poll cadence are read once at Run, so changing them
+// takes a restart.
+func (p *Pool) config() *config.Config { return p.cfgp.Current() }
+
+// run processes one claimed job under the configuration current at claim
+// time, so a reload never changes a job's targets, resolvents or limits
+// midway.
+type run struct {
+	*Pool
+	cfg *config.Config
 }
 
 // WithMetrics records job outcomes and series-cache lookups.
@@ -61,7 +74,7 @@ func (p *Pool) Run(ctx context.Context) {
 	}
 
 	var wg sync.WaitGroup
-	for i := 0; i < p.cfg.Worker.Count; i++ {
+	for i := 0; i < p.config().Worker.Count; i++ {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
@@ -82,7 +95,7 @@ func (p *Pool) Run(ctx context.Context) {
 }
 
 func (p *Pool) workerLoop(ctx context.Context) {
-	ticker := time.NewTicker(p.cfg.Worker.PollInterval.Std())
+	ticker := time.NewTicker(p.config().Worker.PollInterval.Std())
 	defer ticker.Stop()
 	for {
 		p.drain(ctx)
@@ -98,7 +111,7 @@ func (p *Pool) workerLoop(ctx context.Context) {
 // drain claims and processes eligible jobs until the queue is empty.
 func (p *Pool) drain(ctx context.Context) {
 	for ctx.Err() == nil {
-		job, err := p.store.ClaimNext(ctx, store.ClaimPolicy{PollInterval: p.pollInterval, MaxConcurrent: p.cfg.MaxConcurrentFor})
+		job, err := p.store.ClaimNext(ctx, store.ClaimPolicy{PollInterval: p.pollInterval, MaxConcurrent: p.config().MaxConcurrentFor})
 		if err != nil {
 			if ctx.Err() == nil {
 				p.logger.Error("claim failed", "error", err)
@@ -108,7 +121,7 @@ func (p *Pool) drain(ctx context.Context) {
 		if job == nil {
 			return
 		}
-		p.process(ctx, job)
+		(&run{Pool: p, cfg: p.config()}).process(ctx, job)
 	}
 }
 
@@ -117,8 +130,8 @@ func (p *Pool) drain(ctx context.Context) {
 // fallback only applies when an awaiting_target job's target lost its poll
 // config; it keeps the job claimable so processPoll can fail it promptly.
 func (p *Pool) pollInterval(target string) time.Duration {
-	if t, ok := p.cfg.Targets[target]; ok && t.Response.Mode == config.ModePoll && t.Response.Poll != nil {
+	if t, ok := p.config().Targets[target]; ok && t.Response.Mode == config.ModePoll && t.Response.Poll != nil {
 		return t.Response.Poll.Interval.Std()
 	}
-	return p.cfg.Worker.PollInterval.Std()
+	return p.config().Worker.PollInterval.Std()
 }

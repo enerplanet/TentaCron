@@ -93,6 +93,36 @@ configured downstream credential redacted and are then truncated to 512
 bytes — a resource or target API echoing the request back in an error cannot
 leak a key into logs, the audit store, or API responses.
 
+## Reloading configuration
+
+Send `SIGHUP` to re-read the configuration file without a restart:
+
+```sh
+kill -HUP "$(pidof tentacron)"          # bare process
+docker kill --signal=HUP tentacron      # container
+```
+
+The file is parsed and validated first; a broken file is logged as
+`configuration reload failed; keeping the running configuration` and the
+service keeps running on what it had. A good file is swapped in atomically
+and logged as `configuration reloaded` with the file's hash (also logged at
+startup as `configuration loaded`), so the running configuration can always
+be matched to a file revision.
+
+Hot, effective for the next request or job: `auth` (keys, roles, limits),
+`targets`, `resolvents` (including cache TTLs and ignore fields),
+`callbacks`, `cache.default_ttl`, `server.log_level`. A job already in
+flight keeps the configuration it started with. Read once at startup, so a
+change is logged under `restart_required` and needs a restart: `server`
+(address, timeouts, body limit, CORS, metrics address), `storage`,
+`worker.count`, `worker.poll_interval`, `worker.scheduler_interval`,
+`cache.cleanup_interval`.
+
+**Rotating an API key** without a gap: set the new value as `key`, move the
+old one to `previous_key` next to it, reload; both are accepted while the
+clients switch. Then remove `previous_key` and reload again. The audit trail
+and logs keep naming the key by its `name`, which does not change.
+
 ## Metrics
 
 Set `server.metrics_addr` (for example `127.0.0.1:9090`) and tentacron
@@ -228,7 +258,3 @@ reusing freed pages internally but never shrinks; one manual
 `sqlite3 data/tentacron.db 'PRAGMA auto_vacuum=INCREMENTAL; VACUUM;'`
 while the service is stopped switches it over.
 
-## Roadmap notes (v2)
-
-- Prometheus `/metrics` (job states, upstream latencies, cache hit ratio).
-- Config hot-reload / key rotation without restart.

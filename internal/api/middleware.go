@@ -81,7 +81,7 @@ func (s *Server) withRecovery(next http.Handler) http.Handler {
 // call; with no origins configured the middleware is a no-op.
 func (s *Server) withCORS(next http.Handler) http.Handler {
 	allowed := map[string]bool{}
-	for _, origin := range s.cfg.Server.CORS.AllowedOrigins {
+	for _, origin := range s.cfg().Server.CORS.AllowedOrigins {
 		allowed[origin] = true
 	}
 	if len(allowed) == 0 {

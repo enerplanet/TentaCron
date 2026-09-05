@@ -73,7 +73,7 @@ func (s *Server) handleCreateSchedule(w http.ResponseWriter, r *http.Request) {
 	if !requireJSON(w, r) {
 		return
 	}
-	r.Body = http.MaxBytesReader(w, r.Body, s.cfg.Server.MaxBodyBytes)
+	r.Body = http.MaxBytesReader(w, r.Body, s.cfg().Server.MaxBodyBytes)
 	if !decodeSingleObject(w, r.Body, &req) {
 		return
 	}
@@ -123,11 +123,11 @@ func (s *Server) validateSchedule(w http.ResponseWriter, req scheduleRequest, id
 		writeError(w, status, code, msg)
 		return schedule.Spec{}, false
 	}
-	if _, ok := s.cfg.Targets[req.Target]; !ok {
+	if _, ok := s.cfg().Targets[req.Target]; !ok {
 		writeError(w, http.StatusUnprocessableEntity, CodeUnknownTarget, "target "+strconv.Quote(req.Target)+" is not configured")
 		return schedule.Spec{}, false
 	}
-	if limit := s.cfg.MaxPriorityFor(id.name); req.Priority != nil && *req.Priority > limit {
+	if limit := s.cfg().MaxPriorityFor(id.name); req.Priority != nil && *req.Priority > limit {
 		writeError(w, http.StatusBadRequest, CodeInvalidParameter, fmt.Sprintf("priority %d exceeds this key's maximum of %d", *req.Priority, limit))
 		return schedule.Spec{}, false
 	}
@@ -136,7 +136,7 @@ func (s *Server) validateSchedule(w http.ResponseWriter, req scheduleRequest, id
 		writeError(w, http.StatusBadRequest, CodeInvalidParameter, err.Error())
 		return schedule.Spec{}, false
 	}
-	if pl := plan.Inspect(s.cfg, req.Target, req.Payload); !pl.OK() {
+	if pl := plan.Inspect(s.cfg(), req.Target, req.Payload); !pl.OK() {
 		writeError(w, http.StatusBadRequest, pl.Problems[0].Code, pl.Problems[0].Message)
 		return schedule.Spec{}, false
 	}

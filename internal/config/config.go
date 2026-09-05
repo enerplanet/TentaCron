@@ -98,6 +98,10 @@ const (
 type APIKey struct {
 	Name string `yaml:"name"`
 	Key  string `yaml:"key"`
+	// PreviousKey is also accepted while a rotation is under way: set the
+	// new value as key, move the old one here, reload, and remove it once
+	// every client has switched.
+	PreviousKey string `yaml:"previous_key"`
 	// Role scopes what the key may read: a client sees only the requests it
 	// submitted, an admin sees all of them. Defaults to client.
 	Role string `yaml:"role"`
@@ -373,10 +377,12 @@ type Resolvent struct {
 // defaults and validates the result. Referencing an unset environment
 // variable is an error so the service never starts with empty credentials.
 func Load(path string) (*Config, error) {
-	raw, err := os.ReadFile(path) // #nosec G304 -- path comes from the operator's -config flag
-	if err != nil {
-		return nil, fmt.Errorf("read config: %w", err)
-	}
+	cfg, _, err := loadFile(path)
+	return cfg, err
+}
+
+// parse expands, decodes, defaults and validates configuration bytes.
+func parse(raw []byte) (*Config, error) {
 	expanded, err := expandEnv(string(raw))
 	if err != nil {
 		return nil, err

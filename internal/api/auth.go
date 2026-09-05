@@ -27,8 +27,12 @@ func (s *Server) authenticate(presented string) (identity, bool) {
 	p := []byte(presented)
 	var id identity
 	ok := false
-	for _, k := range s.cfg.Auth.APIKeys {
-		if subtle.ConstantTimeCompare([]byte(k.Key), p) == 1 && !ok {
+	for _, k := range s.cfg().Auth.APIKeys {
+		// Both values are always compared, so a rotation window does not
+		// change the timing profile.
+		match := subtle.ConstantTimeCompare([]byte(k.Key), p) == 1
+		previous := k.PreviousKey != "" && subtle.ConstantTimeCompare([]byte(k.PreviousKey), p) == 1
+		if (match || previous) && !ok {
 			id, ok = identity{name: k.Name, role: k.Role}, true
 		}
 	}

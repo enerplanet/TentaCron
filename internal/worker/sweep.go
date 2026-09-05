@@ -10,7 +10,7 @@ import (
 // stranded by failed bookkeeping writes, and prunes terminal jobs (plus their
 // result files) past the retention window.
 func (p *Pool) sweeperLoop(ctx context.Context) {
-	ticker := time.NewTicker(p.cfg.Cache.CleanupInterval.Std())
+	ticker := time.NewTicker(p.config().Cache.CleanupInterval.Std())
 	defer ticker.Stop()
 	for {
 		select {
@@ -54,7 +54,7 @@ func (p *Pool) purgeExpiredSeries(ctx context.Context) {
 // Anything untouched for well over a full processing attempt cannot still
 // be in flight.
 func (p *Pool) rescueStuckJobs(ctx context.Context) {
-	cutoff := time.Now().Add(-2 * p.cfg.Worker.JobTimeout.Std())
+	cutoff := time.Now().Add(-2 * p.config().Worker.JobTimeout.Std())
 	n, err := p.store.RescueStuck(ctx, cutoff)
 	if err != nil {
 		p.logger.Error("stuck job rescue failed", "error", err)
@@ -77,7 +77,7 @@ var pruneBatch = 1000
 // a crash in between leaves rows for the next sweep to retry, never
 // orphaned files.
 func (p *Pool) pruneRetention(ctx context.Context) {
-	cutoff := time.Now().Add(-p.cfg.Storage.Retention.Std())
+	cutoff := time.Now().Add(-p.config().Storage.Retention.Std())
 	jobs, files := 0, 0
 	for ctx.Err() == nil {
 		ids, paths, err := p.store.TerminalBefore(ctx, cutoff, pruneBatch)

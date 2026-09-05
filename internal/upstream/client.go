@@ -12,6 +12,7 @@ import (
 	"io"
 	"net/http"
 	"strings"
+	"sync/atomic"
 	"time"
 	"unicode/utf8"
 
@@ -59,8 +60,15 @@ const errBodyExcerpt = 512
 type Client struct {
 	http    *http.Client
 	maxBody int64
-	secrets []string
+	secrets atomic.Pointer[[]string]
 	metrics *metrics.Metrics // nil-safe: a nil receiver records nothing
+}
+
+// SetSecrets replaces the redaction list, e.g. after a configuration reload
+// rotated a credential.
+func (c *Client) SetSecrets(secrets []string) {
+	list := append([]string(nil), secrets...)
+	c.secrets.Store(&list)
 }
 
 // WithMetrics records latency and status class of every outbound call.
@@ -80,7 +88,7 @@ func (c *Client) observe(op string, status int, err error, d time.Duration) {
 // lists credential values (target/resource API keys) that must never appear
 // in error excerpts — upstream error bodies often echo the request back.
 func New(maxBody int64, secrets []string) *Client {
-	return &Client{
+	c := &Client{
 		http: &http.Client{
 			// Per-call deadlines come from contexts; the transport-level
 			// timeout is a safety net against connections that hang forever.
@@ -93,8 +101,9 @@ func New(maxBody int64, secrets []string) *Client {
 			},
 		},
 		maxBody: maxBody,
-		secrets: secrets,
 	}
+	c.SetSecrets(secrets)
+	return c
 }
 
 // send builds and performs one HTTP request, classifying transport-level
@@ -182,7 +191,7 @@ func (c *Client) readCapped(r io.Reader) ([]byte, error) {
 // surrounding whitespace (the newline http.Error appends) is dropped.
 func (c *Client) excerpt(b []byte) string {
 	s := strings.ToValidUTF8(string(b), "")
-	for _, secret := range c.secrets {
+	for _, secret := range *c.secrets.Load() {
 		if secret != "" {
 			s = strings.ReplaceAll(s, secret, "[redacted]")
 		}

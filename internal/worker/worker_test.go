@@ -62,7 +62,7 @@ func startPool(t *testing.T, cfg *config.Config, st *store.Store) chan struct{} 
 	t.Helper()
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
 	nudge := make(chan struct{}, 1)
-	pool := New(cfg, st, upstream.New(cfg.Upstream.MaxResponseBytes, nil), logger, nudge)
+	pool := New(config.Static(cfg), st, upstream.New(cfg.Upstream.MaxResponseBytes, nil), logger, nudge)
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan struct{})
 	go func() {
@@ -532,7 +532,7 @@ func TestShutdownParksInFlightJob(t *testing.T) {
 	id := createJob(t, st, "buem", `{"time-series":[{"type":"resolvent-pv1"}]}`, 5)
 
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
-	pool := New(cfg, st, upstream.New(cfg.Upstream.MaxResponseBytes, nil), logger, make(chan struct{}))
+	pool := New(config.Static(cfg), st, upstream.New(cfg.Upstream.MaxResponseBytes, nil), logger, make(chan struct{}))
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan struct{})
 	go func() {
@@ -931,7 +931,7 @@ func TestSweepPrunesCacheAndOldJobs(t *testing.T) {
 	time.Sleep(5 * time.Millisecond) // let completed_at fall behind the cutoff
 
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
-	pool := New(cfg, st, upstream.New(cfg.Upstream.MaxResponseBytes, nil), logger, make(chan struct{}))
+	pool := New(config.Static(cfg), st, upstream.New(cfg.Upstream.MaxResponseBytes, nil), logger, make(chan struct{}))
 	pool.sweep(ctx)
 
 	if _, ok, _ := st.GetSeries(ctx, "h-old"); ok {

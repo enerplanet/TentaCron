@@ -42,7 +42,7 @@ func newEnv(t *testing.T) *testEnv {
 	t.Cleanup(func() { _ = st.Close() })
 	nudge := make(chan struct{}, 1)
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
-	return &testEnv{server: New(cfg, st, logger, nudge), store: st, nudge: nudge}
+	return &testEnv{server: New(config.Static(cfg), st, logger, nudge), store: st, nudge: nudge}
 }
 
 func (e *testEnv) do(t *testing.T, method, path, body string, headers map[string]string) *httptest.ResponseRecorder {

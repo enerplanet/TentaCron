@@ -61,7 +61,7 @@ func setup(t *testing.T, srv *httptest.Server) (*Deliverer, *store.Store, *confi
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = st.Close() })
-	d := New(cfg, st, slog.New(slog.NewTextHandler(io.Discard, nil))).WithHTTPClient(srv.Client())
+	d := New(config.Static(cfg), st, slog.New(slog.NewTextHandler(io.Discard, nil))).WithHTTPClient(srv.Client())
 	return d, st, cfg
 }
 

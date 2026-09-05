@@ -23,7 +23,7 @@ type BuildInfo struct {
 
 // Server holds the HTTP handler dependencies.
 type Server struct {
-	cfg    *config.Config
+	cfgp   *config.Provider
 	store  *store.Store
 	logger *slog.Logger
 	nudge  chan<- struct{}
@@ -52,9 +52,14 @@ func (s *Server) WithUpstream(c *upstream.Client) *Server {
 
 // New builds the API server. nudge is signalled (non-blocking) whenever a new
 // job is accepted so the worker pool wakes up immediately.
-func New(cfg *config.Config, st *store.Store, logger *slog.Logger, nudge chan<- struct{}) *Server {
-	return &Server{cfg: cfg, store: st, logger: logger, nudge: nudge}
+func New(cfg *config.Provider, st *store.Store, logger *slog.Logger, nudge chan<- struct{}) *Server {
+	return &Server{cfgp: cfg, store: st, logger: logger, nudge: nudge}
 }
+
+// cfg is the configuration current for this request. Handlers read it once
+// and keep the pointer, so a reload never changes a request midway; the
+// middleware chain and CORS are built once from the startup configuration.
+func (s *Server) cfg() *config.Config { return s.cfgp.Current() }
 
 // route is one endpoint of the API. The OpenAPI description in openapi.yaml
 // lists exactly these; a test keeps the two in lockstep.

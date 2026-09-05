@@ -50,7 +50,7 @@ func discardLogger() *slog.Logger { return slog.New(slog.NewTextHandler(io.Disca
 func runPool(t *testing.T, cfg *config.Config, st *store.Store, logger *slog.Logger) (nudge chan struct{}, stop func()) {
 	t.Helper()
 	nudge = make(chan struct{}, 1)
-	pool := New(cfg, st, upstream.New(cfg.Upstream.MaxResponseBytes, nil), logger, nudge)
+	pool := New(config.Static(cfg), st, upstream.New(cfg.Upstream.MaxResponseBytes, nil), logger, nudge)
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan struct{})
 	go func() {
@@ -470,9 +470,9 @@ func TestRetryOrFailCapsOverflowedBackoff(t *testing.T) {
 		t.Fatal("claim failed")
 	}
 	job.Attempts = 70
-	p := New(cfg, st, upstream.New(1<<20, nil), discardLogger(), nil)
+	p := New(config.Static(cfg), st, upstream.New(1<<20, nil), discardLogger(), nil)
 	before := time.Now()
-	p.retryOrFail(ctx, job, errResourceError, &upstream.Error{Op: "resource x", Transient: true})
+	(&run{Pool: p, cfg: cfg}).retryOrFail(ctx, job, errResourceError, &upstream.Error{Op: "resource x", Transient: true})
 	got, _ := st.GetJob(ctx, id)
 	if got.State != store.StateReceived || got.NextAttemptAt == nil {
 		t.Fatalf("job not requeued: state=%s next=%v", got.State, got.NextAttemptAt)
@@ -541,9 +541,9 @@ func TestLateFailureNeverOverwritesCompletion(t *testing.T) {
 	id := createJob(t, st, "demo", `{}`, 3)
 	ctx := context.Background()
 	job, _ := st.GetJob(ctx, id)
-	p := New(cfg, st, upstream.New(1<<20, nil), discardLogger(), nil)
-	p.complete(ctx, job, 200, "", []byte(`{"first":true}`), "first")
-	p.failJob(ctx, job, errTargetError, "late failure")
+	p := New(config.Static(cfg), st, upstream.New(1<<20, nil), discardLogger(), nil)
+	(&run{Pool: p, cfg: cfg}).complete(ctx, job, 200, "", []byte(`{"first":true}`), "first")
+	(&run{Pool: p, cfg: cfg}).failJob(ctx, job, errTargetError, "late failure")
 	got, _ := st.GetJob(ctx, id)
 	if got.State != store.StateCompleted || got.ErrorCode != "" || string(got.TargetResponse) != `{"first":true}` {
 		t.Errorf("late failure overwrote the completion: %+v", got)
@@ -561,9 +561,9 @@ func TestDuplicateCompletionNeverOverwritesResult(t *testing.T) {
 	id := createJob(t, st, "demo", `{}`, 3)
 	ctx := context.Background()
 	job, _ := st.GetJob(ctx, id)
-	p := New(cfg, st, upstream.New(1<<20, nil), discardLogger(), nil)
-	p.complete(ctx, job, 200, "", []byte(`{"first":true}`), "first")
-	p.complete(ctx, job, 200, "application/zip", []byte("PK\x03\x04later-bundle"), "second")
+	p := New(config.Static(cfg), st, upstream.New(1<<20, nil), discardLogger(), nil)
+	(&run{Pool: p, cfg: cfg}).complete(ctx, job, 200, "", []byte(`{"first":true}`), "first")
+	(&run{Pool: p, cfg: cfg}).complete(ctx, job, 200, "application/zip", []byte("PK\x03\x04later-bundle"), "second")
 	got, _ := st.GetJob(ctx, id)
 	if string(got.TargetResponse) != `{"first":true}` || got.ResultPath != "" {
 		t.Errorf("duplicate completion overwrote the result: %+v", got)
@@ -583,7 +583,7 @@ func TestSweepRescuesStuckJob(t *testing.T) {
 		t.Fatal("claim failed")
 	}
 	time.Sleep(5 * time.Millisecond)
-	p := New(cfg, st, upstream.New(1<<20, nil), discardLogger(), nil)
+	p := New(config.Static(cfg), st, upstream.New(1<<20, nil), discardLogger(), nil)
 	p.sweep(ctx)
 	got, _ := st.GetJob(ctx, id)
 	if got.State != store.StateReceived {
@@ -616,7 +616,7 @@ func TestSweepToleratesMissingAndUndeletableResultFiles(t *testing.T) {
 		t.Fatal(err)
 	}
 	time.Sleep(5 * time.Millisecond)
-	p := New(cfg, st, upstream.New(1<<20, nil), discardLogger(), nil)
+	p := New(config.Static(cfg), st, upstream.New(1<<20, nil), discardLogger(), nil)
 	p.sweep(ctx)
 	for _, id := range []string{missing, occupied} {
 		if _, err := st.GetJob(ctx, id); err == nil {
@@ -1004,7 +1004,7 @@ func TestSweepPrunesBacklogInBatches(t *testing.T) {
 	}
 	time.Sleep(5 * time.Millisecond) // completed_at strictly before the cutoff
 	var logs syncBuffer
-	p := New(cfg, st, upstream.New(1<<20, nil), slog.New(slog.NewTextHandler(&logs, nil)), nil)
+	p := New(config.Static(cfg), st, upstream.New(1<<20, nil), slog.New(slog.NewTextHandler(&logs, nil)), nil)
 	p.sweep(ctx)
 	for _, id := range ids {
 		if _, err := st.GetJob(ctx, id); err == nil {
@@ -1033,7 +1033,7 @@ func TestMetricsRecordOutcomesCacheAndUpstreamCalls(t *testing.T) {
 	st := openStore(t)
 	m := metrics.New(st)
 	client := upstream.New(cfg.Upstream.MaxResponseBytes, nil).WithMetrics(m)
-	pool := New(cfg, st, client, discardLogger(), make(chan struct{}, 1)).WithMetrics(m)
+	pool := New(config.Static(cfg), st, client, discardLogger(), make(chan struct{}, 1)).WithMetrics(m)
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan struct{})
 	go func() {

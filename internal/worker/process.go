@@ -42,7 +42,7 @@ var errBadResourceBody = errors.New("resource response is not a JSON object")
 // anything bigger or binary goes to the results directory.
 const inlineResultLimit = 256 << 10
 
-func (p *Pool) process(ctx context.Context, job *store.Job) {
+func (p *run) process(ctx context.Context, job *store.Job) {
 	// Bookkeeping writes use an uncancellable context so a shutdown or
 	// deadline can never strand a job in a half-written state.
 	bg := context.WithoutCancel(ctx)
@@ -78,7 +78,7 @@ type failure struct {
 // ctx bounds the job's upstream I/O (job timeout, shutdown); bg is the
 // uncancellable bookkeeping context from process — every store write below
 // uses bg so cancellation can never strand the job mid-transition.
-func (p *Pool) processNew(ctx, bg context.Context, job *store.Job) {
+func (p *run) processNew(ctx, bg context.Context, job *store.Job) {
 	tcfg, ok := p.cfg.Targets[job.Target]
 	if !ok {
 		p.failJob(bg, job, errUnknownTarget, fmt.Sprintf("target %q is no longer configured", job.Target))
@@ -112,7 +112,7 @@ func (p *Pool) processNew(ctx, bg context.Context, job *store.Job) {
 // that look like resolvents stay untouched. Storing the payload as
 // resolved_payload keeps the audit trail's shape identical to a resolved
 // job's.
-func (p *Pool) handThrough(ctx, bg context.Context, job *store.Job, tcfg config.Target) {
+func (p *run) handThrough(ctx, bg context.Context, job *store.Job, tcfg config.Target) {
 	if err := p.store.SetResolved(bg, job.ID, job.Payload, "proxy target: payload handed through unresolved"); err != nil {
 		p.logger.Error("persist proxied payload failed", "job_id", job.ID, "error", err)
 		return
@@ -132,7 +132,7 @@ func attachResolvent(tcfg config.Target) bool {
 // resource body is the permanent invalid_resource_response, a reference
 // that does not fit the series it points to the permanent invalid_payload,
 // anything else goes through the retry classification as a resource_error.
-func (p *Pool) failResolution(bg context.Context, job *store.Job, err error) {
+func (p *run) failResolution(bg context.Context, job *store.Job, err error) {
 	switch {
 	case errors.Is(err, errBadResourceBody):
 		p.failJob(bg, job, errInvalidResource, err.Error())
@@ -148,7 +148,7 @@ func (p *Pool) failResolution(bg context.Context, job *store.Job, err error) {
 // cache keys are recomputed from the filled inputs, so a chained resolvent
 // caches under the parameters it really sent. Failure attribution stays
 // deterministic: the first failing level, document order within it.
-func (p *Pool) fetchChain(ctx, bg context.Context, levels [][]*resolver.Found, cacheMode string) (map[string][]byte, int, error) {
+func (p *run) fetchChain(ctx, bg context.Context, levels [][]*resolver.Found, cacheMode string) (map[string][]byte, int, error) {
 	all := map[string][]byte{}
 	cached := 0
 	for _, level := range levels {
@@ -175,7 +175,7 @@ func (p *Pool) fetchChain(ctx, bg context.Context, levels [][]*resolver.Found, c
 
 // substitute splices every fetched series into its slot and re-encodes the
 // document.
-func (p *Pool) substitute(jobID string, root map[string]any, found []*resolver.Found, seriesByHash map[string][]byte, attach bool) ([]byte, *failure) {
+func (p *run) substitute(jobID string, root map[string]any, found []*resolver.Found, seriesByHash map[string][]byte, attach bool) ([]byte, *failure) {
 	for _, f := range found {
 		warnings, err := f.Substitute(seriesByHash[f.Hash], attach)
 		if err != nil {
@@ -193,7 +193,7 @@ func (p *Pool) substitute(jobID string, root map[string]any, found []*resolver.F
 }
 
 // forwardResolved persists the resolved payload and hands it to the target.
-func (p *Pool) forwardResolved(ctx, bg context.Context, job *store.Job, tcfg config.Target, resolved []byte, count, cached int) {
+func (p *run) forwardResolved(ctx, bg context.Context, job *store.Job, tcfg config.Target, resolved []byte, count, cached int) {
 	detail := fmt.Sprintf("resolved %d resolvent(s), %d from cache", count, cached)
 	if err := p.store.SetResolved(bg, job.ID, resolved, detail); err != nil {
 		p.logger.Error("persist resolved payload failed", "job_id", job.ID, "error", err)
@@ -222,7 +222,7 @@ type fetchResult struct {
 // failure into a cancellation, making it a scheduling race which resolvent
 // the job's error names. Because feeding follows document order, the first
 // failing resolvent in document order always records its true error.
-func (p *Pool) fetchAll(ctx, bg context.Context, found []*resolver.Found, cacheMode string) (map[string][]byte, int, error) {
+func (p *run) fetchAll(ctx, bg context.Context, found []*resolver.Found, cacheMode string) (map[string][]byte, int, error) {
 	unique := uniqueByHash(found)
 	results := make(chan fetchResult, len(unique))
 	stop := make(chan struct{})
@@ -270,7 +270,7 @@ func feedResolvents(ctx context.Context, unique []*resolver.Found, stop <-chan s
 
 // fetchLoop is one bounded fetcher: it resolves resolvents from feed until
 // the feed closes, sending exactly one result per resolvent.
-func (p *Pool) fetchLoop(ctx, bg context.Context, feed <-chan *resolver.Found, results chan<- fetchResult, cacheMode string) {
+func (p *run) fetchLoop(ctx, bg context.Context, feed <-chan *resolver.Found, results chan<- fetchResult, cacheMode string) {
 	for f := range feed {
 		body, cached, err := p.fetchOne(ctx, bg, f, cacheMode)
 		results <- fetchResult{hash: f.Hash, body: body, cached: cached, err: err}
@@ -328,7 +328,7 @@ func pickResolveError(unique []*resolver.Found, errByHash map[string]error) erro
 
 // fetchOne resolves one resolvent under the job's cache mode: "use" reads
 // and writes the series cache, "refresh" skips the read, "bypass" skips both.
-func (p *Pool) fetchOne(ctx, bg context.Context, f *resolver.Found, cacheMode string) (body []byte, cached bool, err error) {
+func (p *run) fetchOne(ctx, bg context.Context, f *resolver.Found, cacheMode string) (body []byte, cached bool, err error) {
 	if cacheMode != store.CacheBypass && cacheMode != store.CacheRefresh {
 		// A store error on the cache read is deliberately treated as a miss:
 		// fall through and fetch fresh rather than fail the job over a cache
@@ -388,7 +388,7 @@ func (p *Pool) fetchOne(ctx, bg context.Context, f *resolver.Found, cacheMode st
 // references already filled — or the object under payload_field when
 // configured; it is never scanned for resolvent objects, so the only
 // nesting is the explicit, acyclic chain of references.
-func (p *Pool) callResolventBackend(ctx context.Context, f *resolver.Found, rcfg config.Resolvent) ([]byte, error) {
+func (p *run) callResolventBackend(ctx context.Context, f *resolver.Found, rcfg config.Resolvent) ([]byte, error) {
 	payload := f.Input
 	if rcfg.PayloadField != "" {
 		nested, ok := f.Input[rcfg.PayloadField].(map[string]any)
@@ -419,7 +419,7 @@ func (p *Pool) callResolventBackend(ctx context.Context, f *resolver.Found, rcfg
 
 // forward sends the resolved payload to the target and either completes the
 // job (direct mode) or parks it for polling (poll mode).
-func (p *Pool) forward(ctx, bg context.Context, job *store.Job, tcfg config.Target, resolved []byte) {
+func (p *run) forward(ctx, bg context.Context, job *store.Job, tcfg config.Target, resolved []byte) {
 	res, err := p.client.ForwardToTarget(ctx, job.Target, tcfg, resolved)
 	if err != nil {
 		if errors.Is(err, context.DeadlineExceeded) && !tcfg.RetriesOnTimeout() {
@@ -443,7 +443,7 @@ func (p *Pool) forward(ctx, bg context.Context, job *store.Job, tcfg config.Targ
 
 // parkForPolling extracts the target's job id from its accept response and
 // parks the job in awaiting_target with its poll schedule.
-func (p *Pool) parkForPolling(bg context.Context, job *store.Job, poll *config.Poll, res *upstream.ForwardResult) {
+func (p *run) parkForPolling(bg context.Context, job *store.Job, poll *config.Poll, res *upstream.ForwardResult) {
 	targetJobID, err := upstream.ExtractJobID(res.Body, poll)
 	if err != nil {
 		p.failJob(bg, job, errTargetError, err.Error())
@@ -463,7 +463,7 @@ func (p *Pool) parkForPolling(bg context.Context, job *store.Job, poll *config.P
 // finished just as the deadline passed still completes instead of failing
 // with a wrong target_timeout. ctx bounds upstream I/O; bg is for store
 // writes that must survive cancellation.
-func (p *Pool) processPoll(ctx, bg context.Context, job *store.Job) {
+func (p *run) processPoll(ctx, bg context.Context, job *store.Job) {
 	tcfg, ok := p.cfg.Targets[job.Target]
 	if !ok || tcfg.Response.Mode != config.ModePoll || tcfg.Response.Poll == nil {
 		p.failJob(bg, job, errUnknownTarget, fmt.Sprintf("target %q is no longer configured for polling", job.Target))
@@ -507,7 +507,7 @@ func (p *Pool) processPoll(ctx, bg context.Context, job *store.Job) {
 // cap never sits in memory. A transient fetch error leaves the job parked
 // for the next tick — unless the poll deadline has passed, in which case the
 // job fails with an accurate target_error (the target job itself finished).
-func (p *Pool) fetchAndComplete(ctx, bg context.Context, job *store.Job, tcfg config.Target, rawStatus string, pastDeadline bool) {
+func (p *run) fetchAndComplete(ctx, bg context.Context, job *store.Job, tcfg config.Target, rawStatus string, pastDeadline bool) {
 	stream, err := p.client.FetchResult(ctx, job.Target, tcfg, job.TargetJobID)
 	if err == nil {
 		var spool spooledResult
@@ -538,7 +538,7 @@ type spooledResult struct {
 // spoolResult streams the download into a uniquely named temp file, capped
 // at storage.max_result_bytes. Exceeding the cap is permanent (the result
 // will not shrink); any other failure is transient and retried next tick.
-func (p *Pool) spoolResult(job *store.Job, stream *upstream.ResultStream) (spooledResult, error) {
+func (p *run) spoolResult(job *store.Job, stream *upstream.ResultStream) (spooledResult, error) {
 	op := "result " + job.Target
 	if err := os.MkdirAll(p.cfg.Storage.ResultsDir, 0o750); err != nil {
 		return spooledResult{}, &upstream.Error{Op: op, Transient: true, Err: fmt.Errorf("create results dir: %w", err)}
@@ -569,7 +569,7 @@ func (p *Pool) spoolResult(job *store.Job, stream *upstream.ResultStream) (spool
 // storage below the inline limit); anything larger is renamed into place
 // as a file with the content type the target declared — no sniffing of
 // gigabytes.
-func (p *Pool) completeSpooled(bg context.Context, job *store.Job, spool spooledResult, detail string) {
+func (p *run) completeSpooled(bg context.Context, job *store.Job, spool spooledResult, detail string) {
 	if spool.size <= p.cfg.Upstream.MaxResponseBytes {
 		body, err := os.ReadFile(spool.path)
 		_ = os.Remove(spool.path)
@@ -595,7 +595,7 @@ func (p *Pool) completeSpooled(bg context.Context, job *store.Job, spool spooled
 
 // complete stores the final result: small JSON inline, everything else as a
 // file in the results directory.
-func (p *Pool) complete(bg context.Context, job *store.Job, status int, contentType string, body []byte, detail string) {
+func (p *run) complete(bg context.Context, job *store.Job, status int, contentType string, body []byte, detail string) {
 	// Trust the bytes over the declared content type: upstream servers are
 	// often sloppy about Content-Type on JSON responses.
 	isJSON := json.Valid(body)
@@ -617,7 +617,7 @@ func (p *Pool) complete(bg context.Context, job *store.Job, status int, contentT
 	p.markCompleted(bg, job, status, nil, path, contentType, detail)
 }
 
-func (p *Pool) markCompleted(bg context.Context, job *store.Job, status int, body []byte, path, contentType, detail string) {
+func (p *run) markCompleted(bg context.Context, job *store.Job, status int, body []byte, path, contentType, detail string) {
 	err := p.store.MarkCompleted(bg, job.ID, status, body, path, contentType, detail)
 	switch {
 	case errors.Is(err, store.ErrTerminalState):
@@ -642,7 +642,7 @@ func (p *Pool) markCompleted(bg context.Context, job *store.Job, status int, bod
 // place, so a client streaming the previous file never observes a truncated
 // result, and two overlapping poll ticks completing the same job (each with
 // its own temp file) can never interleave writes into one another.
-func (p *Pool) writeResultFile(jobID, contentType string, body []byte) (string, error) {
+func (p *run) writeResultFile(jobID, contentType string, body []byte) (string, error) {
 	if err := os.MkdirAll(p.cfg.Storage.ResultsDir, 0o750); err != nil {
 		return "", fmt.Errorf("create results dir: %w", err)
 	}
@@ -681,7 +681,7 @@ func resultExt(contentType string) string {
 // retryOrFail requeues after a transient error (with capped exponential
 // backoff and jitter) and fails the job on permanent errors or exhausted
 // attempts.
-func (p *Pool) retryOrFail(bg context.Context, job *store.Job, permanentCode string, err error) {
+func (p *run) retryOrFail(bg context.Context, job *store.Job, permanentCode string, err error) {
 	if !upstream.IsTransient(err) && !isContextErr(err) {
 		p.failJob(bg, job, permanentCode, err.Error())
 		return
@@ -715,7 +715,7 @@ func isContextErr(err error) bool {
 	return errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded)
 }
 
-func (p *Pool) failJob(bg context.Context, job *store.Job, code, message string) {
+func (p *run) failJob(bg context.Context, job *store.Job, code, message string) {
 	if err := p.store.MarkFailed(bg, job.ID, code, message); err != nil {
 		if errors.Is(err, store.ErrTerminalState) {
 			// A faster overlapping worker finished the job; a client may

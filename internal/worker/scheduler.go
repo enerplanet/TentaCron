@@ -26,7 +26,7 @@ const defaultSchedulerInterval = 30 * time.Second
 // schedulerLoop materialises due schedules into jobs every
 // worker.scheduler_interval until ctx ends.
 func (p *Pool) schedulerLoop(ctx context.Context) {
-	interval := p.cfg.Worker.SchedulerInterval.Std()
+	interval := p.config().Worker.SchedulerInterval.Std()
 	if interval <= 0 {
 		interval = defaultSchedulerInterval
 	}
@@ -87,7 +87,7 @@ func (p *Pool) materialize(ctx context.Context, sc *store.Schedule, now time.Tim
 	}
 	job := &store.Job{
 		ID: id, Client: sc.Client, IdempotencyKey: store.RunKey(sc.ID, due),
-		Target: sc.Target, MaxAttempts: p.cfg.MaxAttemptsFor(sc.Target),
+		Target: sc.Target, MaxAttempts: p.config().MaxAttemptsFor(sc.Target),
 		Payload: sc.Payload, Priority: sc.Priority, Options: options,
 	}
 	created, stored, err := p.store.CreateJob(ctx, job)

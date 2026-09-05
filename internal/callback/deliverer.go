@@ -41,7 +41,7 @@ const (
 
 // Deliverer runs the delivery loop.
 type Deliverer struct {
-	cfg      *config.Config
+	cfgp     *config.Provider
 	store    *store.Store
 	logger   *slog.Logger
 	client   *http.Client
@@ -53,19 +53,20 @@ type Deliverer struct {
 // New builds a deliverer with a client that times out per attempt and
 // never follows redirects (a redirect could move the signed document to a
 // host that was never allow-listed).
-func New(cfg *config.Config, st *store.Store, logger *slog.Logger) *Deliverer {
-	d := &Deliverer{cfg: cfg, store: st, logger: logger, now: time.Now}
-	d.WithHTTPClient(&http.Client{Timeout: cfg.Callbacks.Timeout.Std()})
+func New(cfg *config.Provider, st *store.Store, logger *slog.Logger) *Deliverer {
+	d := &Deliverer{cfgp: cfg, store: st, logger: logger, now: time.Now}
+	d.WithHTTPClient(&http.Client{})
 	return d
 }
 
+// config is the configuration current right now, read once per tick.
+func (d *Deliverer) config() *config.Config { return d.cfgp.Current() }
+
 // WithHTTPClient replaces the client (tests trust their own certificates);
-// the no-redirect policy is enforced on whatever client is given.
+// the no-redirect policy is enforced on whatever client is given. The
+// per-attempt timeout comes from the configuration at call time.
 func (d *Deliverer) WithHTTPClient(c *http.Client) *Deliverer {
 	c.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
-	if c.Timeout == 0 {
-		c.Timeout = d.cfg.Callbacks.Timeout.Std()
-	}
 	d.client = c
 	return d
 }
@@ -97,7 +98,7 @@ func Verify(secret string, body []byte, signature string) bool {
 // Run delivers due callbacks until ctx ends: on every terminal notification
 // and, as a fallback for retries, every worker poll interval.
 func (d *Deliverer) Run(ctx context.Context) {
-	ticker := time.NewTicker(d.cfg.Worker.PollInterval.Std())
+	ticker := time.NewTicker(d.config().Worker.PollInterval.Std())
 	defer ticker.Stop()
 	for {
 		d.deliverDue(ctx)
@@ -112,7 +113,7 @@ func (d *Deliverer) Run(ctx context.Context) {
 
 // deliverDue attempts every due delivery once, in due order.
 func (d *Deliverer) deliverDue(ctx context.Context) {
-	if !d.cfg.Callbacks.Enabled() {
+	if !d.config().Callbacks.Enabled() {
 		return
 	}
 	due, err := d.store.DueDeliveries(ctx, d.now(), dueBatch)
@@ -171,6 +172,8 @@ func (d *Deliverer) attempt(ctx context.Context, del *store.Delivery) {
 // post sends the signed document; status is 0 on a transport failure, err
 // describes any non-2xx answer or transport error.
 func (d *Deliverer) post(ctx context.Context, del *store.Delivery, body []byte) (int, error) {
+	ctx, cancel := context.WithTimeout(ctx, d.config().Callbacks.Timeout.Std())
+	defer cancel()
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, del.URL, bytes.NewReader(body))
 	if err != nil {
 		return 0, fmt.Errorf("build request: %w", err)
@@ -179,7 +182,7 @@ func (d *Deliverer) post(ctx context.Context, del *store.Delivery, body []byte) 
 	req.Header.Set(HeaderEvent, del.Event)
 	req.Header.Set(HeaderRequestID, del.JobID)
 	req.Header.Set(HeaderAttempt, strconv.Itoa(del.Attempts+1))
-	req.Header.Set(HeaderSignature, Sign(d.cfg.Callbacks.SigningSecret, body))
+	req.Header.Set(HeaderSignature, Sign(d.config().Callbacks.SigningSecret, body))
 	resp, err := d.client.Do(req)
 	if err != nil {
 		return 0, err
@@ -201,7 +204,7 @@ func (d *Deliverer) classify(attempts, status int, err error) (outcome string, n
 		return "delivered", nil
 	case status >= 300 && status < 500 && status != http.StatusRequestTimeout && status != http.StatusTooManyRequests:
 		return "failed", nil
-	case attempts >= d.cfg.Callbacks.MaxAttempts:
+	case attempts >= d.config().Callbacks.MaxAttempts:
 		return "failed", nil
 	}
 	at := d.now().Add(d.backoff(attempts))
@@ -210,7 +213,7 @@ func (d *Deliverer) classify(attempts, status int, err error) (outcome string, n
 
 // backoff mirrors the worker's: base doubled per attempt, capped, ±20 %.
 func (d *Deliverer) backoff(attempts int) time.Duration {
-	w := d.cfg.Worker
+	w := d.config().Worker
 	b := w.BackoffBase.Std() << (attempts - 1)
 	if maxB := w.BackoffMax.Std(); b > maxB || b <= 0 {
 		b = maxB

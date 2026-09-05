@@ -127,14 +127,14 @@ func bootStack(t *testing.T, cfg *config.Config) *httptest.Server {
 	}
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
 	nudge := make(chan struct{}, 1)
-	pool := worker.New(cfg, st, upstream.New(cfg.Upstream.MaxResponseBytes, nil), logger, nudge)
+	pool := worker.New(config.Static(cfg), st, upstream.New(cfg.Upstream.MaxResponseBytes, nil), logger, nudge)
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
 		pool.Run(ctx)
 	}()
-	apiSrv := httptest.NewServer(api.New(cfg, st, logger, nudge).Handler())
+	apiSrv := httptest.NewServer(api.New(config.Static(cfg), st, logger, nudge).Handler())
 	t.Cleanup(func() {
 		apiSrv.Close()
 		cancel()

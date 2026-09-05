@@ -81,14 +81,15 @@ func bootLiveStack(t *testing.T, cfg *config.Config) (*store.Store, *httptest.Se
 	cfg.Storage.ResultsDir = t.TempDir()
 	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelInfo}))
 	nudge := make(chan struct{}, 1)
-	pool := worker.New(cfg, st, upstream.New(cfg.Upstream.MaxResponseBytes, cfg.UpstreamSecrets()), logger, nudge)
+	prov := config.Static(cfg)
+	pool := worker.New(prov, st, upstream.New(cfg.Upstream.MaxResponseBytes, cfg.UpstreamSecrets()), logger, nudge)
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
 		pool.Run(ctx)
 	}()
-	srv := httptest.NewServer(api.New(cfg, st, logger, nudge).Handler())
+	srv := httptest.NewServer(api.New(prov, st, logger, nudge).Handler())
 	t.Cleanup(func() {
 		srv.Close()
 		cancel()

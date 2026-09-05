@@ -10,6 +10,12 @@ under "Changed" with the keys or fields concerned.
 
 ### Added
 
+- Configuration reload on `SIGHUP`: keys, targets, resolvents, callbacks,
+  cache TTLs and the log level take effect without a restart; an invalid
+  file is rejected and the running configuration kept; startup-only
+  settings are logged as `restart_required`. `auth.api_keys[].previous_key`
+  is accepted alongside `key` during a rotation. The loaded file's hash is
+  logged.
 - Completion callbacks: `callback_url` on a submission or batch item
   receives the job document once the request is terminal, signed with
   HMAC-SHA256 (`X-Tentacron-Signature`) and retried with the worker

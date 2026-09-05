@@ -166,11 +166,13 @@ func runServe(args []string, stdout, stderr io.Writer) int {
 // optional metrics listener from the configuration file and runs them until
 // shutdown.
 func serveFromConfig(path string, logger *slog.Logger, level *slog.LevelVar) error {
-	cfg, err := config.Load(path)
+	provider, err := config.NewProvider(path)
 	if err != nil {
 		return err
 	}
+	cfg := provider.Current()
 	level.Set(cfg.Server.SlogLevel())
+	logger.Info("configuration loaded", "path", path, "hash", provider.Hash()[:12])
 	st, err := store.Open(cfg.Storage.Path)
 	if err != nil {
 		return err
@@ -184,15 +186,54 @@ func serveFromConfig(path string, logger *slog.Logger, level *slog.LevelVar) err
 	hub := notify.New()
 	nudge := make(chan struct{}, 1)
 	client := upstream.New(cfg.Upstream.MaxResponseBytes, cfg.UpstreamSecrets()).WithMetrics(m)
-	pool := worker.New(cfg, st, client, logger, nudge).WithMetrics(m).WithNotifier(hub)
-	deliverer := callback.New(cfg, st, logger).WithMetrics(m).WithNotifier(hub)
-	apiServer := api.New(cfg, st, logger, nudge).WithUpstream(client).WithNotifier(hub)
+	pool := worker.New(provider, st, client, logger, nudge).WithMetrics(m).WithNotifier(hub)
+	deliverer := callback.New(provider, st, logger).WithMetrics(m).WithNotifier(hub)
+	apiServer := api.New(provider, st, logger, nudge).WithUpstream(client).WithNotifier(hub)
 	apiServer.Build = buildInfo()
 	servers := []*http.Server{newHTTPServer(cfg, apiServer.Handler())}
 	if ms := newMetricsServer(cfg, m); ms != nil {
 		servers = append(servers, ms)
 	}
-	return serve(cfg, logger, servers, pool, deliverer)
+	reload := func() { reloadConfig(provider, logger, level, client) }
+	return serve(cfg, logger, servers, reload, pool, deliverer)
+}
+
+// reloadConfig re-reads the configuration on SIGHUP. A file that fails to
+// parse or validate is reported and the running configuration kept; a good
+// one is swapped in, the log level and redaction list follow it, and the
+// settings that still need a restart are named.
+func reloadConfig(provider *config.Provider, logger *slog.Logger, level *slog.LevelVar, client *upstream.Client) {
+	res, err := provider.Reload()
+	if err != nil {
+		logger.Error("configuration reload failed; keeping the running configuration", "error", err)
+		return
+	}
+	cfg := provider.Current()
+	level.Set(cfg.Server.SlogLevel())
+	client.SetSecrets(cfg.UpstreamSecrets())
+	attrs := []any{"hash", res.Hash[:12], "changed", res.Changed,
+		"targets", len(cfg.Targets), "resolvents", len(cfg.Resolvents), "keys", len(cfg.Auth.APIKeys)}
+	if len(res.RestartRequired) > 0 {
+		attrs = append(attrs, "restart_required", res.RestartRequired)
+		logger.Warn("configuration reloaded; some changes need a restart", attrs...)
+		return
+	}
+	logger.Info("configuration reloaded", attrs...)
+}
+
+// watchReload runs reload on every SIGHUP until ctx ends.
+func watchReload(ctx context.Context, reload func()) {
+	hup := make(chan os.Signal, 1)
+	signal.Notify(hup, syscall.SIGHUP)
+	defer signal.Stop(hup)
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-hup:
+			reload()
+		}
+	}
 }
 
 // runner is a background loop that stops when its context ends.
@@ -245,9 +286,10 @@ func newHTTPServer(cfg *config.Config, handler http.Handler) *http.Server {
 // serve runs the worker pool and the HTTP servers until a shutdown signal or
 // a fatal server error, then stops them in the documented order: HTTP
 // drains first, workers are cancelled afterwards.
-func serve(cfg *config.Config, logger *slog.Logger, servers []*http.Server, loops ...runner) error {
+func serve(cfg *config.Config, logger *slog.Logger, servers []*http.Server, reload func(), loops ...runner) error {
 	rootCtx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
+	go watchReload(rootCtx, reload)
 	// workerCtx is deliberately not derived from rootCtx: on shutdown the
 	// workers must keep finishing in-flight jobs while the HTTP server
 	// drains, and are only cancelled explicitly afterwards (or immediately

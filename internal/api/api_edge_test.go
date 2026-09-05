@@ -48,7 +48,7 @@ func newEnvWith(t *testing.T, mutate func(*config.Config), logger *slog.Logger) 
 		logger = slog.New(slog.NewTextHandler(io.Discard, nil))
 	}
 	nudge := make(chan struct{}, 1)
-	return &testEnv{server: New(cfg, st, logger, nudge), store: st, nudge: nudge}
+	return &testEnv{server: New(config.Static(cfg), st, logger, nudge), store: st, nudge: nudge}
 }
 
 func createJobDirect(t *testing.T, e *testEnv) string {
@@ -901,7 +901,7 @@ func TestValidateDryRun(t *testing.T) {
 	// Prime the cache under the key the worker uses (the plan's, which
 	// leaves the name label out); the dry run then reports the series as
 	// cached.
-	key := plan.Inspect(e.server.cfg, "demo", []byte(payload)).Found[0].Hash
+	key := plan.Inspect(e.server.cfg(), "demo", []byte(payload)).Found[0].Hash
 	if err := e.store.PutSeries(context.Background(), key, "resolvent-pv1", []byte(`{}`), time.Hour); err != nil {
 		t.Fatal(err)
 	}
@@ -1070,7 +1070,7 @@ func TestLongPollWait(t *testing.T) {
 	if got := e.server.maxWait(); got != 25*time.Second {
 		t.Errorf("maxWait = %v, want write_timeout - 5s", got)
 	}
-	if got := (&Server{cfg: &config.Config{}}).maxWait(); got != time.Minute {
+	if got := (&Server{cfgp: config.Static(&config.Config{})}).maxWait(); got != time.Minute {
 		t.Errorf("maxWait without a write timeout = %v, want 1m", got)
 	}
 }

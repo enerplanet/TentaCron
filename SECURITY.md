@@ -39,6 +39,8 @@ upstream response makes an issue worse, that part is in scope.
 - Client API keys are compared in constant time and never persisted or
   forwarded; upstream credentials live only in configuration and are
   redacted from every stored or logged error excerpt.
+- API keys can be rotated without a gap (`previous_key` plus a `SIGHUP`
+  reload), so a leaked key is replaced without downtime.
 - All outbound URLs come from configuration. Request data can only select
   configured entries; values that reach a URL are path-escaped and
   target-supplied job ids are validated against a strict character set.

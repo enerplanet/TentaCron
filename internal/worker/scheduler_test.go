@@ -34,7 +34,7 @@ func (c *fakeClock) Set(t time.Time) {
 // store to model a restart racing the old process.
 func startPoolWithClock(t *testing.T, cfg *config.Config, st *store.Store, clk Clock) {
 	t.Helper()
-	pool := New(cfg, st, upstream.New(cfg.Upstream.MaxResponseBytes, nil), slog.New(slog.NewTextHandler(io.Discard, nil)), make(chan struct{}, 1)).WithClock(clk)
+	pool := New(config.Static(cfg), st, upstream.New(cfg.Upstream.MaxResponseBytes, nil), slog.New(slog.NewTextHandler(io.Discard, nil)), make(chan struct{}, 1)).WithClock(clk)
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan struct{})
 	go func() {

@@ -78,7 +78,7 @@ func (s *Server) decodeCreateRequest(w http.ResponseWriter, r *http.Request) (cr
 		writeError(w, http.StatusBadRequest, CodeInvalidParameter, "Idempotency-Key must be at most 255 bytes")
 		return req, false
 	}
-	r.Body = http.MaxBytesReader(w, r.Body, s.cfg.Server.MaxBodyBytes)
+	r.Body = http.MaxBytesReader(w, r.Body, s.cfg().Server.MaxBodyBytes)
 	if !decodeSingleObject(w, r.Body, &req) {
 		return req, false
 	}
@@ -193,18 +193,18 @@ func (s *Server) acceptedCreate(w http.ResponseWriter, r *http.Request) (createR
 		return req, identity{}, false
 	}
 	noteClient(r, id.name)
-	if _, ok := s.cfg.Targets[req.Target]; !ok {
+	if _, ok := s.cfg().Targets[req.Target]; !ok {
 		writeError(w, http.StatusUnprocessableEntity, CodeUnknownTarget,
 			"target "+strconv.Quote(req.Target)+" is not configured")
 		return req, id, false
 	}
-	if limit := s.cfg.MaxPriorityFor(id.name); req.Priority != nil && *req.Priority > limit {
+	if limit := s.cfg().MaxPriorityFor(id.name); req.Priority != nil && *req.Priority > limit {
 		writeError(w, http.StatusBadRequest, CodeInvalidParameter,
 			fmt.Sprintf("priority %d exceeds this key's maximum of %d", *req.Priority, limit))
 		return req, id, false
 	}
 	if req.CallbackURL != "" {
-		if err := callback.Check(s.cfg.Callbacks, req.CallbackURL); err != nil {
+		if err := callback.Check(s.cfg().Callbacks, req.CallbackURL); err != nil {
 			writeError(w, http.StatusUnprocessableEntity, CodeCallbackNotAllowed, err.Error())
 			return req, id, false
 		}
@@ -238,7 +238,7 @@ func (s *Server) handleValidate(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	pl := plan.Inspect(s.cfg, req.Target, req.Payload)
+	pl := plan.Inspect(s.cfg(), req.Target, req.Payload)
 	resp := validateResponse{OK: pl.OK(), Target: req.Target,
 		Resolvents: make([]validateResolvent, 0, len(pl.Found)), Problems: make([]plan.Problem, 0, len(pl.Problems))}
 	resp.Problems = append(resp.Problems, pl.Problems...)
@@ -262,7 +262,7 @@ func (s *Server) handleTargets(w http.ResponseWriter, r *http.Request) {
 	if _, ok := s.authFromHeader(w, r); !ok {
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"items": plan.Targets(s.cfg)})
+	writeJSON(w, http.StatusOK, map[string]any{"items": plan.Targets(s.cfg())})
 }
 
 // handleResolvents lists the configured resolvent types and their backend kind.
@@ -270,7 +270,7 @@ func (s *Server) handleResolvents(w http.ResponseWriter, r *http.Request) {
 	if _, ok := s.authFromHeader(w, r); !ok {
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"items": plan.Resolvents(s.cfg)})
+	writeJSON(w, http.StatusOK, map[string]any{"items": plan.Resolvents(s.cfg())})
 }
 
 // acceptJob persists the request as a new job — or replays the stored one
@@ -305,7 +305,7 @@ func (s *Server) storeSubmission(ctx context.Context, req createRequest, client,
 		Client:         client,
 		IdempotencyKey: idempotencyKey,
 		Target:         req.Target,
-		MaxAttempts:    s.cfg.MaxAttemptsFor(req.Target),
+		MaxAttempts:    s.cfg().MaxAttemptsFor(req.Target),
 		Payload:        req.Payload,
 		Options:        req.jobOptions(),
 		CallbackURL:    req.CallbackURL,
@@ -363,7 +363,7 @@ func (s *Server) handleBatch(w http.ResponseWriter, r *http.Request) {
 	if !requireJSON(w, r) {
 		return
 	}
-	r.Body = http.MaxBytesReader(w, r.Body, s.cfg.Server.MaxBodyBytes)
+	r.Body = http.MaxBytesReader(w, r.Body, s.cfg().Server.MaxBodyBytes)
 	if !decodeSingleObject(w, r.Body, &req) {
 		return
 	}
@@ -406,17 +406,17 @@ func (s *Server) submitBatchItem(ctx context.Context, item batchItem, id identit
 	if _, code, msg := validateSubmission(item.createRequest); code != "" {
 		return batchResult{Error: &errorDetail{Code: code, Message: msg}}
 	}
-	if _, ok := s.cfg.Targets[item.Target]; !ok {
+	if _, ok := s.cfg().Targets[item.Target]; !ok {
 		return batchResult{Error: &errorDetail{Code: CodeUnknownTarget, Message: "target " + strconv.Quote(item.Target) + " is not configured"}}
 	}
-	if limit := s.cfg.MaxPriorityFor(id.name); item.Priority != nil && *item.Priority > limit {
+	if limit := s.cfg().MaxPriorityFor(id.name); item.Priority != nil && *item.Priority > limit {
 		return batchResult{Error: &errorDetail{Code: CodeInvalidParameter, Message: fmt.Sprintf("priority %d exceeds this key's maximum of %d", *item.Priority, limit)}}
 	}
 	if len(item.IdempotencyKey) > maxIdempotencyKeyLen {
 		return batchResult{Error: &errorDetail{Code: CodeInvalidParameter, Message: "idempotency_key must be at most 255 bytes"}}
 	}
 	if item.CallbackURL != "" {
-		if err := callback.Check(s.cfg.Callbacks, item.CallbackURL); err != nil {
+		if err := callback.Check(s.cfg().Callbacks, item.CallbackURL); err != nil {
 			return batchResult{Error: &errorDetail{Code: CodeCallbackNotAllowed, Message: err.Error()}}
 		}
 	}
@@ -529,7 +529,7 @@ func (s *Server) callbackInfo(r *http.Request, job *store.Job) *jobview.Callback
 // would otherwise cut the response off; without a configured timeout the
 // cap is a minute.
 func (s *Server) maxWait() time.Duration {
-	if wt := s.cfg.Server.WriteTimeout.Std(); wt > 0 {
+	if wt := s.cfg().Server.WriteTimeout.Std(); wt > 0 {
 		return max(wt-5*time.Second, time.Second)
 	}
 	return time.Minute
@@ -811,7 +811,7 @@ func (s *Server) handleCancel(w http.ResponseWriter, r *http.Request) {
 // cancelled, when the target offers a cancel URL. Fire and forget, bounded by
 // the target's timeout: the request is cancelled whatever the target says.
 func (s *Server) notifyTargetCancel(job *store.Job) {
-	tcfg, ok := s.cfg.Targets[job.Target]
+	tcfg, ok := s.cfg().Targets[job.Target]
 	if !ok || s.upstream == nil || tcfg.Response.Poll == nil || tcfg.Response.Poll.CancelURLTemplate == "" || job.TargetJobID == "" {
 		return
 	}

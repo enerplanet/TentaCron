@@ -134,6 +134,9 @@ func (v *validator) auth(a Auth) {
 		if seen[k.Name] {
 			v.fail("auth.api_keys: duplicate name %q", k.Name)
 		}
+		if k.PreviousKey != "" && k.PreviousKey == k.Key {
+			v.fail("auth.api_keys[%d] (%s): previous_key must differ from key", i, k.Name)
+		}
 		seen[k.Name] = true
 		if k.Role != RoleClient && k.Role != RoleAdmin {
 			v.fail("auth.api_keys[%d] (%s): role must be %q or %q (got %q)", i, k.Name, RoleClient, RoleAdmin, k.Role)
