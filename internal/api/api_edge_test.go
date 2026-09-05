@@ -14,12 +14,14 @@ import (
 	"regexp"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/enerplanet/tentacron/internal/config"
 	"github.com/enerplanet/tentacron/internal/plan"
 	"github.com/enerplanet/tentacron/internal/store"
+	"github.com/enerplanet/tentacron/internal/upstream"
 )
 
 var authHdr = map[string]string{"X-API-Key": "valid-key"}
@@ -941,5 +943,81 @@ func TestCacheOptionValidationAndEcho(t *testing.T) {
 		if string(doc["options"]) != want {
 			t.Errorf("mode %q echoed as %s, want %q", mode, doc["options"], want)
 		}
+	}
+}
+
+// DELETE cancels queued and target-waiting requests, refuses ones in
+// flight or finished, is scoped like every read, and tells a target with a
+// cancel URL to stop its job.
+func TestCancelRequest(t *testing.T) {
+	var cancels atomic.Int64
+	var gotPath atomic.Value
+	target := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodDelete {
+			cancels.Add(1)
+			gotPath.Store(r.URL.Path)
+		}
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	t.Cleanup(target.Close)
+	e := newEnvWith(t, func(c *config.Config) {
+		c.Auth.APIKeys = append(c.Auth.APIKeys, config.APIKey{Name: "other", Key: "other-key", Role: config.RoleClient})
+		c.Targets["meme"] = config.Target{URL: target.URL + "/simulate", Timeout: config.Duration(2 * time.Second), APIKeyInject: config.InjectNone,
+			Response: config.Response{Mode: config.ModePoll, Poll: &config.Poll{
+				IDJSONPath: "id", URLTemplate: target.URL + "/jobs/{id}", CancelURLTemplate: target.URL + "/jobs/{id}/cancel",
+				StatusJSONPath: "state", DoneValues: []string{"done"}}}}
+	}, nil)
+	e.server.WithUpstream(upstream.New(1<<20, nil))
+	ctx := context.Background()
+	create := func() string {
+		return decodeBody[createResponse](t, e.do(t, "POST", "/v1/requests", validBody, nil)).ID
+	}
+	queued := create()
+	if rec := e.do(t, "DELETE", "/v1/requests/"+queued, "", map[string]string{"X-API-Key": "other-key"}); rec.Code != http.StatusNotFound {
+		t.Errorf("another client's cancel: %d, want 404", rec.Code)
+	}
+	rec := e.do(t, "DELETE", "/v1/requests/"+queued, "", authHdr)
+	if rec.Code != http.StatusOK || decodeBody[jobResponse](t, rec).State != store.StateCancelled {
+		t.Fatalf("cancel queued: %d %s", rec.Code, rec.Body.String())
+	}
+	if rec := e.do(t, "DELETE", "/v1/requests/"+queued, "", authHdr); rec.Code != http.StatusConflict || errCode(t, rec) != CodeNotCancellable {
+		t.Errorf("cancel a cancelled request: %d %s", rec.Code, rec.Body.String())
+	}
+	if rec := e.do(t, "GET", "/v1/requests?state=cancelled", "", authHdr); rec.Code != http.StatusOK || len(decodeBody[listResponse](t, rec).Items) != 1 {
+		t.Errorf("list cancelled: %d %s", rec.Code, rec.Body.String())
+	}
+
+	held := create()
+	if _, err := e.store.ClaimNext(ctx, store.ClaimPolicy{}); err != nil {
+		t.Fatal(err)
+	}
+	if rec := e.do(t, "DELETE", "/v1/requests/"+held, "", authHdr); rec.Code != http.StatusConflict || !strings.Contains(rec.Body.String(), "being processed") {
+		t.Errorf("cancel while resolving: %d %s", rec.Code, rec.Body.String())
+	}
+	if err := e.store.SetResolved(ctx, held, nil, ""); err != nil {
+		t.Fatal(err)
+	}
+	if err := e.store.MarkAwaitingTarget(ctx, held, "m-9", 202, nil, time.Now().Add(time.Hour), time.Now().Add(time.Hour)); err != nil {
+		t.Fatal(err)
+	}
+	if rec := e.do(t, "DELETE", "/v1/requests/"+held, "", authHdr); rec.Code != http.StatusOK {
+		t.Fatalf("cancel while awaiting: %d %s", rec.Code, rec.Body.String())
+	}
+	deadline := time.Now().Add(2 * time.Second)
+	for cancels.Load() == 0 && time.Now().Before(deadline) {
+		time.Sleep(5 * time.Millisecond)
+	}
+	if cancels.Load() != 1 || gotPath.Load() != "/jobs/m-9/cancel" {
+		t.Errorf("target cancel: %d calls, path %v", cancels.Load(), gotPath.Load())
+	}
+	done := create()
+	if err := e.store.MarkFailed(ctx, done, "target_error", "x"); err != nil {
+		t.Fatal(err)
+	}
+	if rec := e.do(t, "DELETE", "/v1/requests/"+done, "", authHdr); rec.Code != http.StatusConflict || !strings.Contains(rec.Body.String(), "already finished") {
+		t.Errorf("cancel a failed request: %d %s", rec.Code, rec.Body.String())
+	}
+	if rec := e.do(t, "DELETE", "/v1/requests/"+done, "", nil); rec.Code != http.StatusUnauthorized {
+		t.Errorf("unauthenticated cancel: %d", rec.Code)
 	}
 }

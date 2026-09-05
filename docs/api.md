@@ -166,14 +166,14 @@ configuration. Both require a key; neither reveals URLs or credentials.
 ```
 
 - `state` is one of `received`, `resolving`, `forwarding`, `awaiting_target`,
-  `completed`, `failed`.
+  `completed`, `failed`, `cancelled`.
 - `attempts` counts processing attempts (resolution + forwarding); it is
   incremented when a worker claims the job, so a crash mid-attempt still
   counts.
 - `priority` appears when it is not the default `0`; `options` when any
   option differs from its default (`{ "cache": "refresh" }`).
 - `target_job_id` appears once a poll-mode target accepted the job;
-  `completed_at` once the job is terminal (completed *or* failed).
+  `completed_at` once the job is terminal (completed, failed or cancelled).
 - `result` is `null` until the job is `completed`. JSON results up to
   256 KiB are embedded as `result.target_response`; larger or non-JSON
   results (e.g. a MEME zip bundle) are stored as files and referenced as
@@ -190,6 +190,26 @@ configuration. Both require a key; neither reveals URLs or credentials.
 
 `404 not_found` for unknown ids and for another client's ids (admins
 excepted).
+
+## DELETE /v1/requests/{id}
+
+Cancels a request. A queued request (`received`) is cancelled at once and
+never reaches the target. A request awaiting its target
+(`awaiting_target`) is cancelled, polling stops, and when the target has a
+`cancel_url_template` it is told to stop its job (best effort, in the
+background — the request is `cancelled` either way). The answer is the
+request envelope with `state: cancelled`, `completed_at` set and no
+`result` or `error`.
+
+- `409 not_cancellable` while a worker is processing the request
+  (`resolving`, `forwarding`): retry once it is queued again or awaiting its
+  target; the request keeps running.
+- `409 not_cancellable` for a finished request (`completed`, `failed`,
+  `cancelled`).
+- `404 not_found` for unknown ids and for another client's requests.
+
+`cancelled` is a terminal state: it appears in `state=cancelled` listings
+and is pruned by retention like the others.
 
 ## GET /v1/requests/{id}/result
 

@@ -241,6 +241,35 @@ paths:
           $ref: "#/components/responses/Unauthorized"
         "404":
           $ref: "#/components/responses/NotFound"
+    delete:
+      tags: [requests]
+      summary: Cancel a request
+      description: |
+        A queued request is cancelled at once; one awaiting its target is
+        cancelled and the target is asked to stop its job when it offers a
+        cancel URL. A request being processed right now answers `409`; retry
+        once it is queued again or awaiting the target. Finished requests
+        answer `409` too.
+      operationId: cancelRequest
+      parameters:
+        - $ref: "#/components/parameters/RequestID"
+      responses:
+        "200":
+          description: The request, now `cancelled`.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Job"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          description: Being processed right now, or already finished (`not_cancellable`).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
 
   /v1/requests/{id}/result:
     get:
@@ -408,7 +437,7 @@ components:
   schemas:
     State:
       type: string
-      enum: [received, resolving, forwarding, awaiting_target, completed, failed]
+      enum: [received, resolving, forwarding, awaiting_target, completed, failed, cancelled]
     Error:
       type: object
       required: [error]
@@ -421,7 +450,7 @@ components:
               type: string
               enum: [invalid_json, missing_field, unauthorized, unknown_target, idempotency_conflict,
                      payload_too_large, unsupported_media_type, not_found, method_not_allowed,
-                     invalid_parameter, internal]
+                     not_cancellable, invalid_parameter, internal]
             message:
               type: string
     CreateRequest:

@@ -10,6 +10,13 @@ under "Changed" with the keys or fields concerned.
 
 ### Added
 
+- `DELETE /v1/requests/{id}` cancels a queued request or one awaiting its
+  target (the target is told to stop its job when it configures
+  `response.poll.cancel_url_template`); requests being processed or already
+  finished answer `409 not_cancellable`. `cancelled` is a new terminal
+  state, listable and pruned like the others. Schema migration 0004 rebuilds
+  the jobs table for it; the migration runner learned to disable foreign
+  keys around table rebuilds and to verify integrity before committing.
 - Cache control: `options.cache` on a request selects `use` (default),
   `refresh` (fetch fresh, rewrite the cache — for reruns that must see new
   data) or `bypass` (fetch fresh, touch nothing), echoed on the job; a

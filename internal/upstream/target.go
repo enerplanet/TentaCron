@@ -219,6 +219,16 @@ func (c *Client) PollTarget(ctx context.Context, name string, tcfg config.Target
 	}, nil
 }
 
+// CancelTarget asks a poll-mode target to stop a job, with a DELETE on the
+// configured cancel_url_template and the target's auth. Best effort: the
+// caller logs the outcome and the request stays cancelled either way.
+func (c *Client) CancelTarget(ctx context.Context, name string, tcfg config.Target, targetJobID string) error {
+	poll := tcfg.Response.Poll
+	cancelURL := strings.ReplaceAll(poll.CancelURLTemplate, "{id}", url.PathEscape(targetJobID))
+	_, _, err := c.do(ctx, "cancel "+name, http.MethodDelete, cancelURL, nil, authHeaders(tcfg), tcfg.Timeout.Std())
+	return err
+}
+
 // ResultStream is an open result download. The body is not capped by the
 // client — the worker streams it to disk under storage.max_result_bytes —
 // and Close releases the connection together with the call's deadline.

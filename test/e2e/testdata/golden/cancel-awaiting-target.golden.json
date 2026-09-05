@@ -9,32 +9,48 @@
       "state": "received"
     },
     "status": 202,
-    "step": "submit payload with unconfigured resolvent type"
+    "step": "submit to the polling target"
   },
   {
     "request": "GET /v1/requests/{id}",
     "response": {
       "attempts": 1,
-      "completed_at": "«ts»",
       "created_at": "«ts»",
-      "error": {
-        "code": "unknown_resolvent",
-        "message": "no resolvent config for type \"resolvent-tidal\""
-      },
+      "error": null,
       "id": "«job-1»",
       "result": null,
-      "state": "failed",
-      "target": "demo",
+      "state": "awaiting_target",
+      "target": "meme",
+      "target_job_id": "m-golden-1",
       "updated_at": "«ts»"
     },
     "status": 200,
-    "step": "final state (failed before any resource call)"
+    "step": "the target accepted the job"
+  },
+  {
+    "request": "DELETE /v1/requests/«job-1»",
+    "response": {
+      "attempts": 1,
+      "completed_at": "«ts»",
+      "created_at": "«ts»",
+      "error": null,
+      "id": "«job-1»",
+      "result": null,
+      "state": "cancelled",
+      "target": "meme",
+      "target_job_id": "m-golden-1",
+      "updated_at": "«ts»"
+    },
+    "status": 200,
+    "step": "cancel while awaiting the target"
   },
   {
     "audit_trail": [
       "∅ → received: job accepted",
       "received → resolving: claimed by worker",
-      "resolving → failed: unknown_resolvent: no resolvent config for type \"resolvent-tidal\""
+      "resolving → forwarding: resolved 0 resolvent(s), 0 from cache",
+      "forwarding → awaiting_target: target accepted (status 202), polling job m-golden-1",
+      "awaiting_target → cancelled: cancelled by client golden"
     ],
     "step": "audit trail"
   },
@@ -43,8 +59,8 @@
     "buem_calls": 0,
     "demo_calls": 0,
     "ignis_calculate_calls": 0,
-    "meme_accept_calls": 0,
-    "meme_cancel_calls": 0,
+    "meme_accept_calls": 1,
+    "meme_cancel_calls": 1,
     "meme_result_calls": "not asserted (timing-dependent)",
     "meme_status_calls": "not asserted (timing-dependent)",
     "resource_calls": 0,

@@ -84,14 +84,33 @@ func migrationVersion(name string) (int, error) {
 	return version, nil
 }
 
+// fkOffDirective marks a migration that rebuilds a table other tables
+// reference. Dropping such a table with foreign keys on would cascade into
+// the referencing rows, so the runner disables enforcement around the file
+// (a per-connection setting that cannot change inside a transaction) and
+// checks integrity before committing.
+const fkOffDirective = "-- tentacron:foreign_keys=off"
+
 // applyMigration runs one migration file and records its version in a
-// single transaction.
+// single transaction on a dedicated connection.
 func (s *Store) applyMigration(ctx context.Context, name string, version int) error {
 	sqlBytes, err := migrationFS.ReadFile("migrations/" + name)
 	if err != nil {
 		return err
 	}
-	tx, err := s.db.BeginTx(ctx, nil)
+	conn, err := s.db.Conn(ctx)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = conn.Close() }()
+	rebuild := strings.Contains(string(sqlBytes), fkOffDirective)
+	if rebuild {
+		if _, err := conn.ExecContext(ctx, `PRAGMA foreign_keys=OFF`); err != nil {
+			return fmt.Errorf("migration %s: disable foreign keys: %w", name, err)
+		}
+		defer func() { _, _ = conn.ExecContext(context.WithoutCancel(ctx), `PRAGMA foreign_keys=ON`) }()
+	}
+	tx, err := conn.BeginTx(ctx, nil)
 	if err != nil {
 		return err
 	}
@@ -104,6 +123,17 @@ func (s *Store) applyMigration(ctx context.Context, name string, version int) er
 		version, ts(time.Now())); err != nil {
 		_ = tx.Rollback()
 		return fmt.Errorf("record migration %s: %w", name, err)
+	}
+	if rebuild {
+		var violations int
+		if err := tx.QueryRowContext(ctx, `SELECT count(*) FROM pragma_foreign_key_check`).Scan(&violations); err != nil {
+			_ = tx.Rollback()
+			return fmt.Errorf("migration %s: foreign key check: %w", name, err)
+		}
+		if violations > 0 {
+			_ = tx.Rollback()
+			return fmt.Errorf("migration %s would leave %d foreign key violation(s); rolled back", name, violations)
+		}
 	}
 	if err := tx.Commit(); err != nil {
 		return fmt.Errorf("commit migration %s: %w", name, err)

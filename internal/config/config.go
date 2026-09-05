@@ -282,9 +282,14 @@ type Response struct {
 
 // Poll describes how to poll an async target job to completion.
 type Poll struct {
-	IDJSONPath        string   `yaml:"id_json_path"`
-	URLTemplate       string   `yaml:"url_template"`
-	ResultURLTemplate string   `yaml:"result_url_template"`
+	IDJSONPath        string `yaml:"id_json_path"`
+	URLTemplate       string `yaml:"url_template"`
+	ResultURLTemplate string `yaml:"result_url_template"`
+	// CancelURLTemplate, when set, receives a DELETE (with the target's
+	// auth) when a client cancels a request that is awaiting this target,
+	// so the target can stop its job too. Best effort: the cancellation
+	// itself does not depend on it.
+	CancelURLTemplate string   `yaml:"cancel_url_template"`
 	StatusJSONPath    string   `yaml:"status_json_path"`
 	DoneValues        []string `yaml:"done_values"`
 	FailedValues      []string `yaml:"failed_values"`

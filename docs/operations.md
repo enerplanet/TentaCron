@@ -160,6 +160,7 @@ recent failures, so most inspection needs no database access.
 | Target job not done before `poll.timeout` (or status endpoint unreachable past it) | `target_timeout`. |
 | Result fetch fails transiently | Retried next poll tick; `target_error` once the poll deadline has passed. |
 | Panic or result file write failure | `internal`. |
+| Client `DELETE /v1/requests/{id}` | `received` and `awaiting_target` requests end `cancelled` (the target is told to stop when it offers a `cancel_url_template`); in-flight and finished requests answer `409`. |
 | Process restart | `resolving`/`forwarding` jobs are requeued and reprocessed from the original payload (series cache makes this cheap); `awaiting_target` jobs resume polling without re-submitting. |
 | Shutdown (SIGTERM) | HTTP drains within `server.shutdown_grace`; in-flight jobs park back to `received`. |
 

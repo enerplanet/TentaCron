@@ -16,6 +16,7 @@ const (
 	CodeUnsupportedMediaType = "unsupported_media_type"
 	CodeNotFound             = "not_found"
 	CodeMethodNotAllowed     = "method_not_allowed"
+	CodeNotCancellable       = "not_cancellable"
 	CodeInvalidParameter     = "invalid_parameter"
 	CodeInternal             = "internal"
 )

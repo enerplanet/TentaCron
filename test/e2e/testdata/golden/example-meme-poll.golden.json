@@ -132,6 +132,7 @@
     "demo_calls": 0,
     "ignis_calculate_calls": 0,
     "meme_accept_calls": 1,
+    "meme_cancel_calls": 0,
     "meme_result_calls": "not asserted (timing-dependent)",
     "meme_status_calls": "not asserted (timing-dependent)",
     "resource_calls": 1,

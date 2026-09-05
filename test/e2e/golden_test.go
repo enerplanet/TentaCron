@@ -36,6 +36,11 @@ func TestScheduling(t *testing.T) {
 	runScenarios(t, schedulingScenarios)
 }
 
+// TestCancellation covers DELETE /v1/requests/{id} in every state.
+func TestCancellation(t *testing.T) {
+	runScenarios(t, cancellationScenarios)
+}
+
 // TestGoldenCorpusMatchesScenarios keeps testdata/golden/ and the scenario
 // corpus in lockstep: a removed or renamed scenario must not leave a zombie
 // golden behind, and scenario names must be unique.
@@ -523,6 +528,68 @@ var targetProtocolScenarios = []scenario{
 			h.await("final state (digits exact in embedded result)", id)
 			h.get("download inline JSON result", "/v1/requests/"+id+"/result",
 				map[string]string{"X-API-Key": clientKey})
+		},
+	},
+}
+
+var cancellationScenarios = []scenario{
+	{
+		// A queued request is cancelled at once and never reaches the
+		// target; a finished one cannot be cancelled any more.
+		name: "cancel-received",
+		fakes: fakes{directDelay: func(call int64) time.Duration {
+			if call == 1 {
+				return time.Second // the blocker keeps the single worker busy
+			}
+			return 0
+		}},
+		mod: func(cfg *config.Config) { cfg.Worker.Count = 1 },
+		run: func(t *testing.T, h *harness) {
+			auth := map[string]string{"X-API-Key": clientKey}
+			blocker := h.post("blocker occupies the worker", requestBody("demo", `{"who":"b0","time-series":[]}`), nil)
+			h.awaitState("blocker is forwarding", blocker, store.StateForwarding)
+			queued := h.post("a second request queues behind it", requestBody("demo", `{"who":"q1","time-series":[]}`), nil)
+			h.del("cancel the queued request", "/v1/requests/"+queued, auth)
+			h.del("cancelling it again is refused", "/v1/requests/"+queued, auth)
+			h.get("cancelled requests are listable", "/v1/requests?state=cancelled", auth)
+			h.events("audit trail of the cancelled request", queued)
+			h.await("the blocker completes normally", blocker)
+			h.del("a finished request cannot be cancelled", "/v1/requests/"+blocker, auth)
+			h.get("result of the cancelled request is not available", "/v1/requests/"+queued+"/result", auth)
+			h.targetCallOrder("only the blocker reached the target", "demo")
+		},
+	},
+	{
+		// A request awaiting its target is cancelled and the target is asked
+		// to stop its job through cancel_url_template; polling stops.
+		name:  "cancel-awaiting-target",
+		fakes: fakes{status: func(int64) reply { return reply{200, `{"id":"m-golden-1","state":"running"}`, ""} }},
+		mod: func(cfg *config.Config) {
+			meme := cfg.Targets["meme"]
+			meme.Response.Poll.Timeout = config.Duration(60 * time.Second)
+			cfg.Targets["meme"] = meme
+		},
+		run: func(t *testing.T, h *harness) {
+			auth := map[string]string{"X-API-Key": clientKey}
+			id := h.post("submit to the polling target", requestBody("meme", `{"model":{"timeseries":{}}}`), nil)
+			h.awaitState("the target accepted the job", id, store.StateAwaitingTarget)
+			h.del("cancel while awaiting the target", "/v1/requests/"+id, auth)
+			h.awaitCancelCalls(1)
+			h.events("audit trail", id)
+			h.counts()
+		},
+	},
+	{
+		// A request a worker is processing right now is not cancellable:
+		// the client is told to retry, and the job finishes as usual.
+		name:  "cancel-conflict-in-flight",
+		fakes: fakes{directDelay: func(call int64) time.Duration { return 500 * time.Millisecond }},
+		run: func(t *testing.T, h *harness) {
+			auth := map[string]string{"X-API-Key": clientKey}
+			id := h.post("submit", requestBody("demo", `{"time-series":[]}`), nil)
+			h.awaitState("the worker is forwarding it", id, store.StateForwarding)
+			h.del("cancel during processing is refused", "/v1/requests/"+id, auth)
+			h.await("the request completes anyway", id)
 		},
 	},
 }

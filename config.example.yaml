@@ -70,6 +70,7 @@ targets:
         done_values: [succeeded]
         failed_values: [failed]
         result_url_template: "https://meme.example.com/jobs/{id}"
+        # cancel_url_template: "https://meme.example.com/jobs/{id}" # DELETE on client cancellation, once meme offers it
         interval: 10s
         timeout: 30m
 

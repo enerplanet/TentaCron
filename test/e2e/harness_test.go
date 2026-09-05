@@ -159,7 +159,7 @@ type harness struct {
 	st  *store.Store
 	api *httptest.Server
 
-	resourceCalls, demoCalls, acceptCalls, statusCalls, resultCalls, gatewayCalls, buildingCalls, calculateCalls atomic.Int64
+	resourceCalls, demoCalls, acceptCalls, statusCalls, resultCalls, cancelCalls, gatewayCalls, buildingCalls, calculateCalls atomic.Int64
 
 	mu               sync.Mutex
 	lastForwarded    map[string][]byte   // keyed by target name
@@ -252,6 +252,10 @@ func (h *harness) startTargetFake(f fakes) *httptest.Server {
 	})
 	mux.HandleFunc("GET /jobs/{id}", func(w http.ResponseWriter, _ *http.Request) {
 		writeReply(w, f.result(h.resultCalls.Add(1)))
+	})
+	mux.HandleFunc("DELETE /jobs/{id}", func(w http.ResponseWriter, _ *http.Request) {
+		h.cancelCalls.Add(1)
+		w.WriteHeader(http.StatusNoContent)
 	})
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		h.noteUnexpected(r)
@@ -382,6 +386,7 @@ func goldenTargets(base string) map[string]config.Target {
 			Response: config.Response{Mode: config.ModePoll, Poll: &config.Poll{
 				IDJSONPath: "id", URLTemplate: base + "/jobs/{id}/status",
 				ResultURLTemplate: base + "/jobs/{id}",
+				CancelURLTemplate: base + "/jobs/{id}",
 				StatusJSONPath:    "state", DoneValues: []string{"succeeded"}, FailedValues: []string{"failed"},
 				Interval: dur(10 * time.Millisecond), Timeout: dur(2 * time.Second),
 			}},
@@ -443,7 +448,7 @@ func (h *harness) startStack(cfg *config.Config) {
 		defer close(done)
 		pool.Run(ctx)
 	}()
-	h.api = httptest.NewServer(api.New(cfg, st, logger, nudge).Handler())
+	h.api = httptest.NewServer(api.New(cfg, st, logger, nudge).WithUpstream(upstream.New(cfg.Upstream.MaxResponseBytes, cfg.UpstreamSecrets())).Handler())
 	h.t.Cleanup(func() {
 		h.api.Close()
 		cancel()
@@ -607,6 +612,35 @@ func (h *harness) get(label, path string, hdr map[string]string) {
 	})
 }
 
+// del performs a recorded DELETE (cancellation).
+func (h *harness) del(label, path string, hdr map[string]string) {
+	h.t.Helper()
+	req, _ := http.NewRequest(http.MethodDelete, h.api.URL+path, nil)
+	for k, v := range hdr {
+		req.Header.Set(k, v)
+	}
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		h.t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	body, _ := io.ReadAll(resp.Body)
+	h.record(map[string]any{
+		"step": label, "request": "DELETE " + normalizePath(path, h.ids),
+		"status": resp.StatusCode, "response": scrubTimes(decodeAny(body)),
+	})
+}
+
+// awaitCancelCalls waits until the meme fake has received n cancel calls:
+// the target notification runs in the background.
+func (h *harness) awaitCancelCalls(n int64) {
+	h.t.Helper()
+	deadline := time.Now().Add(5 * time.Second)
+	for h.cancelCalls.Load() < n && time.Now().Before(deadline) {
+		time.Sleep(5 * time.Millisecond)
+	}
+}
+
 // getJSON is get for steps whose response the scenario needs to read back
 // (a page cursor, say); it records the step like get and returns the
 // decoded body.
@@ -722,6 +756,7 @@ func (h *harness) countsStep(withPolls bool) map[string]any {
 		"resource_calls":               h.resourceCalls.Load(),
 		"demo_calls":                   h.demoCalls.Load(),
 		"meme_accept_calls":            h.acceptCalls.Load(),
+		"meme_cancel_calls":            h.cancelCalls.Load(),
 		"buem_calls":                   h.gatewayCalls.Load(),
 		"buem_building_calls":          h.buildingCalls.Load(),
 		"ignis_calculate_calls":        h.calculateCalls.Load(),
@@ -867,6 +902,7 @@ func allScenarios() []scenario {
 	all = append(all, targetProtocolScenarios...)
 	all = append(all, apiContractScenarios...)
 	all = append(all, schedulingScenarios...)
+	all = append(all, cancellationScenarios...)
 	all = append(all, edgeScenarios...)
 	return all
 }

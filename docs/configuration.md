@@ -120,6 +120,7 @@ One entry per downstream workflow; the request's `target` field selects it.
 | `response.poll.id_json_path` | required for `poll` | Dot path to the job id in the accept response. |
 | `response.poll.url_template` | required for `poll` | Status URL; must contain `{id}`. |
 | `response.poll.result_url_template` | `url_template` | Result URL once the job is done. |
+| `response.poll.cancel_url_template` | – | When set, a client cancellation of a request awaiting this target sends a `DELETE` here (with the target's auth) so the target stops its job. Must contain `{id}`. |
 | `response.poll.status_json_path` | required for `poll` | Dot path to the status value in the status response. |
 | `response.poll.done_values` | required for `poll` | Status values meaning success. |
 | `response.poll.failed_values` | – | Status values meaning failure; must not overlap `done_values`. |

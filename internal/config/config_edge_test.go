@@ -324,6 +324,20 @@ targets:
         status_json_path: state
         done_values: [done]
 `, "url_template: \"jobs/{id}\" is not a valid http(s) URL"},
+		{"cancel template without id", `
+        id_json_path: id
+        url_template: "https://meme.example.com/jobs/{id}"
+        cancel_url_template: "https://meme.example.com/jobs"
+        status_json_path: state
+        done_values: [done]
+`, "cancel_url_template: must contain the {id} placeholder"},
+		{"relative cancel template", `
+        id_json_path: id
+        url_template: "https://meme.example.com/jobs/{id}"
+        cancel_url_template: "jobs/{id}"
+        status_json_path: state
+        done_values: [done]
+`, "cancel_url_template: \"jobs/{id}\" is not a valid http(s) URL"},
 	}
 	for _, tt := range cases {
 		t.Run(tt.name, func(t *testing.T) {

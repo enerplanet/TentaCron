@@ -35,14 +35,20 @@ stateDiagram-v2
     resolving --> failed: permanent error / attempts exhausted
     forwarding --> failed: permanent error / attempts exhausted
     awaiting_target --> failed: target job failed / poll deadline / permanent poll error
+    received --> cancelled: client DELETE
+    awaiting_target --> cancelled: client DELETE (target told to stop, best effort)
     completed --> [*]
     failed --> [*]
+    cancelled --> [*]
 ```
 
 Every transition is appended to the `job_events` table, giving a complete
 audit trail per request. Terminal states are final: a late outcome from an
 overlapping worker can never overwrite a result a client may already have
-seen.
+seen. A request a worker is processing right now (`resolving`,
+`forwarding`) cannot be cancelled — the worker holds it and the upstream
+call is in flight — so `DELETE` answers `409` there and the client retries
+once the request is queued again or awaiting its target.
 
 ## Resolution
 

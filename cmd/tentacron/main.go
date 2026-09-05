@@ -180,7 +180,7 @@ func serveFromConfig(path string, logger *slog.Logger, level *slog.LevelVar) err
 	nudge := make(chan struct{}, 1)
 	client := upstream.New(cfg.Upstream.MaxResponseBytes, cfg.UpstreamSecrets()).WithMetrics(m)
 	pool := worker.New(cfg, st, client, logger, nudge).WithMetrics(m)
-	apiServer := api.New(cfg, st, logger, nudge)
+	apiServer := api.New(cfg, st, logger, nudge).WithUpstream(client)
 	apiServer.Build = buildInfo()
 	servers := []*http.Server{newHTTPServer(cfg, apiServer.Handler())}
 	if ms := newMetricsServer(cfg, m); ms != nil {

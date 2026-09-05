@@ -21,7 +21,13 @@ const (
 	StateAwaitingTarget = "awaiting_target"
 	StateCompleted      = "completed"
 	StateFailed         = "failed"
+	StateCancelled      = "cancelled"
 )
+
+// IsTerminal reports whether a state is final.
+func IsTerminal(state string) bool {
+	return state == StateCompleted || state == StateFailed || state == StateCancelled
+}
 
 // ErrNotFound is returned when no matching job exists.
 var ErrNotFound = errors.New("job not found")
@@ -35,6 +41,11 @@ var ErrTerminalState = errors.New("job is in a terminal state")
 // ErrIdempotencyConflict is returned when an idempotency key is reused with a
 // different target or payload than the stored request.
 var ErrIdempotencyConflict = errors.New("idempotency key reused with a different request")
+
+// ErrNotCancellable is returned when a job is being processed right now
+// (resolving or forwarding): a worker holds it, and pulling it away would
+// leave the upstream call in flight with nobody to record its outcome.
+var ErrNotCancellable = errors.New("job is being processed and cannot be cancelled right now")
 
 // Job is one orchestration request and its processing state. Field order
 // mirrors jobColumns; keep the two in sync.
@@ -616,6 +627,24 @@ func (s *Store) MarkFailed(ctx context.Context, id, code, message string) error 
 	})
 }
 
+// MarkCancelled ends a job at the client's request. Only a queued job
+// (received) or one waiting on its target (awaiting_target) can be
+// cancelled: a job a worker is processing right now yields
+// ErrNotCancellable, a finished one ErrTerminalState.
+func (s *Store) MarkCancelled(ctx context.Context, id, detail string) error {
+	now := time.Now()
+	guard := func(current string) error {
+		if current == StateResolving || current == StateForwarding {
+			return fmt.Errorf("job %s is %s: %w", id, current, ErrNotCancellable)
+		}
+		return nil
+	}
+	return s.transitionGuarded(ctx, id, guard, StateCancelled, detail, func(q *updateBuilder) {
+		q.set("next_attempt_at = NULL")
+		q.set("completed_at = ?", ts(now))
+	})
+}
+
 // Requeue schedules a retry after a transient error.
 func (s *Store) Requeue(ctx context.Context, id string, nextAttemptAt time.Time, detail string) error {
 	return s.transition(ctx, id, anyState, StateReceived, detail, func(q *updateBuilder) {
@@ -668,9 +697,9 @@ func (s *Store) requeueAll(ctx context.Context, ids []string, detail string) err
 // the sweeper loops until a pass comes back short.
 func (s *Store) TerminalBefore(ctx context.Context, cutoff time.Time, limit int) (ids, paths []string, err error) {
 	rows, err := s.db.QueryContext(ctx, `SELECT id, result_path FROM jobs
-		WHERE state IN (?, ?) AND completed_at < ?
+		WHERE state IN (?, ?, ?) AND completed_at < ?
 		ORDER BY completed_at LIMIT ?`,
-		StateCompleted, StateFailed, ts(cutoff), limit)
+		StateCompleted, StateFailed, StateCancelled, ts(cutoff), limit)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -752,9 +781,21 @@ const anyState = ""
 
 // transition applies a state change plus extra column updates and appends the
 // audit event, all in one transaction. fromState anyState accepts any current
-// state — except the terminal ones: completed/failed are final and yield
-// ErrTerminalState (callers treat that as "someone else finished first").
-func (s *Store) transition(ctx context.Context, id, fromState, toState, detail string, build func(*updateBuilder)) (err error) {
+// state — except the terminal ones: completed/failed/cancelled are final and
+// yield ErrTerminalState (callers treat that as "someone else finished first").
+func (s *Store) transition(ctx context.Context, id, fromState, toState, detail string, build func(*updateBuilder)) error {
+	guard := func(current string) error {
+		if fromState != anyState && current != fromState {
+			return fmt.Errorf("job %s: cannot transition %s -> %s (state is %s)", id, fromState, toState, current)
+		}
+		return nil
+	}
+	return s.transitionGuarded(ctx, id, guard, toState, detail, build)
+}
+
+// transitionGuarded is transition with an arbitrary precondition on the
+// current state, evaluated after the terminal check.
+func (s *Store) transitionGuarded(ctx context.Context, id string, guard func(current string) error, toState, detail string, build func(*updateBuilder)) (err error) {
 	now := time.Now()
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
@@ -769,7 +810,10 @@ func (s *Store) transition(ctx context.Context, id, fromState, toState, detail s
 	if err != nil {
 		return err
 	}
-	if err = checkTransition(id, current, fromState, toState); err != nil {
+	if IsTerminal(current) {
+		return fmt.Errorf("job %s: already %s, cannot transition to %s: %w", id, current, toState, ErrTerminalState)
+	}
+	if err = guard(current); err != nil {
 		return err
 	}
 	query, args := buildUpdate(id, toState, now, build)
@@ -791,20 +835,6 @@ func currentState(ctx context.Context, tx *sql.Tx, id string) (string, error) {
 		return "", ErrNotFound
 	}
 	return current, err
-}
-
-// checkTransition enforces the two rules every transition obeys: terminal
-// states are final — a repeat of the same terminal outcome is refused too,
-// so an overlapping duplicate completion can never overwrite a result body
-// a client may already have fetched — and an expected fromState must match.
-func checkTransition(id, current, fromState, toState string) error {
-	if current == StateCompleted || current == StateFailed {
-		return fmt.Errorf("job %s: already %s, cannot transition to %s: %w", id, current, toState, ErrTerminalState)
-	}
-	if fromState != anyState && current != fromState {
-		return fmt.Errorf("job %s: cannot transition %s -> %s (state is %s)", id, fromState, toState, current)
-	}
-	return nil
 }
 
 // buildUpdate assembles a transition's UPDATE: state and updated_at plus the

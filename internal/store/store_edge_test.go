@@ -1004,6 +1004,10 @@ func TestMigrationAddsPriorityToExistingRows(t *testing.T) {
 		`INSERT INTO schema_migrations (version, applied_at) VALUES (1, '2026-01-01T00:00:00.000Z')`,
 		`INSERT INTO jobs (id, client, target, state, max_attempts, payload, created_at, updated_at)
 		 VALUES ('old-job', 'frontend', 'demo', 'received', 3, '{}', '2026-01-01T00:00:00.000Z', '2026-01-01T00:00:00.000Z')`,
+		`INSERT INTO jobs (id, client, target, state, max_attempts, payload, created_at, updated_at, completed_at)
+		 VALUES ('done-job', 'frontend', 'demo', 'completed', 3, '{}', '2026-01-01T00:00:00.000Z', '2026-01-01T00:00:01.000Z', '2026-01-01T00:00:01.000Z')`,
+		`INSERT INTO job_events (job_id, from_state, to_state, detail, created_at) VALUES ('old-job', NULL, 'received', 'job accepted', '2026-01-01T00:00:00.000Z')`,
+		`INSERT INTO job_events (job_id, from_state, to_state, detail, created_at) VALUES ('done-job', 'forwarding', 'completed', 'done', '2026-01-01T00:00:01.000Z')`,
 	} {
 		if _, err := db.Exec(stmt); err != nil {
 			t.Fatalf("%s: %v", stmt[:40], err)
@@ -1017,11 +1021,26 @@ func TestMigrationAddsPriorityToExistingRows(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = s.Close() })
 	job, err := s.GetJob(context.Background(), "old-job")
-	if err != nil || job.Priority != 0 || job.Client != "frontend" || !job.Options.IsZero() {
+	if err != nil || job.Priority != 0 || job.Client != "frontend" || !job.Options.IsZero() || job.Seq != 1 {
 		t.Fatalf("existing row after migration: %+v (err %v)", job, err)
+	}
+	// The table rebuild behind the cancelled state must keep every event
+	// (foreign keys were off while the old table was dropped) and the
+	// insertion order.
+	for id, wantDetail := range map[string]string{"old-job": "job accepted", "done-job": "done"} {
+		events := mustEvents(t, s, id)
+		if len(events) != 1 || events[0].Detail != wantDetail {
+			t.Errorf("events of %s after the rebuild = %+v", id, events)
+		}
+	}
+	if done, _ := s.GetJob(context.Background(), "done-job"); done.Seq != 2 || done.State != StateCompleted {
+		t.Errorf("done-job after rebuild = %+v", done)
 	}
 	if c, err := s.ClaimNext(context.Background(), noPoll); err != nil || c == nil || c.ID != "old-job" {
 		t.Fatalf("existing row must stay claimable: %v %v", c, err)
+	}
+	if err := s.MarkCancelled(context.Background(), "old-job", "x"); !errors.Is(err, ErrNotCancellable) {
+		t.Errorf("the rebuilt table must accept the new state machine: %v", err)
 	}
 }
 
@@ -1045,5 +1064,67 @@ func TestJobOptionsRoundTrip(t *testing.T) {
 	}
 	if _, err := decodeOptions("not json"); err == nil {
 		t.Error("corrupt options must be reported, not ignored")
+	}
+}
+
+// Cancellation ends a queued or target-waiting job; a job a worker holds
+// right now is refused, a finished one is final. Cancelled jobs count as
+// terminal for retention.
+func TestMarkCancelled(t *testing.T) {
+	s := openTest(t)
+	ctx := context.Background()
+	queued := newJob(t, "meme")
+	mustCreate(t, s, queued)
+	if err := s.MarkCancelled(ctx, queued.ID, "cancelled by client a"); err != nil {
+		t.Fatalf("cancel a queued job: %v", err)
+	}
+	got, _ := s.GetJob(ctx, queued.ID)
+	if got.State != StateCancelled || got.CompletedAt == nil || got.ErrorCode != "" || got.NextAttemptAt != nil {
+		t.Errorf("cancelled job = %+v", got)
+	}
+	if c, _ := s.ClaimNext(ctx, noPoll); c != nil {
+		t.Errorf("a cancelled job must never be claimed, got %s", c.ID)
+	}
+	if err := s.MarkCancelled(ctx, queued.ID, "again"); !errors.Is(err, ErrTerminalState) {
+		t.Errorf("second cancel: %v, want ErrTerminalState", err)
+	}
+	if err := s.MarkCompleted(ctx, queued.ID, 200, []byte(`{}`), "", "", "late"); !errors.Is(err, ErrTerminalState) {
+		t.Errorf("late completion of a cancelled job: %v, want ErrTerminalState", err)
+	}
+
+	held := newJob(t, "meme")
+	mustCreate(t, s, held)
+	if c, _ := s.ClaimNext(ctx, noPoll); c == nil || c.ID != held.ID {
+		t.Fatal("claim failed")
+	}
+	if err := s.MarkCancelled(ctx, held.ID, "x"); !errors.Is(err, ErrNotCancellable) {
+		t.Errorf("cancel while resolving: %v, want ErrNotCancellable", err)
+	}
+	if err := s.SetResolved(ctx, held.ID, nil, ""); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.MarkCancelled(ctx, held.ID, "x"); !errors.Is(err, ErrNotCancellable) {
+		t.Errorf("cancel while forwarding: %v, want ErrNotCancellable", err)
+	}
+	if err := s.MarkAwaitingTarget(ctx, held.ID, "m-1", 202, nil, time.Now().Add(time.Hour), time.Now().Add(time.Hour)); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.MarkCancelled(ctx, held.ID, "cancelled while awaiting"); err != nil {
+		t.Fatalf("cancel while awaiting the target: %v", err)
+	}
+	events := mustEvents(t, s, held.ID)
+	if last := events[len(events)-1]; last.FromState != StateAwaitingTarget || last.ToState != StateCancelled || last.Detail != "cancelled while awaiting" {
+		t.Errorf("last event = %+v", last)
+	}
+	time.Sleep(3 * time.Millisecond)
+	ids, _, err := s.TerminalBefore(ctx, time.Now(), 10)
+	if err != nil || len(ids) != 2 {
+		t.Errorf("retention must include cancelled jobs: %v (err %v)", ids, err)
+	}
+	if counts, _ := s.CountByState(ctx); counts[StateCancelled] != 2 {
+		t.Errorf("counts = %v", counts)
+	}
+	if !IsTerminal(StateCancelled) || IsTerminal(StateAwaitingTarget) {
+		t.Error("IsTerminal is wrong")
 	}
 }

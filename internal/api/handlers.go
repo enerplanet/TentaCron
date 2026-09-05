@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
@@ -403,7 +404,7 @@ func listParams(w http.ResponseWriter, r *http.Request, id identity) (store.List
 	f := store.ListFilter{State: q.Get("state"), Target: q.Get("target"), Client: id.name, Limit: 50}
 	switch f.State {
 	case "", store.StateReceived, store.StateResolving, store.StateForwarding,
-		store.StateAwaitingTarget, store.StateCompleted, store.StateFailed:
+		store.StateAwaitingTarget, store.StateCompleted, store.StateFailed, store.StateCancelled:
 	default:
 		writeError(w, http.StatusBadRequest, CodeInvalidParameter, "unknown state filter "+strconv.Quote(f.State))
 		return f, false
@@ -538,6 +539,65 @@ func (s *Server) serveResultFile(w http.ResponseWriter, r *http.Request, job *st
 	w.Header().Set("Content-Type", ct)
 	w.Header().Set("Content-Disposition", mime.FormatMediaType("attachment", map[string]string{"filename": filepath.Base(job.ResultPath)}))
 	http.ServeContent(w, r, info.Name(), info.ModTime(), f)
+}
+
+// handleCancel ends a request at the client's wish. A queued request is
+// cancelled at once; one awaiting its target is cancelled and, when the
+// target has a cancel_url_template, the target is told to stop its job (best
+// effort, in the background). A request a worker is processing right now
+// answers 409 not_cancellable — retry once it is queued again or awaiting
+// the target — and a finished request answers 409 as well.
+func (s *Server) handleCancel(w http.ResponseWriter, r *http.Request) {
+	id, ok := s.authFromHeader(w, r)
+	if !ok {
+		return
+	}
+	job, ok := s.jobForCaller(w, r, id)
+	if !ok {
+		return
+	}
+	err := s.store.MarkCancelled(r.Context(), job.ID, "cancelled by client "+id.name)
+	switch {
+	case errors.Is(err, store.ErrNotCancellable):
+		writeError(w, http.StatusConflict, CodeNotCancellable,
+			"the request is being processed right now (state "+job.State+"); retry once it is queued again or awaiting its target")
+		return
+	case errors.Is(err, store.ErrTerminalState):
+		writeError(w, http.StatusConflict, CodeNotCancellable, "the request already finished (state "+job.State+")")
+		return
+	case err != nil:
+		s.internalError(w, "cancel failed", err)
+		return
+	}
+	s.logger.Info("job cancelled", "job_id", job.ID, "target", job.Target, "client", id.name, "was", job.State)
+	if job.State == store.StateAwaitingTarget {
+		s.notifyTargetCancel(job)
+	}
+	updated, err := s.store.GetJob(r.Context(), job.ID)
+	if err != nil {
+		s.internalError(w, "get job failed", err)
+		return
+	}
+	writeJSON(w, http.StatusOK, toJobResponse(updated))
+}
+
+// notifyTargetCancel tells a poll-mode target to stop the job tentacron just
+// cancelled, when the target offers a cancel URL. Fire and forget, bounded by
+// the target's timeout: the request is cancelled whatever the target says.
+func (s *Server) notifyTargetCancel(job *store.Job) {
+	tcfg, ok := s.cfg.Targets[job.Target]
+	if !ok || s.upstream == nil || tcfg.Response.Poll == nil || tcfg.Response.Poll.CancelURLTemplate == "" || job.TargetJobID == "" {
+		return
+	}
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), tcfg.Timeout.Std())
+		defer cancel()
+		if err := s.upstream.CancelTarget(ctx, job.Target, tcfg, job.TargetJobID); err != nil {
+			s.logger.Warn("target cancel failed", "job_id", job.ID, "target", job.Target, "target_job_id", job.TargetJobID, "error", err)
+			return
+		}
+		s.logger.Info("target job cancelled", "job_id", job.ID, "target", job.Target, "target_job_id", job.TargetJobID)
+	}()
 }
 
 // eventTimeLayout keeps the store's millisecond precision: several

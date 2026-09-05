@@ -9,6 +9,7 @@ import (
 
 	"github.com/enerplanet/tentacron/internal/config"
 	"github.com/enerplanet/tentacron/internal/store"
+	"github.com/enerplanet/tentacron/internal/upstream"
 )
 
 // BuildInfo identifies the running binary on /version and /healthz.
@@ -27,6 +28,15 @@ type Server struct {
 	nudge  chan<- struct{}
 	// Build is reported by /version and /healthz; main fills it in.
 	Build BuildInfo
+	// upstream, when set, lets a cancellation tell a poll-mode target to
+	// stop its job (cancel_url_template).
+	upstream *upstream.Client
+}
+
+// WithUpstream enables best-effort target notifications on cancellation.
+func (s *Server) WithUpstream(c *upstream.Client) *Server {
+	s.upstream = c
+	return s
 }
 
 // New builds the API server. nudge is signalled (non-blocking) whenever a new
@@ -50,6 +60,7 @@ func (s *Server) routes() []route {
 		{http.MethodGet, "/v1/targets", s.handleTargets},
 		{http.MethodGet, "/v1/resolvents", s.handleResolvents},
 		{http.MethodGet, "/v1/requests/{id}", s.handleGet},
+		{http.MethodDelete, "/v1/requests/{id}", s.handleCancel},
 		{http.MethodGet, "/v1/requests/{id}/result", s.handleResult},
 		{http.MethodGet, "/v1/requests/{id}/events", s.handleEvents},
 		{http.MethodGet, "/healthz", s.handleHealthz},

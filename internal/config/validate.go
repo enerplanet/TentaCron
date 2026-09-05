@@ -251,6 +251,15 @@ func (v *validator) poll(p string, pl *Poll) {
 		(u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
 		v.fail("%s.url_template: %q is not a valid http(s) URL", p, pl.URLTemplate)
 	}
+	if pl.CancelURLTemplate != "" {
+		if !strings.Contains(pl.CancelURLTemplate, "{id}") {
+			v.fail("%s.cancel_url_template: must contain the {id} placeholder", p)
+		}
+		if u, err := url.Parse(strings.ReplaceAll(pl.CancelURLTemplate, "{id}", "x")); err != nil ||
+			(u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
+			v.fail("%s.cancel_url_template: %q is not a valid http(s) URL", p, pl.CancelURLTemplate)
+		}
+	}
 	if pl.StatusJSONPath == "" {
 		v.fail("%s.status_json_path: required", p)
 	}

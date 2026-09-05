@@ -522,3 +522,29 @@ func TestJSONPathEdges(t *testing.T) {
 		}
 	}
 }
+
+// The cancel call is a DELETE on the template with the target's auth; a
+// non-2xx answer is reported so the caller can log it.
+func TestCancelTargetSendsDeleteWithAuth(t *testing.T) {
+	var gotMethod, gotPath, gotAuth string
+	var status atomic.Int64
+	status.Store(204)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotMethod, gotPath, gotAuth = r.Method, r.URL.EscapedPath(), r.Header.Get("X-Api-Key")
+		w.WriteHeader(int(status.Load()))
+	}))
+	defer srv.Close()
+	tcfg := pollTargetCfg(srv.URL)
+	tcfg.Response.Poll.CancelURLTemplate = srv.URL + "/jobs/{id}/cancel"
+	tcfg.APIKey, tcfg.APIKeyInject, tcfg.APIKeyHeader = "k", config.InjectHeader, "X-Api-Key"
+	if err := testClient(1<<20).CancelTarget(context.Background(), "meme", tcfg, "j 1"); err != nil {
+		t.Fatal(err)
+	}
+	if gotMethod != http.MethodDelete || gotPath != "/jobs/j%201/cancel" || gotAuth != "k" {
+		t.Errorf("cancel call: %s %s auth=%q", gotMethod, gotPath, gotAuth)
+	}
+	status.Store(404)
+	if err := testClient(1<<20).CancelTarget(context.Background(), "meme", tcfg, "j1"); err == nil {
+		t.Error("a non-2xx answer must be reported")
+	}
+}
