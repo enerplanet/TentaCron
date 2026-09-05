@@ -39,6 +39,10 @@ type Plan struct {
 	Root map[string]any
 	// Found lists the resolvent objects in document order.
 	Found []*resolver.Found
+	// Levels groups Found by dependency: level 0 needs no other resolvent,
+	// each later level references only earlier ones. Empty when the plan
+	// has problems.
+	Levels [][]*resolver.Found
 	// Problems lists what would fail the job, in the order the worker would
 	// hit them; empty means the job can start.
 	Problems []Problem
@@ -88,6 +92,14 @@ func Inspect(cfg *config.Config, target string, payload []byte) Plan {
 			}
 		}
 	}
+	// References between resolvents order the fetches; a reference that
+	// cannot be followed fails the job before any call.
+	levels, err := resolver.Chain(found)
+	if err != nil {
+		p.Problems = append(p.Problems, Problem{CodeInvalidPayload, err.Error()})
+		return p
+	}
+	p.Levels = levels
 	return p
 }
 

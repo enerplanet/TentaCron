@@ -1,0 +1,228 @@
+[
+  {
+    "request": "POST /v1/requests/validate",
+    "response": {
+      "ok": false,
+      "problems": [
+        {
+          "code": "invalid_payload",
+          "message": "resolvent references form a cycle: a -\u003e b -\u003e c -\u003e a"
+        }
+      ],
+      "resolvents": [
+        {
+          "cached": false,
+          "depends_on": [
+            "b"
+          ],
+          "name": "a",
+          "path": "/time-series/a",
+          "type": "resolvent-pv1"
+        },
+        {
+          "cached": false,
+          "depends_on": [
+            "c"
+          ],
+          "name": "b",
+          "path": "/time-series/b",
+          "type": "resolvent-pv1"
+        },
+        {
+          "cached": false,
+          "depends_on": [
+            "a"
+          ],
+          "name": "c",
+          "path": "/time-series/c",
+          "type": "resolvent-pv1"
+        }
+      ],
+      "target": "demo"
+    },
+    "status": 200,
+    "step": "dry run: a cycle"
+  },
+  {
+    "request": "POST /v1/requests/validate",
+    "response": {
+      "ok": false,
+      "problems": [
+        {
+          "code": "invalid_payload",
+          "message": "reference at /time-series/a/p: no resolvent named \"nobody\""
+        }
+      ],
+      "resolvents": [
+        {
+          "cached": false,
+          "name": "a",
+          "path": "/time-series/a",
+          "type": "resolvent-pv1"
+        }
+      ],
+      "target": "demo"
+    },
+    "status": 200,
+    "step": "dry run: an unknown name"
+  },
+  {
+    "request": "POST /v1/requests/validate",
+    "response": {
+      "ok": false,
+      "problems": [
+        {
+          "code": "invalid_payload",
+          "message": "reference at /time-series/a/p: resolvent \"a\" references itself"
+        }
+      ],
+      "resolvents": [
+        {
+          "cached": false,
+          "name": "a",
+          "path": "/time-series/a",
+          "type": "resolvent-pv1"
+        }
+      ],
+      "target": "demo"
+    },
+    "status": 200,
+    "step": "dry run: a self reference"
+  },
+  {
+    "request": "POST /v1/requests/validate",
+    "response": {
+      "ok": false,
+      "problems": [
+        {
+          "code": "invalid_payload",
+          "message": "reference at /time-series/2/p: 2 resolvents are named \"n\"; a referenced name must be unique"
+        }
+      ],
+      "resolvents": [
+        {
+          "cached": false,
+          "name": "n",
+          "path": "/time-series/0",
+          "type": "resolvent-pv1"
+        },
+        {
+          "cached": false,
+          "name": "n",
+          "path": "/time-series/1",
+          "type": "resolvent-wind"
+        },
+        {
+          "cached": false,
+          "path": "/time-series/2",
+          "type": "resolvent-pv1"
+        }
+      ],
+      "target": "demo"
+    },
+    "status": 200,
+    "step": "dry run: an ambiguous name"
+  },
+  {
+    "request": "POST /v1/requests/validate",
+    "response": {
+      "ok": true,
+      "problems": [],
+      "resolvents": [
+        {
+          "cached": false,
+          "name": "a",
+          "path": "/time-series/a",
+          "type": "resolvent-pv1"
+        },
+        {
+          "cached": false,
+          "depends_on": [
+            "a"
+          ],
+          "name": "b",
+          "path": "/time-series/b",
+          "type": "resolvent-pv1"
+        }
+      ],
+      "target": "demo"
+    },
+    "status": 200,
+    "step": "dry run: a path missing from the series is only found while resolving"
+  },
+  {
+    "request": "POST /v1/requests",
+    "response": {
+      "id": "«job-1»",
+      "links": {
+        "self": "/v1/requests/«job-1»"
+      },
+      "state": "received"
+    },
+    "status": 202,
+    "step": "submit the cycle"
+  },
+  {
+    "request": "GET /v1/requests/{id}",
+    "response": {
+      "attempts": 1,
+      "completed_at": "«ts»",
+      "created_at": "«ts»",
+      "error": {
+        "code": "invalid_payload",
+        "message": "resolvent references form a cycle: a -\u003e b -\u003e c -\u003e a"
+      },
+      "id": "«job-1»",
+      "result": null,
+      "state": "failed",
+      "target": "demo",
+      "updated_at": "«ts»"
+    },
+    "status": 200,
+    "step": "it fails before any call"
+  },
+  {
+    "request": "POST /v1/requests",
+    "response": {
+      "id": "«job-2»",
+      "links": {
+        "self": "/v1/requests/«job-2»"
+      },
+      "state": "received"
+    },
+    "status": 202,
+    "step": "submit the missing path"
+  },
+  {
+    "request": "GET /v1/requests/{id}",
+    "response": {
+      "attempts": 1,
+      "completed_at": "«ts»",
+      "created_at": "«ts»",
+      "error": {
+        "code": "invalid_payload",
+        "message": "reference cannot be filled: reference at /time-series/b/p: series of \"a\": segment \"nope\": not found"
+      },
+      "id": "«job-2»",
+      "result": null,
+      "state": "failed",
+      "target": "demo",
+      "updated_at": "«ts»"
+    },
+    "status": 200,
+    "step": "it fails after fetching only the dependency"
+  },
+  {
+    "buem_building_calls": 0,
+    "buem_calls": 0,
+    "demo_calls": 0,
+    "ignis_calculate_calls": 0,
+    "meme_accept_calls": 0,
+    "meme_cancel_calls": 0,
+    "meme_result_calls": "not asserted (timing-dependent)",
+    "meme_status_calls": "not asserted (timing-dependent)",
+    "resource_calls": 1,
+    "step": "upstream call counts",
+    "unexpected_upstream_requests": []
+  }
+]

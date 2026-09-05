@@ -9,6 +9,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -739,8 +740,8 @@ func TestGETResolventWithArrayResponse(t *testing.T) {
 
 // Target composition: a resolvent backed by another configured target — a
 // BuEM simulation feeding the payload of the outer target. The nested call
-// must forward exactly the resolvent's payload_field (as-is, never
-// re-resolved), extract response_path, and substitute the result with the
+// must forward exactly the resolvent's payload_field (never scanned for
+// resolvents), extract response_path, and substitute the result with the
 // outer target's marker policy.
 func TestTargetBackedResolvent(t *testing.T) {
 	cfg := baseConfig(t)
@@ -941,5 +942,90 @@ func TestSweepPrunesCacheAndOldJobs(t *testing.T) {
 	}
 	if _, err := os.Stat(resultPath); !os.IsNotExist(err) {
 		t.Error("result file survived the sweep")
+	}
+}
+
+// Chained resolvents: a resolvent's parameters come from a sibling's series.
+// The dependency is fetched first, the reference filled, the filled input
+// sent upstream and cached under its own hash, and the payload keeps the
+// reference in the marker.
+func TestChainedResolventsResolveLevelByLevel(t *testing.T) {
+	cfg := baseConfig(t)
+	var mu sync.Mutex
+	var calls []string
+	resource := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		mu.Lock()
+		calls = append(calls, r.URL.Path+" "+string(body))
+		mu.Unlock()
+		w.Header().Set("Content-Type", "application/json")
+		switch r.URL.Path {
+		case "/lookup":
+			_, _ = io.WriteString(w, `{"code":"DE.04","storeys":2}`)
+		default:
+			_, _ = io.WriteString(w, `{"type":"time-series","values":[1,2]}`)
+		}
+	}))
+	t.Cleanup(resource.Close)
+	outer, lastBody := fakeDirectTarget(t, 200, `{"ok":true}`)
+	cfg.Targets["outer"] = directTargetCfg(outer.URL)
+	cfg.Resolvents["resolvent-lookup"] = config.Resolvent{URL: resource.URL + "/lookup", Method: "POST", Timeout: dur(2 * time.Second), CacheTTL: dur(time.Hour)}
+	cfg.Resolvents["resolvent-series"] = config.Resolvent{URL: resource.URL + "/series", Method: "POST", Timeout: dur(2 * time.Second), CacheTTL: dur(time.Hour)}
+	st := openStore(t)
+	payload := `{"time-series":{
+		"series":{"type":"resolvent-series","code":{"$from":"building","path":"code"},"floors":{"$from":"building","path":".storeys"}},
+		"building":{"type":"resolvent-lookup","osm_id":42}}}`
+	id := createJob(t, st, "outer", payload, 3)
+	startPool(t, cfg, st)
+	if job := waitForTerminal(t, st, id); job.State != store.StateCompleted {
+		t.Fatalf("state = %s: %s %s", job.State, job.ErrorCode, job.ErrorMessage)
+	}
+	mu.Lock()
+	got := append([]string(nil), calls...)
+	mu.Unlock()
+	want := []string{`/lookup {"osm_id":42,"type":"resolvent-lookup"}`, `/series {"code":"DE.04","floors":2,"type":"resolvent-series"}`}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("upstream calls = %q, want %q", got, want)
+	}
+	var forwarded map[string]any
+	if err := json.Unmarshal(lastBody(), &forwarded); err != nil {
+		t.Fatal(err)
+	}
+	series := forwarded["time-series"].(map[string]any)["series"].(map[string]any)
+	marker := series["resolvent"].(map[string]any)
+	if marker["code"].(map[string]any)["$from"] != "building" {
+		t.Errorf("the marker must keep the reference: %v", marker)
+	}
+	// The filled input is what got cached: a literal resolvent with the
+	// same parameters is a cache hit and makes no call.
+	id2 := createJob(t, st, "outer", `{"time-series":{"s":{"type":"resolvent-series","code":"DE.04","floors":2}}}`, 3)
+	if job := waitForTerminal(t, st, id2); job.State != store.StateCompleted {
+		t.Fatalf("second job: %s", job.State)
+	}
+	mu.Lock()
+	n := len(calls)
+	mu.Unlock()
+	if n != 2 {
+		t.Errorf("a literal twin of the filled input must hit the cache; calls = %d", n)
+	}
+}
+
+// A reference whose path is missing from the dependency's series fails the
+// job permanently as invalid_payload, after the dependency was fetched.
+func TestChainedReferenceMissingInSeriesFailsPermanently(t *testing.T) {
+	cfg := baseConfig(t)
+	resource, calls := fakeResource(t, 0)
+	cfg.Resolvents["resolvent-pv1"] = config.Resolvent{URL: resource.URL, Method: "POST", Timeout: dur(2 * time.Second), CacheTTL: dur(time.Hour)}
+	outer, _ := fakeDirectTarget(t, 200, `{"ok":true}`)
+	cfg.Targets["outer"] = directTargetCfg(outer.URL)
+	st := openStore(t)
+	id := createJob(t, st, "outer", `{"time-series":{"a":{"type":"resolvent-pv1","p":1},"b":{"type":"resolvent-pv1","p":{"$from":"a","path":"nope"}}}}`, 3)
+	startPool(t, cfg, st)
+	job := waitForTerminal(t, st, id)
+	if job.State != store.StateFailed || job.ErrorCode != "invalid_payload" || !strings.Contains(job.ErrorMessage, `"nope": not found`) || job.Attempts != 1 {
+		t.Errorf("job = %s %s %q attempts %d", job.State, job.ErrorCode, job.ErrorMessage, job.Attempts)
+	}
+	if calls.Load() != 1 {
+		t.Errorf("only the dependency is fetched: %d calls", calls.Load())
 	}
 }

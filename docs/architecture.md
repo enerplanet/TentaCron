@@ -95,10 +95,41 @@ becomes
 }
 ```
 
-A nested payload sent through a target-backed resolvent is forwarded as-is
-and never itself scanned for resolvents, so resolvent recursion is impossible
-by construction. Payloads and series are decoded with number fidelity
-(`json.Number`), so integers above 2^53 survive the round trip byte-exact.
+A nested payload sent through a target-backed resolvent is never itself
+scanned for resolvent objects; the only way one resolvent feeds another is
+the explicit reference described next. Payloads and series are decoded with
+number fidelity (`json.Number`), so integers above 2^53 survive the round
+trip byte-exact.
+
+### Resolution order
+
+A field anywhere inside a resolvent object — including the nested payload of
+a target-backed one — may be a **reference** to a sibling resolvent's
+resolved series instead of a literal:
+
+```json
+"typology": { "type": "resolvent-ignis",
+              "code": { "$from": "building", "path": "tabula_variant_code" } }
+```
+
+`$from` names the sibling by its `name` field or registry key; `path` is a
+`response_map`-style path into that sibling's series (the leading dot is
+optional, `[*]` projects over an array, absent means the whole series). The
+plan orders the resolvents into **levels**: level 0 holds those without
+references, every later level those whose references all point into earlier
+levels. References to unknown or ambiguous names, self references, cycles
+and chains deeper than eight levels fail the job as `invalid_payload` before
+any call — the dry run reports the same problem, and lists each resolvent's
+`depends_on`.
+
+The worker fetches level by level. Before a level starts, every reference in
+it is filled from the series already resolved; the filled object is what
+goes upstream and what the cache key is computed from, so a chained
+resolvent caches under the parameters it really sent and a literal twin of
+it is a cache hit. A path that is missing from the series it points to fails
+the job as `invalid_payload`. Failure attribution stays deterministic: the
+first failing level, document order within it. The `resolvent` marker keeps
+the original object with its `$from` references for traceability.
 
 **Proxy targets** (`proxy: true`) skip resolution entirely: the payload is
 stored as its own resolved form and forwarded untouched — byte-exact unless

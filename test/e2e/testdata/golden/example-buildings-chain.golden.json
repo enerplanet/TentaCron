@@ -1,0 +1,191 @@
+[
+  {
+    "request": "POST /v1/requests",
+    "response": {
+      "id": "«job-1»",
+      "links": {
+        "self": "/v1/requests/«job-1»"
+      },
+      "state": "received"
+    },
+    "status": 202,
+    "step": "submit examples/buildings-chain.json"
+  },
+  {
+    "request": "GET /v1/requests/{id}",
+    "response": {
+      "attempts": 1,
+      "completed_at": "«ts»",
+      "created_at": "«ts»",
+      "error": null,
+      "id": "«job-1»",
+      "result": {
+        "target_response": {
+          "ok": true
+        },
+        "target_status": 200
+      },
+      "state": "completed",
+      "target": "demo",
+      "updated_at": "«ts»"
+    },
+    "status": 200,
+    "step": "final state"
+  },
+  {
+    "resource_get_requests": [
+      "GET /buildings?country=germany\u0026osm_ids=123456",
+      "GET /data/DE.N.SFH.04.Gen.ReEx.001.001",
+      "GET /point?format=json\u0026lat=48.1\u0026lon=11.5\u0026provider=era5\u0026use_case=buem\u0026year=2018"
+    ],
+    "step": "resource requests in level order"
+  },
+  {
+    "endpoint": "buem-building",
+    "step": "nested payload the buem-building target received",
+    "target_auth_header": "buem-golden-secret",
+    "target_path": "/api/v1/buem/building",
+    "target_received": {
+      "buem": {
+        "building": {
+          "storeys": 2,
+          "u_roof": 1.2,
+          "u_wall": 1.6
+        },
+        "weather": {
+          "index": [
+            "2018-01-01T00:30:00Z",
+            "2018-01-01T01:30:00Z"
+          ],
+          "variables": {
+            "GHI": [
+              0.0,
+              12.5
+            ],
+            "T": [
+              1.0,
+              1.2
+            ]
+          }
+        }
+      },
+      "id": "b-1",
+      "start_date": "2018-01-01T00:00:00Z"
+    }
+  },
+  {
+    "endpoint": "demo",
+    "step": "payload the demo target received",
+    "target_auth_header": "demo-golden-secret",
+    "target_path": "/run",
+    "target_received": {
+      "scenario": "typology-chain",
+      "time-series": {
+        "building": {
+          "area_total_roof": 98.2,
+          "area_total_wall": 214.5,
+          "number_of_storeys": 2,
+          "object_id": "DEHB01AL3AU0004T",
+          "resolvent": {
+            "country": "germany",
+            "osm_ids": [
+              "123456"
+            ],
+            "type": "resolvent-city2tabula"
+          },
+          "tabula_variant_code": "DE.N.SFH.04.Gen.ReEx.001.001"
+        },
+        "heat_demand": {
+          "heating": [
+            19.01,
+            19.16
+          ],
+          "resolvent": {
+            "payload": {
+              "buem": {
+                "building": {
+                  "storeys": {
+                    "$from": "building",
+                    "path": "number_of_storeys"
+                  },
+                  "u_roof": {
+                    "$from": "typology",
+                    "path": "tabula_data.u_roof"
+                  },
+                  "u_wall": {
+                    "$from": "typology",
+                    "path": "tabula_data.u_wall"
+                  }
+                },
+                "weather": {
+                  "$from": "weather"
+                }
+              },
+              "id": "b-1",
+              "start_date": "2018-01-01T00:00:00Z"
+            },
+            "type": "resolvent-buem"
+          },
+          "timestamps": [
+            "2018-01-01T00:00:00Z",
+            "2018-01-01T01:00:00Z"
+          ],
+          "unit": "kW"
+        },
+        "typology": {
+          "country": "DE",
+          "expected_q_h_nd": 112.4,
+          "resolvent": {
+            "code": {
+              "$from": "building",
+              "path": "tabula_variant_code"
+            },
+            "type": "resolvent-ignis"
+          },
+          "tabula_data": {
+            "u_roof": 1.2,
+            "u_wall": 1.6
+          },
+          "variant_code": "DE.N.SFH.04.Gen.ReEx.001.001"
+        },
+        "weather": {
+          "index": [
+            "2018-01-01T00:30:00Z",
+            "2018-01-01T01:30:00Z"
+          ],
+          "resolvent": {
+            "lat": 48.1,
+            "lon": 11.5,
+            "provider": "era5",
+            "type": "resolvent-weather",
+            "use_case": "buem",
+            "year": 2018
+          },
+          "variables": {
+            "GHI": [
+              0.0,
+              12.5
+            ],
+            "T": [
+              1.0,
+              1.2
+            ]
+          }
+        }
+      }
+    }
+  },
+  {
+    "buem_building_calls": 1,
+    "buem_calls": 0,
+    "demo_calls": 1,
+    "ignis_calculate_calls": 0,
+    "meme_accept_calls": 0,
+    "meme_cancel_calls": 0,
+    "meme_result_calls": "not asserted (timing-dependent)",
+    "meme_status_calls": "not asserted (timing-dependent)",
+    "resource_calls": 3,
+    "step": "upstream call counts",
+    "unexpected_upstream_requests": []
+  }
+]

@@ -310,9 +310,9 @@ type Resolvent struct {
 	// Target names a configured direct-mode target that backs this resolvent
 	// instead of a raw resource URL — tentacron composing its own targets,
 	// e.g. a BuEM simulation feeding a MEME model. The nested payload is
-	// forwarded to that target as-is (never re-resolved), so resolvent loops
-	// are impossible by construction; the target's url/auth/timeout apply.
-	// Mutually exclusive with URL.
+	// forwarded to that target without being scanned for resolvent objects
+	// (other resolvents feed it only through explicit, acyclic references);
+	// the target's url/auth/timeout apply. Mutually exclusive with URL.
 	Target string `yaml:"target"`
 	// PayloadField selects which field of the resolvent object is sent as
 	// the call's payload. Empty sends the whole resolvent object (the

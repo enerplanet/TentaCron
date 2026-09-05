@@ -107,3 +107,50 @@ func FuzzApplyMap(f *testing.F) {
 		}
 	})
 }
+
+// FuzzChain feeds arbitrary payloads through Find, Chain and Fill: nothing
+// may panic, every level may only reference earlier levels, and a filled
+// input must still marshal.
+func FuzzChain(f *testing.F) {
+	for _, s := range []string{
+		`{"time-series":{"a":{"type":"resolvent-x","p":1},"b":{"type":"resolvent-x","p":{"$from":"a","path":"v"}}}}`,
+		`{"time-series":{"a":{"type":"resolvent-x","p":{"$from":"a"}}}}`,
+		`{"time-series":{"a":{"type":"resolvent-x","p":{"$from":"b"}},"b":{"type":"resolvent-x","p":{"$from":"a"}}}}`,
+		`{"time-series":[{"type":"resolvent-x","name":"n","p":[{"$from":"n"}]},{"type":"resolvent-x","name":"n"}]}`,
+		`{"time-series":{"a":{"type":"resolvent-x","p":{"$from":7}},"b":{"type":"resolvent-x","p":{"$from":"a","path":"x[*].y"}}}}`,
+	} {
+		f.Add(s, `{"v":1,"x":[{"y":2}]}`)
+	}
+	f.Fuzz(func(t *testing.T, payload, series string) {
+		root, err := Parse([]byte(payload))
+		if err != nil {
+			return
+		}
+		found, err := Find(root, "time-series")
+		if err != nil {
+			return
+		}
+		levels, err := Chain(found)
+		if err != nil {
+			return
+		}
+		seen := map[*Found]bool{}
+		for _, level := range levels {
+			for _, r := range level {
+				for _, name := range r.DependsOn() {
+					if !seen[r.deps[name]] {
+						t.Fatalf("%s references %s from a later or the same level", r.label(), name)
+					}
+				}
+			}
+			for _, r := range level {
+				seen[r] = true
+				if _, err := r.Fill(func(*Found) []byte { return []byte(series) }); err == nil {
+					if _, err := json.Marshal(r.Input); err != nil {
+						t.Fatalf("filled input does not marshal: %v", err)
+					}
+				}
+			}
+		}
+	})
+}

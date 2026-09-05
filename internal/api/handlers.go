@@ -195,10 +195,11 @@ type validateResponse struct {
 }
 
 type validateResolvent struct {
-	Type   string `json:"type"`
-	Path   string `json:"path"`
-	Name   string `json:"name,omitempty"`
-	Cached bool   `json:"cached"`
+	Type      string   `json:"type"`
+	Path      string   `json:"path"`
+	Name      string   `json:"name,omitempty"`
+	Cached    bool     `json:"cached"`
+	DependsOn []string `json:"depends_on,omitempty"`
 }
 
 // handleValidate is the dry run: the request is decoded, authenticated and
@@ -217,8 +218,14 @@ func (s *Server) handleValidate(w http.ResponseWriter, r *http.Request) {
 		Resolvents: make([]validateResolvent, 0, len(pl.Found)), Problems: make([]plan.Problem, 0, len(pl.Problems))}
 	resp.Problems = append(resp.Problems, pl.Problems...)
 	for _, f := range pl.Found {
-		_, cached, err := s.store.GetSeries(r.Context(), f.Hash)
-		resp.Resolvents = append(resp.Resolvents, validateResolvent{Type: f.Type, Path: f.Path, Name: f.Name, Cached: err == nil && cached})
+		v := validateResolvent{Type: f.Type, Path: f.Path, Name: f.Name, DependsOn: f.DependsOn()}
+		// A chained resolvent's cache key depends on series not fetched
+		// yet, so only an independent one can be looked up.
+		if len(v.DependsOn) == 0 {
+			_, cached, err := s.store.GetSeries(r.Context(), f.Hash)
+			v.Cached = err == nil && cached
+		}
+		resp.Resolvents = append(resp.Resolvents, v)
 	}
 	writeJSON(w, http.StatusOK, resp)
 }

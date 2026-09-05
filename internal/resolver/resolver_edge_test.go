@@ -356,8 +356,10 @@ func TestRehashIgnoresLabelFields(t *testing.T) {
 	if a.Object["name"] != "north" {
 		t.Error("the object must keep its fields; only the key changes")
 	}
-	before := c.Hash
-	if err := c.Rehash(nil); err != nil || c.Hash != before {
-		t.Error("an empty ignore list must be a no-op")
+	// Rehash always recomputes from the input: an empty ignore list restores
+	// the full key (a chained resolvent relies on this after Fill).
+	full := find(t, parse(t, `{"time-series":[{"type":"resolvent-x","name":"south","lat":2}]}`), "time-series")[0]
+	if err := c.Rehash(nil); err != nil || c.Hash != full.Hash {
+		t.Error("an empty ignore list must yield the key over every field")
 	}
 }

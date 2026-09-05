@@ -8,16 +8,15 @@ import (
 	"slices"
 )
 
-// Rehash recomputes a found resolvent's cache key without the given fields
-// (a type's cache_ignore_fields: labels such as name that do not change the
-// series). It is called once the resolvent's configuration is known, so the
-// resolver itself stays configuration-free.
+// Rehash recomputes a found resolvent's cache key from its Input without
+// the given fields (a type's cache_ignore_fields: labels such as name that
+// do not change the series). It is called once the resolvent's
+// configuration is known — and again after Fill, so a chained resolvent's
+// key reflects the parameters actually sent — keeping the resolver itself
+// configuration-free.
 func (f *Found) Rehash(ignore []string) error {
-	if len(ignore) == 0 {
-		return nil
-	}
-	trimmed := make(map[string]any, len(f.Object))
-	for k, v := range f.Object {
+	trimmed := make(map[string]any, len(f.Input))
+	for k, v := range f.Input {
 		if !slices.Contains(ignore, k) {
 			trimmed[k] = v
 		}

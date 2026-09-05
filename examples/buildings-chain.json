@@ -1,0 +1,41 @@
+{
+  "api_key": "your-tentacron-api-key",
+  "target": "demo",
+  "payload": {
+    "scenario": "typology-chain",
+    "time-series": {
+      "building": {
+        "type": "resolvent-city2tabula",
+        "country": "germany",
+        "osm_ids": ["123456"]
+      },
+      "weather": {
+        "type": "resolvent-weather",
+        "provider": "era5",
+        "lat": 48.1,
+        "lon": 11.5,
+        "year": 2018,
+        "use_case": "buem"
+      },
+      "typology": {
+        "type": "resolvent-ignis",
+        "code": { "$from": "building", "path": "tabula_variant_code" }
+      },
+      "heat_demand": {
+        "type": "resolvent-buem",
+        "payload": {
+          "id": "b-1",
+          "start_date": "2018-01-01T00:00:00Z",
+          "buem": {
+            "building": {
+              "storeys": { "$from": "building", "path": "number_of_storeys" },
+              "u_wall": { "$from": "typology", "path": "tabula_data.u_wall" },
+              "u_roof": { "$from": "typology", "path": "tabula_data.u_roof" }
+            },
+            "weather": { "$from": "weather" }
+          }
+        }
+      }
+    }
+  }
+}

@@ -33,8 +33,13 @@ type Found struct {
 	// Hash is the canonical parameter hash, used as series-cache key and to
 	// deduplicate identical resolvents within one payload.
 	Hash string
-	// Object is the resolvent object itself (the resource-API parameters).
+	// Object is the resolvent object as it appears in the payload — with
+	// its references, when it has any. It is what the marker preserves.
 	Object map[string]any
+	// Input is what is sent upstream and hashed for the cache: Object
+	// itself, or — after Fill — a copy with every reference replaced by
+	// the value it points to.
+	Input map[string]any
 	// Path locates the object in the payload as a JSON pointer (RFC 6901),
 	// e.g. "/model/timeseries/pv_cf" or "/time-series/0".
 	Path string
@@ -44,6 +49,7 @@ type Found struct {
 	Name string
 
 	replace func(series map[string]any)
+	deps    map[string]*Found // referenced resolvents by name, set by Chain
 }
 
 // Parse decodes a payload into a mutable document root. Numbers are decoded
@@ -94,7 +100,7 @@ func Find(root map[string]any, path string) ([]*Found, error) {
 		}
 		var hash string
 		hash, err = paramHash(typ, obj)
-		found = append(found, &Found{Type: typ, Hash: hash, Object: obj, Path: ptr, Name: nameOf(obj, name), replace: replace})
+		found = append(found, &Found{Type: typ, Hash: hash, Object: obj, Input: obj, Path: ptr, Name: nameOf(obj, name), replace: replace})
 	}
 	prefix := pointerOf(path)
 	if obj, isObj := container.(map[string]any); isObj && parent != nil {

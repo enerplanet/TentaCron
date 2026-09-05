@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"maps"
 	"math/rand/v2"
 	"net/http"
 	"os"
@@ -94,7 +95,7 @@ func (p *Pool) processNew(ctx, bg context.Context, job *store.Job) {
 		p.failJob(bg, job, pl.Problems[0].Code, pl.Problems[0].Message)
 		return
 	}
-	seriesByHash, cached, err := p.fetchAll(ctx, bg, pl.Found, job.Options.Cache)
+	seriesByHash, cached, err := p.fetchChain(ctx, bg, pl.Levels, job.Options.Cache)
 	if err != nil {
 		p.failResolution(bg, job, err)
 		return
@@ -128,14 +129,48 @@ func attachResolvent(tcfg config.Target) bool {
 }
 
 // failResolution maps a fetch error onto the job outcome: a malformed
-// resource body is the permanent invalid_resource_response, anything else
-// goes through the retry classification as a resource_error.
+// resource body is the permanent invalid_resource_response, a reference
+// that does not fit the series it points to the permanent invalid_payload,
+// anything else goes through the retry classification as a resource_error.
 func (p *Pool) failResolution(bg context.Context, job *store.Job, err error) {
-	if errors.Is(err, errBadResourceBody) {
+	switch {
+	case errors.Is(err, errBadResourceBody):
 		p.failJob(bg, job, errInvalidResource, err.Error())
-		return
+	case errors.Is(err, resolver.ErrReference):
+		p.failJob(bg, job, plan.CodeInvalidPayload, err.Error())
+	default:
+		p.retryOrFail(bg, job, errResourceError, err)
 	}
-	p.retryOrFail(bg, job, errResourceError, err)
+}
+
+// fetchChain resolves the plan level by level. Before a level is fetched,
+// its references are filled from the series of the levels before it and its
+// cache keys are recomputed from the filled inputs, so a chained resolvent
+// caches under the parameters it really sent. Failure attribution stays
+// deterministic: the first failing level, document order within it.
+func (p *Pool) fetchChain(ctx, bg context.Context, levels [][]*resolver.Found, cacheMode string) (map[string][]byte, int, error) {
+	all := map[string][]byte{}
+	cached := 0
+	for _, level := range levels {
+		for _, f := range level {
+			filled, err := f.Fill(func(dep *resolver.Found) []byte { return all[dep.Hash] })
+			if err != nil {
+				return nil, 0, err
+			}
+			if filled {
+				if err := f.Rehash(p.cfg.Resolvents[f.Type].CacheIgnore()); err != nil {
+					return nil, 0, fmt.Errorf("%w: %w", resolver.ErrReference, err)
+				}
+			}
+		}
+		series, c, err := p.fetchAll(ctx, bg, level, cacheMode)
+		if err != nil {
+			return nil, 0, err
+		}
+		maps.Copy(all, series)
+		cached += c
+	}
+	return all, cached, nil
 }
 
 // substitute splices every fetched series into its slot and re-encodes the
@@ -349,13 +384,14 @@ func (p *Pool) fetchOne(ctx, bg context.Context, f *resolver.Found, cacheMode st
 // mapping for GET — see upstream.ResolveResolvent), or — for a target-backed
 // resolvent — a forward through the named direct-mode target (tentacron
 // composing its own targets, with the target's url/auth/timeout applying).
-// The payload is the resolvent object itself, or the object under
-// payload_field when configured; it is sent as-is, never re-resolved, so
-// resolvent recursion cannot occur.
+// The payload is the resolvent's input — the object itself with any
+// references already filled — or the object under payload_field when
+// configured; it is never scanned for resolvent objects, so the only
+// nesting is the explicit, acyclic chain of references.
 func (p *Pool) callResolventBackend(ctx context.Context, f *resolver.Found, rcfg config.Resolvent) ([]byte, error) {
-	payload := f.Object
+	payload := f.Input
 	if rcfg.PayloadField != "" {
-		nested, ok := f.Object[rcfg.PayloadField].(map[string]any)
+		nested, ok := f.Input[rcfg.PayloadField].(map[string]any)
 		if !ok {
 			return nil, fmt.Errorf("resolvent %s: field %q must hold the payload object for the backend call",
 				f.Type, rcfg.PayloadField)

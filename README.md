@@ -31,8 +31,11 @@ Client ──GET /v1/requests/id─    ▼  │
    the request body), a GET resource API (the object's fields become query
    parameters and `{field}` path segments — the weather, city2tabula and
    ignis contracts), or another configured target (a BuEM simulation feeding
-   a MEME model). Identical resolvents are served from a TTL cache instead of
-   re-hitting the backend.
+   a MEME model). A resolvent's field may **reference** a sibling's result
+   (`{"$from": "building", "path": "tabula_variant_code"}`), so a lookup can
+   feed a calculation can feed a simulation in one request; resolvents are
+   resolved level by level. Identical resolvents are served from a TTL cache
+   instead of re-hitting the backend.
 4. The resolved payload is forwarded to the target. For async targets
    tentacron extracts the target's job id, polls until it reports done or
    failed, and stores the final result. A **proxy target** skips steps 2–3 and

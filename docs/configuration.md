@@ -388,15 +388,18 @@ Rules and semantics:
   back a resolvent (a poll-mode backend would make resolution asynchronous).
   `method`/`api_key`/`timeout` belong to the backing target and are rejected
   on the resolvent.
-- The nested payload is forwarded **as-is** through the target's URL, auth
-  and timeout (including the target's own `{field}` URL templating) — it is
-  never itself scanned for resolvents, so resolvent loops are impossible by
-  construction. The backing target's `timeseries_path`/`attach_resolvent`
-  play no role; the *outer* target decides whether the substituted series
-  keeps its `resolvent` marker.
+- The nested payload is forwarded through the target's URL, auth and
+  timeout (including the target's own `{field}` URL templating). It is never
+  itself scanned for resolvent objects; the one way another resolvent's
+  result gets in is an explicit `{"$from": …}` reference, filled before the
+  call (see [Resolution order](architecture.md#resolution-order)). The
+  backing target's `timeseries_path`/`attach_resolvent` play no role; the
+  *outer* target decides whether the substituted series keeps its
+  `resolvent` marker.
 - `payload_field` selects the resolvent field sent as the nested payload
   (empty = the whole resolvent object); it must hold an object.
   `response_path` extracts the series-shaped sub-object from the response
   (empty = whole response). Both also work for URL-backed resolvents.
-- Caching applies as usual: the hash covers the whole resolvent object, so
-  identical nested simulations are served from the series cache.
+- Caching applies as usual: the hash covers the whole resolvent object
+  (with its references filled), so identical nested simulations are served
+  from the series cache.

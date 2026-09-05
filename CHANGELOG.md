@@ -10,6 +10,14 @@ under "Changed" with the keys or fields concerned.
 
 ### Added
 
+- Resolvent chaining: a field inside a resolvent object may reference a
+  sibling's resolved series (`{"$from": "<name>", "path": "<path>"}`). The
+  plan orders resolvents into dependency levels, rejects unknown or
+  ambiguous names, self references, cycles and chains deeper than eight
+  levels as `invalid_payload`, and the worker fills references level by
+  level, hashing the filled input so cache keys reflect the parameters sent.
+  The dry run lists `depends_on` per resolvent; `examples/buildings-chain.json`
+  runs city2tabula, ignis and BuEM in one request.
 - `POST /v1/requests/batch` submits up to 100 requests in one call, each
   validated and stored independently, with a per-item idempotency key and
   one result per item in the answer.

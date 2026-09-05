@@ -663,7 +663,11 @@ components:
                 description: The object's `name` field or its registry key.
               cached:
                 type: boolean
-                description: Whether the series cache already holds this resolvent.
+                description: Whether the series cache already holds this resolvent (always false for a chained one, whose key depends on series not fetched yet).
+              depends_on:
+                type: array
+                items: { type: string }
+                description: Names of the resolvents this one references (`$from`), sorted.
         problems:
           type: array
           items:

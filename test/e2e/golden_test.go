@@ -70,6 +70,47 @@ func TestGoldenCorpusMatchesScenarios(t *testing.T) {
 
 var resolutionScenarios = []scenario{
 	{
+		// Resolvent chaining, the pipeline the service exists for: the
+		// building lookup (city2tabula) feeds the typology lookup (ignis),
+		// and both plus the weather series feed a BuEM simulation whose
+		// nested payload is a target-backed resolvent. Three levels, one
+		// request. The frozen resource requests prove the filled values
+		// went upstream; the marker keeps the original references.
+		name: "chain-city2tabula-ignis-buem",
+		run: func(t *testing.T, h *harness) {
+			body := exampleRequest(t, "buildings-chain.json")
+			h.validate("dry run lists the dependencies", body, nil)
+			id := h.post("submit the chained request", body, nil)
+			h.await("final state", id)
+			h.resourceRequests("resource requests: ignis received the code city2tabula answered")
+			h.forwarded("nested BuEM payload with storeys, U-values and weather filled in", "buem-building")
+			h.forwarded("payload the demo target received (markers keep the $from references)", "demo")
+			h.events("audit trail", id)
+			h.counts()
+		},
+	},
+	{
+		// References that cannot be followed are payload problems: the dry
+		// run names them, and a submitted job fails before any call.
+		name: "chain-cycle",
+		run: func(t *testing.T, h *harness) {
+			cycle := requestBody("demo", `{"time-series":{
+				"a":{"type":"resolvent-pv1","p":{"$from":"b","path":"v"}},
+				"b":{"type":"resolvent-pv1","p":{"$from":"c","path":"v"}},
+				"c":{"type":"resolvent-pv1","p":{"$from":"a","path":"v"}}}}`)
+			h.validate("dry run: a cycle", cycle, nil)
+			h.validate("dry run: an unknown name", requestBody("demo", `{"time-series":{"a":{"type":"resolvent-pv1","p":{"$from":"nobody"}}}}`), nil)
+			h.validate("dry run: a self reference", requestBody("demo", `{"time-series":{"a":{"type":"resolvent-pv1","p":{"$from":"a"}}}}`), nil)
+			h.validate("dry run: an ambiguous name", requestBody("demo", `{"time-series":[{"type":"resolvent-pv1","name":"n"},{"type":"resolvent-wind","name":"n"},{"type":"resolvent-pv1","p":{"$from":"n"}}]}`), nil)
+			h.validate("dry run: a path missing from the series is only found while resolving", requestBody("demo", `{"time-series":{"a":{"type":"resolvent-pv1","p":1},"b":{"type":"resolvent-pv1","p":{"$from":"a","path":"nope"}}}}`), nil)
+			id := h.post("submit the cycle", cycle, nil)
+			h.await("it fails before any call", id)
+			id = h.post("submit the missing path", requestBody("demo", `{"time-series":{"a":{"type":"resolvent-pv1","p":1},"b":{"type":"resolvent-pv1","p":{"$from":"a","path":"nope"}}}}`), nil)
+			h.await("it fails after fetching only the dependency", id)
+			h.counts()
+		},
+	},
+	{
 		// Two byte-identical resolvents plus one distinct: exactly two
 		// resource calls, all three slots substituted.
 		name: "duplicate-resolvents-single-fetch",

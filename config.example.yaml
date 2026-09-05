@@ -224,9 +224,11 @@ resolvents:
   resolvent-buem:
     # Target composition: a BuEM simulation feeding another target's payload
     # (e.g. the heat-demand series of a MEME model). The resolvent object's
-    # "payload" field is forwarded as-is through the buem-building target —
-    # never re-resolved, so resolvent loops cannot occur — and the
-    # load-profile timeseries is extracted from the response. The backing
+    # "payload" field is forwarded through the buem-building target — never
+    # scanned for resolvent objects; other resolvents' results reach it only
+    # through explicit references (docs: "Resolution order"), filled before
+    # the call — and the load-profile timeseries is extracted from the
+    # response. The backing
     # target's url/auth/timeout apply; identical simulations are served from
     # the series cache.
     target: buem-building

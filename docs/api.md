@@ -67,6 +67,15 @@ Submit a request for orchestration.
 | `priority` | integer | Optional, `-10`..`10`, default `0`. Higher priorities are claimed first; each key may be capped by `max_priority` in its configuration. |
 | `options.cache` | string | Optional: `use` (default) reads and writes the series cache, `refresh` fetches every resolvent fresh and rewrites its cache entry, `bypass` fetches fresh and leaves the cache alone. |
 
+Inside the payload, a field of a resolvent object may reference a sibling
+resolvent's resolved series instead of holding a literal:
+`{"$from": "<name>", "path": "<path into the series>"}` — `name` is the
+sibling's `name` field or registry key, `path` optional (whole series when
+absent). Resolvents are then resolved level by level; unknown or ambiguous
+names, self references, cycles and chains deeper than eight levels fail the
+job as `invalid_payload` before any call. See
+[Resolution order](architecture.md#resolution-order).
+
 **Headers**
 
 - `X-API-Key` (preferred over the body field)

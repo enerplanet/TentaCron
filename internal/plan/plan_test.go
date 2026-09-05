@@ -116,3 +116,22 @@ func TestInspectAppliesCacheIgnoreFields(t *testing.T) {
 		t.Error("an explicit empty ignore list must keep name in the key")
 	}
 }
+
+// References between resolvents become dependency levels; a reference the
+// worker could not follow is a payload problem reported before any call.
+func TestInspectOrdersChainedResolvents(t *testing.T) {
+	cfg := testConfig()
+	p := Inspect(cfg, "demo", []byte(`{"time-series":{
+		"typology":{"type":"resolvent-weather","code":{"$from":"building","path":"tabula_variant_code"}},
+		"building":{"type":"resolvent-pv1","osm_id":1}}}`))
+	if !p.OK() || len(p.Levels) != 2 || p.Levels[0][0].Name != "building" || p.Levels[1][0].Name != "typology" {
+		t.Errorf("levels = %v problems = %v", p.Levels, p.Problems)
+	}
+	if deps := p.Levels[1][0].DependsOn(); len(deps) != 1 || deps[0] != "building" {
+		t.Errorf("depends_on = %v", deps)
+	}
+	p = Inspect(cfg, "demo", []byte(`{"time-series":{"a":{"type":"resolvent-pv1","p":{"$from":"a"}}}}`))
+	if p.OK() || p.Problems[0].Code != CodeInvalidPayload || !contains(p.Problems[0].Message, "references itself") || p.Levels != nil {
+		t.Errorf("self reference: %+v", p)
+	}
+}

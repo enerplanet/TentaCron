@@ -64,8 +64,8 @@ var exampleScenarios = []scenario{
 	{
 		// Target composition, end to end: a MEME model whose heat-demand
 		// series is produced by a BuEM simulation — resolvent-buem forwards
-		// its "payload" field through the buem-building target (as-is,
-		// never re-resolved), extracts the load-profile timeseries via
+		// its "payload" field through the buem-building target (never
+		// scanned for resolvents), extracts the load-profile timeseries via
 		// response_path, and substitutes it into the MEME registry with the
 		// marker attached (the outer target's policy). The pv_cf resolvent
 		// resolves through a plain resource API in the same run.
@@ -106,6 +106,21 @@ var exampleScenarios = []scenario{
 			h.await("final state", id)
 			h.resourceRequests("exact PVGIS request (fields renamed, name and type never sent)")
 			h.forwarded("payload the demo target received (hourly rows mapped to a series)", "demo")
+			h.counts()
+		},
+	},
+	{
+		// Resolvent chaining end to end: city2tabula → ignis → BuEM in one
+		// request, the nested simulation payload assembled from the two
+		// lookups and the weather series. The frozen requests prove which
+		// values each backend received.
+		name: "example-buildings-chain",
+		run: func(t *testing.T, h *harness) {
+			id := h.post("submit examples/buildings-chain.json", exampleRequest(t, "buildings-chain.json"), nil)
+			h.await("final state", id)
+			h.resourceRequests("resource requests in level order")
+			h.forwarded("nested payload the buem-building target received", "buem-building")
+			h.forwarded("payload the demo target received", "demo")
 			h.counts()
 		},
 	},
