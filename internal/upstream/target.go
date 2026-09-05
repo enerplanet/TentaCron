@@ -54,6 +54,15 @@ func (c *Client) ForwardToTarget(ctx context.Context, name string, tcfg config.T
 	return &ForwardResult{Status: status, Body: body}, nil
 }
 
+// CheckTargetPayload reports whether the payload can be forwarded to the
+// target at all — its top-level fields fill every {field} placeholder of the
+// target URL — without sending anything. The dry-run endpoint uses it for
+// proxy targets, whose payloads are never scanned for resolvents.
+func CheckTargetPayload(tcfg config.Target, payload []byte) error {
+	_, _, err := prepareOutbound(tcfg, payload)
+	return err
+}
+
 // prepareOutbound applies the two rewrites a target may need — URL
 // templating and body-field key injection — and returns the call URL and
 // body. Without either, the payload goes out byte-exact. Both rewrites work

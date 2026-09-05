@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"maps"
 	"slices"
+	"strconv"
 	"strings"
 )
 
@@ -34,6 +35,13 @@ type Found struct {
 	Hash string
 	// Object is the resolvent object itself (the resource-API parameters).
 	Object map[string]any
+	// Path locates the object in the payload as a JSON pointer (RFC 6901),
+	// e.g. "/model/timeseries/pv_cf" or "/time-series/0".
+	Path string
+	// Name identifies the object to humans and to references: the object's
+	// own "name" field when it has one, otherwise its key in a registry
+	// object; empty for an unnamed array element.
+	Name string
 
 	replace func(series map[string]any)
 }
@@ -80,26 +88,54 @@ func Find(root map[string]any, path string) ([]*Found, error) {
 	}
 	var found []*Found
 	var err error
-	report := func(typ string, obj map[string]any, replace func(map[string]any)) {
+	report := func(typ string, obj map[string]any, ptr, name string, replace func(map[string]any)) {
 		if err != nil {
 			return // a hash already failed; Find returns the error and discards found
 		}
 		var hash string
 		hash, err = paramHash(typ, obj)
-		found = append(found, &Found{Type: typ, Hash: hash, Object: obj, replace: replace})
+		found = append(found, &Found{Type: typ, Hash: hash, Object: obj, Path: ptr, Name: nameOf(obj, name), replace: replace})
 	}
+	prefix := pointerOf(path)
 	if obj, isObj := container.(map[string]any); isObj && parent != nil {
 		if typ, isRes := resolventType(obj); isRes {
 			// The container is the resolvent; its slot is the parent's key.
-			report(typ, obj, func(series map[string]any) { parent[key] = series })
+			report(typ, obj, prefix, key, func(series map[string]any) { parent[key] = series })
 			return found, err
 		}
 	}
-	walk(container, report)
+	walk(container, prefix, report)
 	if err != nil {
 		return nil, err
 	}
 	return found, nil
+}
+
+// pointerOf renders a dot-separated container path as a JSON pointer prefix
+// ("" for the root).
+func pointerOf(path string) string {
+	if path == "" {
+		return ""
+	}
+	var b strings.Builder
+	for _, seg := range strings.Split(path, ".") {
+		b.WriteString("/")
+		b.WriteString(escapePointer(seg))
+	}
+	return b.String()
+}
+
+// escapePointer applies RFC 6901 escaping to one reference token.
+func escapePointer(token string) string {
+	return strings.ReplaceAll(strings.ReplaceAll(token, "~", "~0"), "/", "~1")
+}
+
+// nameOf prefers the object's own "name" field over the key it sits under.
+func nameOf(obj map[string]any, key string) string {
+	if n, ok := obj["name"].(string); ok && n != "" {
+		return n
+	}
+	return key
 }
 
 // locateContainer follows the dot-separated path from root and returns the
@@ -124,23 +160,25 @@ func locateContainer(root map[string]any, path string) (node any, parent map[str
 }
 
 // walk visits arrays and objects below node, reporting each resolvent object
-// together with its type and a closure that overwrites its slot in the parent
-// container. It does not descend into resolvent objects (their properties are
-// opaque resource-API parameters) nor into genuine time-series objects (data).
-// Reporting order is deterministic: array order for arrays, sorted key order
-// for objects — so error messages and processing order never depend on map
-// iteration randomness.
-func walk(node any, report func(typ string, obj map[string]any, replace func(map[string]any))) {
+// together with its type, JSON pointer, the key it sits under and a closure
+// that overwrites its slot in the parent container. It does not descend into
+// resolvent objects (their properties are opaque resource-API parameters)
+// nor into genuine time-series objects (data). Reporting order is
+// deterministic: array order for arrays, sorted key order for objects — so
+// error messages and processing order never depend on map iteration
+// randomness.
+func walk(node any, prefix string, report func(typ string, obj map[string]any, ptr, key string, replace func(map[string]any))) {
 	switch v := node.(type) {
 	case []any:
 		for i, elem := range v {
+			ptr := prefix + "/" + strconv.Itoa(i)
 			if obj, ok := elem.(map[string]any); ok {
 				if typ, ok := resolventType(obj); ok {
-					report(typ, obj, func(series map[string]any) { v[i] = series })
+					report(typ, obj, ptr, "", func(series map[string]any) { v[i] = series })
 					continue
 				}
 			}
-			walk(elem, report)
+			walk(elem, ptr, report)
 		}
 	case map[string]any:
 		if typ, _ := v[typeKey].(string); typ == TimeSeriesType {
@@ -148,13 +186,14 @@ func walk(node any, report func(typ string, obj map[string]any, replace func(map
 		}
 		for _, k := range slices.Sorted(maps.Keys(v)) {
 			elem := v[k]
+			ptr := prefix + "/" + escapePointer(k)
 			if obj, ok := elem.(map[string]any); ok {
 				if typ, ok := resolventType(obj); ok {
-					report(typ, obj, func(series map[string]any) { v[k] = series })
+					report(typ, obj, ptr, k, func(series map[string]any) { v[k] = series })
 					continue
 				}
 			}
-			walk(elem, report)
+			walk(elem, ptr, report)
 		}
 	}
 }

@@ -491,6 +491,27 @@ func (h *harness) post(label, body string, hdr map[string]string) string {
 	return accepted.ID
 }
 
+// validate sends a create-shaped body to the dry-run endpoint and records
+// the response.
+func (h *harness) validate(label, body string, hdr map[string]string) {
+	h.t.Helper()
+	req, _ := http.NewRequest(http.MethodPost, h.api.URL+"/v1/requests/validate", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	for k, v := range hdr {
+		req.Header.Set(k, v)
+	}
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		h.t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	respBody, _ := io.ReadAll(resp.Body)
+	h.record(map[string]any{
+		"step": label, "request": "POST /v1/requests/validate",
+		"status": resp.StatusCode, "response": decodeAny(respBody),
+	})
+}
+
 // postRaw sends an arbitrary request (custom headers/content type) and
 // records the response — for the validation-error scenarios.
 func (h *harness) postRaw(label, body, contentType string, hdr map[string]string) {

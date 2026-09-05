@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/enerplanet/tentacron/internal/config"
+	"github.com/enerplanet/tentacron/internal/plan"
 	"github.com/enerplanet/tentacron/internal/store"
 	"github.com/enerplanet/tentacron/internal/upstream"
 )
@@ -345,7 +346,7 @@ func TestUnknownResolventFailsFast(t *testing.T) {
 	startPool(t, cfg, st)
 
 	job := waitForTerminal(t, st, id)
-	if job.State != store.StateFailed || job.ErrorCode != errUnknownResolvent {
+	if job.State != store.StateFailed || job.ErrorCode != plan.CodeUnknownResolvent {
 		t.Fatalf("state=%s code=%s, want failed/unknown_resolvent", job.State, job.ErrorCode)
 	}
 	if !strings.Contains(job.ErrorMessage, "resolvent-tidal") {

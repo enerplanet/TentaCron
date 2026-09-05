@@ -1,0 +1,168 @@
+[
+  {
+    "request": "POST /v1/requests/validate",
+    "response": {
+      "ok": true,
+      "problems": [],
+      "resolvents": [
+        {
+          "cached": false,
+          "name": "pv",
+          "path": "/time-series/0",
+          "type": "resolvent-pv1"
+        },
+        {
+          "cached": false,
+          "path": "/time-series/1",
+          "type": "resolvent-wind"
+        }
+      ],
+      "target": "demo"
+    },
+    "status": 200,
+    "step": "dry run before anything ran: nothing cached"
+  },
+  {
+    "request": "POST /v1/requests",
+    "response": {
+      "id": "«job-1»",
+      "links": {
+        "self": "/v1/requests/«job-1»"
+      },
+      "state": "received"
+    },
+    "status": 202,
+    "step": "the real submission"
+  },
+  {
+    "request": "GET /v1/requests/{id}",
+    "response": {
+      "attempts": 1,
+      "completed_at": "«ts»",
+      "created_at": "«ts»",
+      "error": null,
+      "id": "«job-1»",
+      "result": {
+        "target_response": {
+          "ok": true
+        },
+        "target_status": 200
+      },
+      "state": "completed",
+      "target": "demo",
+      "updated_at": "«ts»"
+    },
+    "status": 200,
+    "step": "it completes"
+  },
+  {
+    "request": "POST /v1/requests/validate",
+    "response": {
+      "ok": true,
+      "problems": [],
+      "resolvents": [
+        {
+          "cached": true,
+          "name": "pv",
+          "path": "/time-series/0",
+          "type": "resolvent-pv1"
+        },
+        {
+          "cached": true,
+          "path": "/time-series/1",
+          "type": "resolvent-wind"
+        }
+      ],
+      "target": "demo"
+    },
+    "status": 200,
+    "step": "dry run again: both series now cached"
+  },
+  {
+    "request": "POST /v1/requests/validate",
+    "response": {
+      "ok": false,
+      "problems": [
+        {
+          "code": "unknown_resolvent",
+          "message": "no resolvent config for type \"resolvent-tidal\""
+        }
+      ],
+      "resolvents": [
+        {
+          "cached": false,
+          "path": "/time-series/0",
+          "type": "resolvent-tidal"
+        }
+      ],
+      "target": "demo"
+    },
+    "status": 200,
+    "step": "unknown resolvent type is a problem, not an error"
+  },
+  {
+    "request": "POST /v1/requests/validate",
+    "response": {
+      "ok": false,
+      "problems": [
+        {
+          "code": "target_error",
+          "message": "url placeholder(s) [code] need string or number fields at the payload's top level"
+        }
+      ],
+      "resolvents": [],
+      "target": "ignis-calculate"
+    },
+    "status": 200,
+    "step": "proxy target whose url field is missing"
+  },
+  {
+    "request": "POST /v1/requests/validate",
+    "response": {
+      "error": {
+        "code": "unknown_target",
+        "message": "target \"hydra\" is not configured"
+      }
+    },
+    "status": 422,
+    "step": "unknown target is refused like a submission"
+  },
+  {
+    "content_type": "application/json",
+    "request": "GET /v1/requests?limit=5",
+    "response": {
+      "items": [
+        {
+          "attempts": 1,
+          "completed_at": "«ts»",
+          "created_at": "«ts»",
+          "error": null,
+          "id": "«job-1»",
+          "result": {
+            "target_response": {
+              "ok": true
+            },
+            "target_status": 200
+          },
+          "state": "completed",
+          "target": "demo",
+          "updated_at": "«ts»"
+        }
+      ]
+    },
+    "status": 200,
+    "step": "dry runs created no requests"
+  },
+  {
+    "buem_building_calls": 0,
+    "buem_calls": 0,
+    "demo_calls": 1,
+    "ignis_calculate_calls": 0,
+    "meme_accept_calls": 0,
+    "meme_result_calls": "not asserted (timing-dependent)",
+    "meme_status_calls": "not asserted (timing-dependent)",
+    "resource_calls": 2,
+    "step": "upstream call counts",
+    "unexpected_upstream_requests": []
+  }
+]

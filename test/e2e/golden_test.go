@@ -556,6 +556,36 @@ var schedulingScenarios = []scenario{
 
 var apiContractScenarios = []scenario{
 	{
+		// Discovery reveals routing knobs — names, modes, container paths,
+		// backend kinds, cache TTLs — and never a URL or credential.
+		name: "discovery",
+		run: func(t *testing.T, h *harness) {
+			auth := map[string]string{"X-API-Key": clientKey}
+			h.get("configured targets", "/v1/targets", auth)
+			h.get("configured resolvent types", "/v1/resolvents", auth)
+			h.get("discovery requires a key", "/v1/resolvents", nil)
+		},
+	},
+	{
+		// The dry run tells a frontend what a submission would do before it
+		// submits: the resolvents (with paths and cache state) and the
+		// problems that would fail the job — persisting nothing and calling
+		// no upstream.
+		name: "dry-run",
+		run: func(t *testing.T, h *harness) {
+			payload := `{"time-series":[{"name":"pv","type":"resolvent-pv1","lat":48.83},{"type":"resolvent-wind"}]}`
+			h.validate("dry run before anything ran: nothing cached", requestBody("demo", payload), nil)
+			id := h.post("the real submission", requestBody("demo", payload), nil)
+			h.await("it completes", id)
+			h.validate("dry run again: both series now cached", requestBody("demo", payload), nil)
+			h.validate("unknown resolvent type is a problem, not an error", requestBody("demo", `{"time-series":[{"type":"resolvent-tidal"}]}`), nil)
+			h.validate("proxy target whose url field is missing", requestBody("ignis-calculate", `{"A_ref":1}`), nil)
+			h.validate("unknown target is refused like a submission", requestBody("hydra", `{}`), nil)
+			h.get("dry runs created no requests", "/v1/requests?limit=5", map[string]string{"X-API-Key": clientKey})
+			h.counts()
+		},
+	},
+	{
 		name: "validation-errors",
 		run: func(t *testing.T, h *harness) {
 			h.postRaw("no content type", requestBody("demo", `{}`), "", nil)

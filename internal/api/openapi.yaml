@@ -22,7 +22,9 @@ security:
   - ApiKeyAuth: []
 tags:
   - name: requests
-    description: Submit and follow orchestration requests.
+    description: Submit, dry-run and follow orchestration requests.
+  - name: discovery
+    description: What this deployment can do, for frontends.
   - name: system
     description: Health, build and this description. Unauthenticated.
 
@@ -135,6 +137,89 @@ paths:
                 $ref: "#/components/schemas/JobList"
         "400":
           $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /v1/requests/validate:
+    post:
+      tags: [requests]
+      summary: Dry run a request
+      description: |
+        Decodes, authenticates and inspects the request exactly as the worker
+        would start it — which resolvent objects it contains (with their JSON
+        pointers and whether their series are cached) and which problems would
+        fail the job before the first upstream call — without persisting
+        anything or calling any upstream. `200` whenever the request is
+        well-formed; `ok` says whether the job could start.
+      operationId: validateRequest
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateRequest"
+      responses:
+        "200":
+          description: The inspection result.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ValidateResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "415":
+          description: "`Content-Type: application/json` is required."
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "422":
+          description: The target is not configured.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+
+  /v1/targets:
+    get:
+      tags: [discovery]
+      summary: List configured targets
+      description: Names and routing knobs only — never URLs or credentials.
+      operationId: listTargets
+      responses:
+        "200":
+          description: The configured targets, sorted by name.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items:
+                    type: array
+                    items: { $ref: "#/components/schemas/TargetInfo" }
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /v1/resolvents:
+    get:
+      tags: [discovery]
+      summary: List configured resolvent types
+      operationId: listResolvents
+      responses:
+        "200":
+          description: The configured resolvent types, sorted.
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items:
+                    type: array
+                    items: { $ref: "#/components/schemas/ResolventInfo" }
         "401":
           $ref: "#/components/responses/Unauthorized"
 
@@ -410,6 +495,59 @@ components:
                          invalid_resource_response, target_error, target_job_failed, target_timeout,
                          max_attempts_exceeded, internal]
                 message: { type: string }
+    ValidateResponse:
+      type: object
+      required: [ok, target, resolvents, problems]
+      properties:
+        ok:
+          type: boolean
+          description: Whether the job could start.
+        target: { type: string }
+        resolvents:
+          type: array
+          items:
+            type: object
+            required: [type, path, cached]
+            properties:
+              type: { type: string }
+              path:
+                type: string
+                description: JSON pointer of the resolvent object in the payload.
+              name:
+                type: string
+                description: The object's `name` field or its registry key.
+              cached:
+                type: boolean
+                description: Whether the series cache already holds this resolvent.
+        problems:
+          type: array
+          items:
+            type: object
+            required: [code, message]
+            properties:
+              code:
+                type: string
+                enum: [invalid_payload, unknown_resolvent, target_error]
+              message: { type: string }
+    TargetInfo:
+      type: object
+      required: [name, response_mode, proxy]
+      properties:
+        name: { type: string }
+        response_mode: { type: string, enum: [direct, poll] }
+        proxy: { type: boolean }
+        timeseries_path: { type: string }
+        attach_resolvent: { type: boolean }
+    ResolventInfo:
+      type: object
+      required: [type, backend, cache_ttl]
+      properties:
+        type: { type: string }
+        backend: { type: string, enum: [get, post, target] }
+        target:
+          type: string
+          description: The backing target of a target-backed resolvent.
+        cache_ttl: { type: string }
     JobList:
       type: object
       required: [items]

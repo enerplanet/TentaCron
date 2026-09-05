@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/enerplanet/tentacron/internal/config"
+	"github.com/enerplanet/tentacron/internal/plan"
 	"github.com/enerplanet/tentacron/internal/store"
 )
 
@@ -119,27 +120,92 @@ func validateCreateRequest(req createRequest) (status int, code, msg string) {
 }
 
 func (s *Server) handleCreate(w http.ResponseWriter, r *http.Request) {
-	req, ok := s.decodeCreateRequest(w, r)
+	req, id, ok := s.acceptedCreate(w, r)
 	if !ok {
 		return
+	}
+	s.acceptJob(w, r, req, id.name)
+}
+
+// acceptedCreate decodes and authenticates a create-shaped request and checks
+// its target and priority — everything create and the dry run share before
+// they diverge into persisting or inspecting. Errors are written here.
+func (s *Server) acceptedCreate(w http.ResponseWriter, r *http.Request) (createRequest, identity, bool) {
+	req, ok := s.decodeCreateRequest(w, r)
+	if !ok {
+		return req, identity{}, false
 	}
 	id, ok := s.authenticate(req.APIKey)
 	if !ok {
 		writeError(w, http.StatusUnauthorized, CodeUnauthorized, "invalid API key")
-		return
+		return req, identity{}, false
 	}
 	noteClient(r, id.name)
 	if _, ok := s.cfg.Targets[req.Target]; !ok {
 		writeError(w, http.StatusUnprocessableEntity, CodeUnknownTarget,
 			"target "+strconv.Quote(req.Target)+" is not configured")
-		return
+		return req, id, false
 	}
 	if limit := s.cfg.MaxPriorityFor(id.name); req.Priority != nil && *req.Priority > limit {
 		writeError(w, http.StatusBadRequest, CodeInvalidParameter,
 			fmt.Sprintf("priority %d exceeds this key's maximum of %d", *req.Priority, limit))
+		return req, id, false
+	}
+	return req, id, true
+}
+
+type validateResponse struct {
+	OK         bool                `json:"ok"`
+	Target     string              `json:"target"`
+	Resolvents []validateResolvent `json:"resolvents"`
+	Problems   []plan.Problem      `json:"problems"`
+}
+
+type validateResolvent struct {
+	Type   string `json:"type"`
+	Path   string `json:"path"`
+	Name   string `json:"name,omitempty"`
+	Cached bool   `json:"cached"`
+}
+
+// handleValidate is the dry run: the request is decoded, authenticated and
+// inspected exactly as the worker would start it — which resolvents it
+// contains and which problems would fail it — without persisting anything or
+// calling any upstream. Only the series cache is consulted. The answer is 200
+// whenever the request itself is well-formed; ok says whether the job could
+// start.
+func (s *Server) handleValidate(w http.ResponseWriter, r *http.Request) {
+	req, _, ok := s.acceptedCreate(w, r)
+	if !ok {
 		return
 	}
-	s.acceptJob(w, r, req, id.name)
+	pl := plan.Inspect(s.cfg, req.Target, req.Payload)
+	resp := validateResponse{OK: pl.OK(), Target: req.Target,
+		Resolvents: make([]validateResolvent, 0, len(pl.Found)), Problems: make([]plan.Problem, 0, len(pl.Problems))}
+	resp.Problems = append(resp.Problems, pl.Problems...)
+	for _, f := range pl.Found {
+		_, cached, err := s.store.GetSeries(r.Context(), f.Hash)
+		resp.Resolvents = append(resp.Resolvents, validateResolvent{Type: f.Type, Path: f.Path, Name: f.Name, Cached: err == nil && cached})
+	}
+	writeJSON(w, http.StatusOK, resp)
+}
+
+// handleTargets lists the configured targets: routing knobs, never URLs or
+// credentials, so a frontend can offer them without reading the server's
+// configuration.
+func (s *Server) handleTargets(w http.ResponseWriter, r *http.Request) {
+	if _, ok := s.authFromHeader(w, r); !ok {
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"items": plan.Targets(s.cfg)})
+}
+
+// handleResolvents lists the configured resolvent types and their backend kind.
+func (s *Server) handleResolvents(w http.ResponseWriter, r *http.Request) {
+	if _, ok := s.authFromHeader(w, r); !ok {
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"items": plan.Resolvents(s.cfg)})
 }
 
 // acceptJob persists the request as a new job — or replays the stored one

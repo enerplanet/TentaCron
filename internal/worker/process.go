@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/enerplanet/tentacron/internal/config"
+	"github.com/enerplanet/tentacron/internal/plan"
 	"github.com/enerplanet/tentacron/internal/resolver"
 	"github.com/enerplanet/tentacron/internal/store"
 	"github.com/enerplanet/tentacron/internal/upstream"
@@ -21,16 +22,14 @@ import (
 
 // Job failure codes (stored on the job, surfaced via the API).
 const (
-	errUnknownTarget    = "unknown_target"
-	errInvalidPayload   = "invalid_payload"
-	errUnknownResolvent = "unknown_resolvent"
-	errInvalidResource  = "invalid_resource_response"
-	errResourceError    = "resource_error"
-	errTargetError      = "target_error"
-	errTargetJobFailed  = "target_job_failed"
-	errTargetTimeout    = "target_timeout"
-	errMaxAttempts      = "max_attempts_exceeded"
-	errInternal         = "internal"
+	errUnknownTarget   = plan.CodeUnknownTarget
+	errInvalidResource = "invalid_resource_response"
+	errResourceError   = "resource_error"
+	errTargetError     = "target_error"
+	errTargetJobFailed = "target_job_failed"
+	errTargetTimeout   = "target_timeout"
+	errMaxAttempts     = "max_attempts_exceeded"
+	errInternal        = "internal"
 )
 
 // errBadResourceBody marks a resource API response whose body is not a JSON
@@ -88,22 +87,24 @@ func (p *Pool) processNew(ctx, bg context.Context, job *store.Job) {
 		p.handThrough(ctx, bg, job, tcfg)
 		return
 	}
-	root, found, fail := p.locateResolvents(job.Payload, tcfg)
-	if fail != nil {
-		p.failJob(bg, job, fail.code, fail.err.Error())
+	// The same inspection the dry-run endpoint answers with: the worker and
+	// the API can never disagree about what a payload contains.
+	pl := plan.Inspect(p.cfg, job.Target, job.Payload)
+	if !pl.OK() {
+		p.failJob(bg, job, pl.Problems[0].Code, pl.Problems[0].Message)
 		return
 	}
-	seriesByHash, cached, err := p.fetchAll(ctx, bg, found)
+	seriesByHash, cached, err := p.fetchAll(ctx, bg, pl.Found)
 	if err != nil {
 		p.failResolution(bg, job, err)
 		return
 	}
-	resolved, fail := p.substitute(job.ID, root, found, seriesByHash, attachResolvent(tcfg))
+	resolved, fail := p.substitute(job.ID, pl.Root, pl.Found, seriesByHash, attachResolvent(tcfg))
 	if fail != nil {
 		p.failJob(bg, job, fail.code, fail.err.Error())
 		return
 	}
-	p.forwardResolved(ctx, bg, job, tcfg, resolved, len(found), cached)
+	p.forwardResolved(ctx, bg, job, tcfg, resolved, len(pl.Found), cached)
 }
 
 // handThrough forwards a proxy target's payload unresolved — even objects
@@ -117,35 +118,6 @@ func (p *Pool) handThrough(ctx, bg context.Context, job *store.Job, tcfg config.
 	}
 	p.logger.Info("payload handed through unresolved", "job_id", job.ID, "target", job.Target)
 	p.forward(ctx, bg, job, tcfg, job.Payload)
-}
-
-// locateResolvents parses the payload and collects its resolvent objects,
-// refusing unknown types before any HTTP call.
-func (p *Pool) locateResolvents(payload []byte, tcfg config.Target) (map[string]any, []*resolver.Found, *failure) {
-	root, err := resolver.Parse(payload)
-	if err != nil {
-		return nil, nil, &failure{errInvalidPayload, err}
-	}
-	found, err := resolver.Find(root, containerPath(tcfg))
-	if err != nil {
-		return nil, nil, &failure{errInvalidPayload, err}
-	}
-	for _, typ := range resolver.DistinctTypes(found) {
-		if _, ok := p.cfg.Resolvents[typ]; !ok {
-			return nil, nil, &failure{errUnknownResolvent, fmt.Errorf("no resolvent config for type %q", typ)}
-		}
-	}
-	return root, found, nil
-}
-
-// containerPath translates the "." sentinel into the resolver's root scan:
-// the resolver treats "" as root, while the config layer reserves "" for
-// "use the default path".
-func containerPath(tcfg config.Target) string {
-	if tcfg.TimeseriesPath == config.RootTimeseriesPath {
-		return ""
-	}
-	return tcfg.TimeseriesPath
 }
 
 // attachResolvent reports the target's marker policy. nil means "not

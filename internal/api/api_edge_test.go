@@ -18,6 +18,8 @@ import (
 	"time"
 
 	"github.com/enerplanet/tentacron/internal/config"
+	"github.com/enerplanet/tentacron/internal/plan"
+	"github.com/enerplanet/tentacron/internal/resolver"
 	"github.com/enerplanet/tentacron/internal/store"
 )
 
@@ -839,5 +841,87 @@ func TestCORSForConfiguredOriginsOnly(t *testing.T) {
 	rec = plain.do(t, "GET", "/healthz", "", map[string]string{"Origin": "https://app.example.org"})
 	if rec.Header().Get("Access-Control-Allow-Origin") != "" || rec.Header().Get("Vary") != "" {
 		t.Errorf("without configured origins no CORS header may appear: %v", rec.Header())
+	}
+}
+
+func TestDiscoveryEndpoints(t *testing.T) {
+	e := newEnvWith(t, func(c *config.Config) {
+		c.Targets["proxy"] = config.Target{URL: "https://p.example.com/{code}", Proxy: true, Response: config.Response{Mode: config.ModeDirect}}
+		c.Resolvents = map[string]config.Resolvent{
+			"resolvent-pv1":  {URL: "https://pv.example.com/gen", Method: "POST", APIKey: "secret-key", CacheTTL: config.Duration(time.Hour)},
+			"resolvent-buem": {Target: "meme", CacheTTL: config.Duration(2 * time.Hour)},
+		}
+	}, nil)
+	for _, path := range []string{"/v1/targets", "/v1/resolvents"} {
+		if rec := e.do(t, "GET", path, "", nil); rec.Code != http.StatusUnauthorized {
+			t.Errorf("%s without key: %d, want 401", path, rec.Code)
+		}
+	}
+	rec := e.do(t, "GET", "/v1/targets", "", authHdr)
+	if rec.Code != http.StatusOK || strings.Contains(rec.Body.String(), "example.com") {
+		t.Fatalf("/v1/targets: %d %s", rec.Code, rec.Body.String())
+	}
+	targets := decodeBody[map[string][]plan.TargetInfo](t, rec)["items"]
+	if len(targets) != 2 || targets[0].Name != "meme" || targets[1].Name != "proxy" || !targets[1].Proxy || targets[1].AttachResolvent != nil {
+		t.Errorf("targets = %+v", targets)
+	}
+	rec = e.do(t, "GET", "/v1/resolvents", "", authHdr)
+	if rec.Code != http.StatusOK || strings.Contains(rec.Body.String(), "secret-key") || strings.Contains(rec.Body.String(), "example.com") {
+		t.Fatalf("/v1/resolvents leaks configuration: %d %s", rec.Code, rec.Body.String())
+	}
+	res := decodeBody[map[string][]plan.ResolventInfo](t, rec)["items"]
+	if len(res) != 2 || res[0].Type != "resolvent-buem" || res[0].Backend != "target" || res[0].Target != "meme" || res[1].Backend != "post" || res[1].CacheTTL != "1h0m0s" {
+		t.Errorf("resolvents = %+v", res)
+	}
+}
+
+// The dry run inspects like the worker, consults only the cache, persists
+// nothing and shares create's request validation.
+func TestValidateDryRun(t *testing.T) {
+	e := newEnvWith(t, func(c *config.Config) {
+		c.Targets["demo"] = config.Target{URL: "https://demo.example.com/run", TimeseriesPath: "time-series", Response: config.Response{Mode: config.ModeDirect}}
+		c.Targets["proxy"] = config.Target{URL: "https://p.example.com/{code}", Proxy: true, Response: config.Response{Mode: config.ModeDirect}}
+		c.Resolvents = map[string]config.Resolvent{"resolvent-pv1": {URL: "https://pv.example.com/gen", Method: "POST", CacheTTL: config.Duration(time.Hour)}}
+	}, nil)
+	validate := func(body string) (int, validateResponse) {
+		rec := e.do(t, "POST", "/v1/requests/validate", body, authHdr)
+		if rec.Code != http.StatusOK {
+			return rec.Code, validateResponse{}
+		}
+		return rec.Code, decodeBody[validateResponse](t, rec)
+	}
+	payload := `{"time-series":[{"name":"pv","type":"resolvent-pv1","lat":48.83},{"type":"time-series","values":[1]}]}`
+	code, resp := validate(`{"target":"demo","payload":` + payload + `}`)
+	if code != 200 || !resp.OK || len(resp.Problems) != 0 || len(resp.Resolvents) != 1 ||
+		resp.Resolvents[0].Path != "/time-series/0" || resp.Resolvents[0].Name != "pv" || resp.Resolvents[0].Cached {
+		t.Fatalf("dry run = %d %+v", code, resp)
+	}
+	// Prime the cache under the same hash the worker would use; the dry run
+	// then reports the series as cached.
+	root, _ := resolver.Parse([]byte(payload))
+	found, _ := resolver.Find(root, "time-series")
+	if err := e.store.PutSeries(context.Background(), found[0].Hash, "resolvent-pv1", []byte(`{}`), time.Hour); err != nil {
+		t.Fatal(err)
+	}
+	if _, resp := validate(`{"target":"demo","payload":` + payload + `}`); !resp.Resolvents[0].Cached {
+		t.Errorf("cached flag not set after priming: %+v", resp)
+	}
+	if _, resp := validate(`{"target":"demo","payload":{"time-series":[{"type":"resolvent-tidal"}]}}`); resp.OK || len(resp.Problems) != 1 || resp.Problems[0].Code != plan.CodeUnknownResolvent {
+		t.Errorf("unknown resolvent = %+v", resp)
+	}
+	if _, resp := validate(`{"target":"proxy","payload":{"A_ref":1}}`); resp.OK || resp.Problems[0].Code != plan.CodeTargetError || len(resp.Resolvents) != 0 {
+		t.Errorf("proxy placeholder = %+v", resp)
+	}
+	if code, _ := validate(`{"target":"hydra","payload":{}}`); code != http.StatusUnprocessableEntity {
+		t.Errorf("unknown target: %d, want 422 like create", code)
+	}
+	if code, _ := validate(`{"target":"demo","payload":[1]}`); code != http.StatusBadRequest {
+		t.Errorf("non-object payload: %d, want 400 like create", code)
+	}
+	if rec := e.do(t, "POST", "/v1/requests/validate", `{"target":"demo","payload":{}}`, nil); rec.Code != http.StatusBadRequest {
+		t.Errorf("no key: %d", rec.Code)
+	}
+	if jobs, _ := e.store.ListJobs(context.Background(), store.ListFilter{Limit: 10}); len(jobs) != 0 {
+		t.Errorf("dry runs must persist nothing, found %d jobs", len(jobs))
 	}
 }

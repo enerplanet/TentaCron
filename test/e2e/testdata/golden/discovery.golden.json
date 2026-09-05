@@ -1,0 +1,98 @@
+[
+  {
+    "content_type": "application/json",
+    "request": "GET /v1/targets",
+    "response": {
+      "items": [
+        {
+          "attach_resolvent": false,
+          "name": "buem",
+          "proxy": false,
+          "response_mode": "direct",
+          "timeseries_path": "."
+        },
+        {
+          "attach_resolvent": false,
+          "name": "buem-building",
+          "proxy": false,
+          "response_mode": "direct",
+          "timeseries_path": "."
+        },
+        {
+          "attach_resolvent": true,
+          "name": "demo",
+          "proxy": false,
+          "response_mode": "direct",
+          "timeseries_path": "time-series"
+        },
+        {
+          "name": "ignis-calculate",
+          "proxy": true,
+          "response_mode": "direct"
+        },
+        {
+          "attach_resolvent": true,
+          "name": "meme",
+          "proxy": false,
+          "response_mode": "poll",
+          "timeseries_path": "model.timeseries"
+        }
+      ]
+    },
+    "status": 200,
+    "step": "configured targets"
+  },
+  {
+    "content_type": "application/json",
+    "request": "GET /v1/resolvents",
+    "response": {
+      "items": [
+        {
+          "backend": "target",
+          "cache_ttl": "1h0m0s",
+          "target": "buem-building",
+          "type": "resolvent-buem"
+        },
+        {
+          "backend": "get",
+          "cache_ttl": "1h0m0s",
+          "type": "resolvent-city2tabula"
+        },
+        {
+          "backend": "get",
+          "cache_ttl": "1h0m0s",
+          "type": "resolvent-ignis"
+        },
+        {
+          "backend": "post",
+          "cache_ttl": "1h0m0s",
+          "type": "resolvent-pv1"
+        },
+        {
+          "backend": "get",
+          "cache_ttl": "1h0m0s",
+          "type": "resolvent-weather"
+        },
+        {
+          "backend": "post",
+          "cache_ttl": "1h0m0s",
+          "type": "resolvent-wind"
+        }
+      ]
+    },
+    "status": 200,
+    "step": "configured resolvent types"
+  },
+  {
+    "content_type": "application/json",
+    "request": "GET /v1/resolvents",
+    "response": {
+      "error": {
+        "code": "unauthorized",
+        "message": "missing or invalid X-API-Key header"
+      }
+    },
+    "status": 401,
+    "step": "discovery requires a key"
+  }
+]

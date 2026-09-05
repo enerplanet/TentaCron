@@ -20,6 +20,7 @@ import (
 	"time"
 
 	"github.com/enerplanet/tentacron/internal/config"
+	"github.com/enerplanet/tentacron/internal/plan"
 	"github.com/enerplanet/tentacron/internal/metrics"
 	"github.com/enerplanet/tentacron/internal/store"
 	"github.com/enerplanet/tentacron/internal/upstream"
@@ -938,7 +939,7 @@ func TestStoredNonObjectPayloadFailsInvalidPayload(t *testing.T) {
 	id := createJob(t, st, "demo", `[1,2]`, 3)
 	startPool(t, cfg, st)
 	job := waitForTerminal(t, st, id)
-	if job.State != store.StateFailed || job.ErrorCode != errInvalidPayload {
+	if job.State != store.StateFailed || job.ErrorCode != plan.CodeInvalidPayload {
 		t.Fatalf("state=%s code=%s", job.State, job.ErrorCode)
 	}
 }

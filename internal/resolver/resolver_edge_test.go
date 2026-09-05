@@ -219,3 +219,38 @@ func BenchmarkFindAndSubstitute(b *testing.B) {
 		}
 	}
 }
+
+// Every found resolvent carries its JSON pointer and a name: the object's
+// own "name" field, else its registry key, else nothing for an anonymous
+// array element. Pointer tokens are escaped per RFC 6901.
+func TestFoundPathsAndNames(t *testing.T) {
+	root := parse(t, `{"model":{"timeseries":{
+		"pv_cf":{"type":"resolvent-pv1"},
+		"a/b~c":{"type":"resolvent-x","name":"explicit"},
+		"list":[{"type":"resolvent-y"},{"name":"named","type":"resolvent-y"},{"inner":[{"type":"resolvent-z"}]}]
+	}}}`)
+	found := find(t, root, "model.timeseries")
+	got := map[string]string{}
+	for _, f := range found {
+		got[f.Path] = f.Name
+	}
+	want := map[string]string{
+		"/model/timeseries/a~1b~0c":        "explicit",
+		"/model/timeseries/list/0":         "",
+		"/model/timeseries/list/1":         "named",
+		"/model/timeseries/list/2/inner/0": "",
+		"/model/timeseries/pv_cf":          "pv_cf",
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("paths/names = %v\nwant %v", got, want)
+	}
+	// Root scan and a container that is itself the resolvent.
+	rootScan := find(t, parse(t, `{"weather":{"type":"resolvent-weather"},"x":[{"type":"resolvent-a"}]}`), "")
+	if rootScan[0].Path != "/weather" || rootScan[0].Name != "weather" || rootScan[1].Path != "/x/0" {
+		t.Errorf("root scan paths = %s %s", rootScan[0].Path, rootScan[1].Path)
+	}
+	self := find(t, parse(t, `{"weather":{"type":"resolvent-weather"}}`), "weather")
+	if self[0].Path != "/weather" || self[0].Name != "weather" {
+		t.Errorf("container-as-resolvent path/name = %s/%s", self[0].Path, self[0].Name)
+	}
+}

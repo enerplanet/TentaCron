@@ -96,6 +96,56 @@ Submit a request for orchestration.
 Validation happens in that order: an unknown target is only reported once
 the key has been accepted.
 
+## POST /v1/requests/validate
+
+A dry run. The body is the same as for `POST /v1/requests` and goes through
+the same decoding, authentication, target and priority checks (same `400`,
+`401`, `415`, `422`), but nothing is persisted and no upstream is called:
+the payload is inspected exactly as the worker would start it.
+
+```json
+{
+  "ok": true,
+  "target": "demo",
+  "resolvents": [
+    { "type": "resolvent-pv1", "path": "/time-series/0", "name": "pv_south_roof", "cached": true },
+    { "type": "resolvent-wind", "path": "/time-series/1", "name": "wind_ridge", "cached": false }
+  ],
+  "problems": []
+}
+```
+
+- `resolvents` lists every resolvent object in document order with its JSON
+  pointer, its `name` field or registry key, and whether the series cache
+  already holds it (a cached resolvent costs no upstream call).
+- `problems` lists what would fail the job before the first call, with the
+  job error codes `invalid_payload`, `unknown_resolvent` (one entry per
+  unknown type) or, for proxy targets, `target_error` when a URL placeholder
+  has no payload field. `ok` is `false` whenever there are problems.
+- The answer is `200` whenever the request itself is well-formed; a
+  frontend checks `ok`, not the status.
+
+## GET /v1/targets and GET /v1/resolvents
+
+Discovery for frontends: what this deployment can do, without reading its
+configuration. Both require a key; neither reveals URLs or credentials.
+
+```json
+{ "items": [
+  { "name": "buem", "response_mode": "direct", "proxy": false, "timeseries_path": ".", "attach_resolvent": false },
+  { "name": "ignis-calculate", "response_mode": "direct", "proxy": true },
+  { "name": "meme", "response_mode": "poll", "proxy": false, "timeseries_path": "model.timeseries", "attach_resolvent": true }
+] }
+```
+
+```json
+{ "items": [
+  { "type": "resolvent-buem", "backend": "target", "target": "buem-building", "cache_ttl": "24h0m0s" },
+  { "type": "resolvent-pv1", "backend": "post", "cache_ttl": "24h0m0s" },
+  { "type": "resolvent-weather", "backend": "get", "cache_ttl": "24h0m0s" }
+] }
+```
+
 ## GET /v1/requests/{id}
 
 ```json

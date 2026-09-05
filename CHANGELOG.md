@@ -10,6 +10,11 @@ under "Changed" with the keys or fields concerned.
 
 ### Added
 
+- `POST /v1/requests/validate` dry-runs a submission: the resolvents the
+  payload contains (JSON pointers, names, cache state) and the problems that
+  would fail the job, without persisting anything or calling any upstream.
+  `GET /v1/targets` and `GET /v1/resolvents` list what the deployment can
+  do — routing knobs only, never URLs or credentials.
 - `server.cors.allowed_origins` lets browser frontends on exactly those
   origins call the API directly: preflights are answered and the request id,
   download and range headers are exposed. Off by default; no wildcards.
