@@ -5,6 +5,10 @@ Tentacron reads one YAML file (`-config` flag, default `config.yaml`).
 environment at startup; referencing an unset variable aborts startup so the
 service never runs with empty credentials. `$$` escapes a literal `$`.
 Unknown keys are rejected, and every validation problem is reported at once.
+Durations must be positive (`30s`, `10m`, `24h`), counts and byte limits
+positive integers; `worker.backoff_base` may not exceed `worker.backoff_max`
+and a poll `interval` must be shorter than its `timeout`. A key that is left
+out or set to zero takes its documented default.
 
 See [`config.example.yaml`](https://github.com/enerplanet/tentacron/blob/main/config.example.yaml)
 for a complete annotated example covering every integration below.

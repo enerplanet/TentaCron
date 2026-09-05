@@ -455,3 +455,72 @@ func TestValidateHandBuiltConfigWithoutDefaults(t *testing.T) {
 		}
 	}
 }
+
+// Defaults only replace zero values, so every numeric and duration setting
+// must reject negatives (and zero where zero cannot mean "default") with a
+// message naming the key; a hand-built config skipping applyDefaults must
+// be diagnosed the same way.
+func TestNumericAndDurationValidation(t *testing.T) {
+	cases := []struct{ name, yaml, wantErr string }{
+		{"negative worker count", "worker:\n  count: -1\n", "worker.count: must be a positive integer (got -1)"},
+		{"negative resolvent concurrency", "worker:\n  resolvent_concurrency: -2\n", "worker.resolvent_concurrency: must be a positive integer"},
+		{"negative max attempts", "worker:\n  max_attempts: -1\n", "worker.max_attempts: must be a positive integer"},
+		{"negative body limit", "server:\n  max_body_bytes: -1\n", "server.max_body_bytes: must be a positive integer"},
+		{"negative job timeout", "worker:\n  job_timeout: -5s\n", "worker.job_timeout: must be a positive duration (got -5s)"},
+		{"negative poll interval", "worker:\n  poll_interval: -1s\n", "worker.poll_interval: must be a positive duration"},
+		{"negative read timeout", "server:\n  read_timeout: -1s\n", "server.read_timeout: must be a positive duration"},
+		{"negative retention", "storage:\n  retention: -1h\n", "storage.retention: must be a positive duration"},
+		{"negative cleanup interval", "cache:\n  cleanup_interval: -1m\n", "cache.cleanup_interval: must be a positive duration"},
+		{"backoff base above max", "worker:\n  backoff_base: 2m\n  backoff_max: 1m\n", "worker.backoff_base (2m0s) must not exceed worker.backoff_max (1m0s)"},
+		{"negative target timeout", "auth:\n  api_keys: [{name: t, key: k}]\ntargets:\n  buem:\n    url: \"https://buem.example.com/run\"\n    timeout: -1s\n", "targets.buem.timeout: must be a positive duration"},
+		{"negative resolvent timeout", "resolvents:\n  resolvent-x:\n    url: \"https://x.example.com/q\"\n    timeout: -1s\n", "resolvents.resolvent-x.timeout: must be a positive duration"},
+		{"negative cache ttl", "resolvents:\n  resolvent-x:\n    url: \"https://x.example.com/q\"\n    cache_ttl: -1h\n", "resolvents.resolvent-x.cache_ttl: must be a positive duration"},
+	}
+	for _, tt := range cases {
+		t.Run(tt.name, func(t *testing.T) {
+			doc := tt.yaml
+			if !strings.HasPrefix(doc, "auth:") {
+				doc = minimalYAML + doc
+			}
+			_, err := Load(writeConfig(t, doc))
+			if err == nil || !strings.Contains(err.Error(), tt.wantErr) {
+				t.Fatalf("want error containing %q, got %v", tt.wantErr, err)
+			}
+		})
+	}
+	// Zero still means "use the default", so the documented defaults apply.
+	cfg, err := Load(writeConfig(t, minimalYAML+"worker:\n  count: 0\n"))
+	if err != nil || cfg.Worker.Count != 4 {
+		t.Errorf("zero count must fall back to the default 4, got %d (err %v)", cfg.Worker.Count, err)
+	}
+	hand := &Config{
+		Auth:    Auth{APIKeys: []APIKey{{Name: "t", Key: "k"}}},
+		Worker:  Worker{Count: -3},
+		Targets: map[string]Target{"x": {URL: "https://x.example.com", Method: "POST", APIKeyInject: InjectNone, Timeout: Duration(time.Second), Response: Response{Mode: ModeDirect}}},
+	}
+	if err := hand.Validate(); err == nil || !strings.Contains(err.Error(), "worker.count: must be a positive integer (got -3)") {
+		t.Errorf("hand-built config must be diagnosed too, got %v", err)
+	}
+}
+
+func TestPollIntervalMustBeShorterThanTimeout(t *testing.T) {
+	_, err := Load(writeConfig(t, `
+auth:
+  api_keys: [{name: t, key: k}]
+targets:
+  meme:
+    url: "https://meme.example.com/simulate"
+    response:
+      mode: poll
+      poll:
+        id_json_path: id
+        url_template: "https://meme.example.com/jobs/{id}"
+        status_json_path: state
+        done_values: [succeeded]
+        interval: 1h
+        timeout: 1m
+`))
+	if err == nil || !strings.Contains(err.Error(), "poll.interval (1h0m0s) must be shorter than targets.meme.response.poll.timeout (1m0s)") {
+		t.Fatalf("want interval/timeout error, got %v", err)
+	}
+}

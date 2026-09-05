@@ -17,6 +17,16 @@ under "Changed" with the keys or fields concerned.
   queue, the asynchronous API, polling targets to completion, per-target
   resolvent location), and an API stability statement in `docs/api.md`.
 
+### Changed
+
+- Configuration validation rejects non-positive numeric settings and
+  durations: `worker.count`, `worker.resolvent_concurrency`,
+  `worker.max_attempts`, `server.max_body_bytes`, every timeout, interval,
+  retention and cache TTL, plus `worker.backoff_base` above
+  `worker.backoff_max` and a poll `interval` not shorter than its `timeout`.
+  Such values previously passed silently (a negative worker count started no
+  workers at all). Zero still selects the default.
+
 ### Fixed
 
 - Retention pruning could stop working for good: the delete bound one SQL
