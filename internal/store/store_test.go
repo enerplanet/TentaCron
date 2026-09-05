@@ -384,11 +384,14 @@ func TestTerminalStatesAreFinal(t *testing.T) {
 			t.Error("audit trail records a completed -> failed transition")
 		}
 	}
-	// Re-marking the same terminal state is also rejected as a plain
-	// invalid transition? No — same-state writes are allowed (idempotent
-	// duplicate completion), so a duplicate MarkCompleted must not error.
-	if err := s.MarkCompleted(ctx, j.ID, 200, []byte(`{"ok":true}`), "", "", "duplicate"); err != nil {
-		t.Errorf("duplicate MarkCompleted: %v", err)
+	// Re-marking the same terminal state is refused as well: a duplicate
+	// completion from an overlapping worker must never replace the stored
+	// result body (see TestRepeatedTerminalTransitionsKeepFirstOutcome).
+	if err := s.MarkCompleted(ctx, j.ID, 200, []byte(`{"ok":false}`), "", "", "duplicate"); !errors.Is(err, ErrTerminalState) {
+		t.Errorf("duplicate MarkCompleted: %v, want ErrTerminalState", err)
+	}
+	if got, _ := s.GetJob(ctx, j.ID); string(got.TargetResponse) != `{"ok":true}` {
+		t.Errorf("duplicate completion overwrote the body: %s", got.TargetResponse)
 	}
 }
 

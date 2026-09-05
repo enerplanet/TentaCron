@@ -479,6 +479,26 @@ func TestLateFailureNeverOverwritesCompletion(t *testing.T) {
 	}
 }
 
+// Two workers completing the same job (an overlapping poll tick) must not
+// let the later, redundant outcome replace the stored result.
+func TestDuplicateCompletionNeverOverwritesResult(t *testing.T) {
+	cfg := baseConfig(t)
+	st := openStore(t)
+	id := createJob(t, st, "demo", `{}`, 3)
+	ctx := context.Background()
+	job, _ := st.GetJob(ctx, id)
+	p := New(cfg, st, upstream.New(1<<20, nil), discardLogger(), nil)
+	p.complete(ctx, job, 200, "", []byte(`{"first":true}`), "first")
+	p.complete(ctx, job, 200, "application/zip", []byte("PK\x03\x04later-bundle"), "second")
+	got, _ := st.GetJob(ctx, id)
+	if string(got.TargetResponse) != `{"first":true}` || got.ResultPath != "" {
+		t.Errorf("duplicate completion overwrote the result: %+v", got)
+	}
+	if events, _ := st.ListEvents(ctx, id); len(events) != 2 {
+		t.Errorf("audit trail must not record the dropped duplicate, got %d events", len(events))
+	}
+}
+
 func TestSweepRescuesStuckJob(t *testing.T) {
 	cfg := baseConfig(t)
 	cfg.Worker.JobTimeout = dur(time.Millisecond)

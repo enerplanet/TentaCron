@@ -654,3 +654,36 @@ func TestTerminalBeforeHonoursLimitOldestFirst(t *testing.T) {
 		t.Errorf("second pass = %v (err %v), want the remaining %v", rest, err, ids[3:])
 	}
 }
+
+// A second completion or failure of a terminal job is refused and leaves
+// the first outcome untouched: an overlapping poll tick must never replace
+// a result body or file a client may already have fetched.
+func TestRepeatedTerminalTransitionsKeepFirstOutcome(t *testing.T) {
+	s := openTest(t)
+	ctx := context.Background()
+	done := newJob(t, "meme")
+	mustCreate(t, s, done)
+	if err := s.MarkCompleted(ctx, done.ID, 200, []byte(`{"first":true}`), "", "", "first"); err != nil {
+		t.Fatal(err)
+	}
+	err := s.MarkCompleted(ctx, done.ID, 200, []byte(`{"second":true}`), "/results/late.zip", "application/zip", "second")
+	if !errors.Is(err, ErrTerminalState) {
+		t.Fatalf("duplicate completion: %v, want ErrTerminalState", err)
+	}
+	got, _ := s.GetJob(ctx, done.ID)
+	if string(got.TargetResponse) != `{"first":true}` || got.ResultPath != "" || len(mustEvents(t, s, done.ID)) != 2 {
+		t.Errorf("first completion was overwritten: response=%s path=%q events=%d", got.TargetResponse, got.ResultPath, len(mustEvents(t, s, done.ID)))
+	}
+
+	failed := newJob(t, "meme")
+	mustCreate(t, s, failed)
+	if err := s.MarkFailed(ctx, failed.ID, "target_error", "first"); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.MarkFailed(ctx, failed.ID, "internal", "later"); !errors.Is(err, ErrTerminalState) {
+		t.Fatalf("duplicate failure: %v, want ErrTerminalState", err)
+	}
+	if got, _ := s.GetJob(ctx, failed.ID); got.ErrorCode != "target_error" || got.ErrorMessage != "first" {
+		t.Errorf("first failure was overwritten: %s/%s", got.ErrorCode, got.ErrorMessage)
+	}
+}

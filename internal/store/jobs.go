@@ -635,10 +635,12 @@ func currentState(ctx context.Context, tx *sql.Tx, id string) (string, error) {
 }
 
 // checkTransition enforces the two rules every transition obeys: terminal
-// states are final, and an expected fromState must match.
+// states are final — a repeat of the same terminal outcome is refused too,
+// so an overlapping duplicate completion can never overwrite a result body
+// a client may already have fetched — and an expected fromState must match.
 func checkTransition(id, current, fromState, toState string) error {
-	if (current == StateCompleted || current == StateFailed) && current != toState {
-		return fmt.Errorf("job %s: cannot leave %s for %s: %w", id, current, toState, ErrTerminalState)
+	if current == StateCompleted || current == StateFailed {
+		return fmt.Errorf("job %s: already %s, cannot transition to %s: %w", id, current, toState, ErrTerminalState)
 	}
 	if fromState != anyState && current != fromState {
 		return fmt.Errorf("job %s: cannot transition %s -> %s (state is %s)", id, fromState, toState, current)

@@ -33,6 +33,11 @@ under "Changed" with the keys or fields concerned.
 
 ### Fixed
 
+- Terminal states are strictly final: a second completion or failure of an
+  already completed or failed job is refused, so an overlapping duplicate
+  completion (a slower poll tick finishing after a faster one) can no longer
+  replace the stored result body or file. Repeating the same terminal state
+  used to be accepted.
 - Upstream error excerpts are truncated on a rune boundary, so a stored or
   logged excerpt can no longer end in invalid UTF-8, and surrounding
   whitespace (the newline `http.Error` appends) is trimmed.
