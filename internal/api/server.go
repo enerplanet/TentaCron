@@ -11,12 +11,22 @@ import (
 	"github.com/enerplanet/tentacron/internal/store"
 )
 
+// BuildInfo identifies the running binary on /version and /healthz.
+type BuildInfo struct {
+	Version  string `json:"version"`
+	Go       string `json:"go,omitempty"`
+	Revision string `json:"revision,omitempty"`
+	Built    string `json:"built,omitempty"`
+}
+
 // Server holds the HTTP handler dependencies.
 type Server struct {
 	cfg    *config.Config
 	store  *store.Store
 	logger *slog.Logger
 	nudge  chan<- struct{}
+	// Build is reported by /version and /healthz; main fills it in.
+	Build BuildInfo
 }
 
 // New builds the API server. nudge is signalled (non-blocking) whenever a new
@@ -34,6 +44,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /v1/requests/{id}/result", s.handleResult)
 	mux.HandleFunc("GET /healthz", s.handleHealthz)
 	mux.HandleFunc("GET /readyz", s.handleReadyz)
+	mux.HandleFunc("GET /version", s.handleVersion)
 	return s.withRecovery(s.withRequestLog(jsonFallback(mux)))
 }
 

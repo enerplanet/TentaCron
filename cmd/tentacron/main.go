@@ -16,11 +16,13 @@ import (
 	"os"
 	"os/signal"
 	"runtime"
+	"runtime/debug"
 	"strings"
 	"syscall"
 
 	"github.com/enerplanet/tentacron/internal/api"
 	"github.com/enerplanet/tentacron/internal/config"
+	"github.com/enerplanet/tentacron/internal/metrics"
 	"github.com/enerplanet/tentacron/internal/store"
 	"github.com/enerplanet/tentacron/internal/upstream"
 	"github.com/enerplanet/tentacron/internal/worker"
@@ -110,22 +112,27 @@ func runServe(args []string, stdout, stderr io.Writer) int {
 	if done {
 		return code
 	}
-	logger := slog.New(slog.NewJSONHandler(os.Stdout, nil))
+	// Info until the configuration is loaded and says otherwise; a config
+	// error is always logged.
+	level := new(slog.LevelVar)
+	logger := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: level}))
 	slog.SetDefault(logger)
-	if err := serveFromConfig(path, logger); err != nil {
+	if err := serveFromConfig(path, logger, level); err != nil {
 		logger.Error("fatal", "error", err)
 		return 1
 	}
 	return 0
 }
 
-// serveFromConfig wires the store, the worker pool and the HTTP server from
-// the configuration file and runs them until shutdown.
-func serveFromConfig(path string, logger *slog.Logger) error {
+// serveFromConfig wires the store, the worker pool, the API server and the
+// optional metrics listener from the configuration file and runs them until
+// shutdown.
+func serveFromConfig(path string, logger *slog.Logger, level *slog.LevelVar) error {
 	cfg, err := config.Load(path)
 	if err != nil {
 		return err
 	}
+	level.Set(cfg.Server.SlogLevel())
 	st, err := store.Open(cfg.Storage.Path)
 	if err != nil {
 		return err
@@ -135,11 +142,51 @@ func serveFromConfig(path string, logger *slog.Logger) error {
 		return err
 	}
 
+	m := metrics.New(st)
 	nudge := make(chan struct{}, 1)
-	client := upstream.New(cfg.Server.MaxBodyBytes, cfg.UpstreamSecrets())
-	pool := worker.New(cfg, st, client, logger, nudge)
-	httpServer := newHTTPServer(cfg, api.New(cfg, st, logger, nudge).Handler())
-	return serve(cfg, logger, httpServer, pool)
+	client := upstream.New(cfg.Server.MaxBodyBytes, cfg.UpstreamSecrets()).WithMetrics(m)
+	pool := worker.New(cfg, st, client, logger, nudge).WithMetrics(m)
+	apiServer := api.New(cfg, st, logger, nudge)
+	apiServer.Build = buildInfo()
+	servers := []*http.Server{newHTTPServer(cfg, apiServer.Handler())}
+	if ms := newMetricsServer(cfg, m); ms != nil {
+		servers = append(servers, ms)
+	}
+	return serve(cfg, logger, servers, pool)
+}
+
+// buildInfo combines the -ldflags version with the VCS stamp Go embeds when
+// the binary is built inside the repository.
+func buildInfo() api.BuildInfo {
+	b := api.BuildInfo{Version: version, Go: runtime.Version()}
+	if info, ok := debug.ReadBuildInfo(); ok {
+		for _, s := range info.Settings {
+			switch s.Key {
+			case "vcs.revision":
+				b.Revision = s.Value
+			case "vcs.time":
+				b.Built = s.Value
+			}
+		}
+	}
+	return b
+}
+
+// newMetricsServer serves /metrics on its own listener, so scrapes never
+// share the public API port; nil when server.metrics_addr is unset.
+func newMetricsServer(cfg *config.Config, m *metrics.Metrics) *http.Server {
+	if cfg.Server.MetricsAddr == "" {
+		return nil
+	}
+	mux := http.NewServeMux()
+	mux.Handle("GET /metrics", m.Handler())
+	return &http.Server{
+		Addr:              cfg.Server.MetricsAddr,
+		Handler:           mux,
+		ReadTimeout:       cfg.Server.ReadTimeout.Std(),
+		ReadHeaderTimeout: cfg.Server.ReadTimeout.Std(),
+		WriteTimeout:      cfg.Server.WriteTimeout.Std(),
+	}
 }
 
 func newHTTPServer(cfg *config.Config, handler http.Handler) *http.Server {
@@ -152,10 +199,10 @@ func newHTTPServer(cfg *config.Config, handler http.Handler) *http.Server {
 	}
 }
 
-// serve runs the worker pool and the HTTP server until a shutdown signal or
+// serve runs the worker pool and the HTTP servers until a shutdown signal or
 // a fatal server error, then stops them in the documented order: HTTP
 // drains first, workers are cancelled afterwards.
-func serve(cfg *config.Config, logger *slog.Logger, httpServer *http.Server, pool *worker.Pool) error {
+func serve(cfg *config.Config, logger *slog.Logger, servers []*http.Server, pool *worker.Pool) error {
 	rootCtx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 	// workerCtx is deliberately not derived from rootCtx: on shutdown the
@@ -169,8 +216,12 @@ func serve(cfg *config.Config, logger *slog.Logger, httpServer *http.Server, poo
 		defer close(poolDone)
 		pool.Run(workerCtx)
 	}()
-	serverErr := listenAndServe(httpServer)
+	serverErr := make(chan error, len(servers))
+	for _, srv := range servers {
+		listenAndServe(srv, serverErr)
+	}
 	logger.Info("tentacron started", "version", version, "addr", cfg.Server.Addr,
+		"metrics_addr", cfg.Server.MetricsAddr, "log_level", cfg.Server.LogLevel,
 		"targets", len(cfg.Targets), "resolvents", len(cfg.Resolvents))
 
 	select {
@@ -181,33 +232,33 @@ func serve(cfg *config.Config, logger *slog.Logger, httpServer *http.Server, poo
 		<-poolDone
 		return err
 	}
-	drainHTTP(cfg, logger, httpServer)
+	drainHTTP(cfg, logger, servers)
 	cancelWorkers()
 	<-poolDone
 	logger.Info("tentacron stopped")
 	return nil
 }
 
-// listenAndServe starts the HTTP server and reports a fatal listen error on
-// the returned channel; a clean Shutdown is not an error.
-func listenAndServe(srv *http.Server) <-chan error {
-	errc := make(chan error, 1)
+// listenAndServe starts one HTTP server and reports a fatal listen error on
+// errc; a clean Shutdown is not an error.
+func listenAndServe(srv *http.Server, errc chan<- error) {
 	go func() {
 		if err := srv.ListenAndServe(); !errors.Is(err, http.ErrServerClosed) {
-			errc <- err
+			errc <- fmt.Errorf("listen %s: %w", srv.Addr, err)
 		}
 	}()
-	return errc
 }
 
 // drainHTTP stops accepting requests and waits out in-flight ones within the
 // grace window. Workers are cancelled by the caller afterwards: in-flight
 // jobs abort their upstream calls and park themselves back to "received"
 // for a clean retry after restart.
-func drainHTTP(cfg *config.Config, logger *slog.Logger, srv *http.Server) {
+func drainHTTP(cfg *config.Config, logger *slog.Logger, servers []*http.Server) {
 	ctx, cancel := context.WithTimeout(context.Background(), cfg.Server.ShutdownGrace.Std())
 	defer cancel()
-	if err := srv.Shutdown(ctx); err != nil {
-		logger.Warn("http shutdown incomplete", "error", err)
+	for _, srv := range servers {
+		if err := srv.Shutdown(ctx); err != nil {
+			logger.Warn("http shutdown incomplete", "addr", srv.Addr, "error", err)
+		}
 	}
 }

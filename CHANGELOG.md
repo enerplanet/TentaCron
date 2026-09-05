@@ -10,6 +10,12 @@ under "Changed" with the keys or fields concerned.
 
 ### Added
 
+- Prometheus metrics on a dedicated listener (`server.metrics_addr`, off by
+  default): job outcomes and failure codes per target, queue depth per
+  state, upstream call counts and latency by kind, name and status class,
+  and series-cache hits and misses. `server.log_level` selects the minimum
+  log level. `GET /version` reports the build (version, Go version, VCS
+  revision and time) and `/healthz` now carries the version.
 - `tentacron validate -config FILE` loads a configuration exactly as `serve`
   would — `${ENV}` interpolation, defaults, every validation rule — and
   prints a summary of targets and resolvents (never credentials) or every

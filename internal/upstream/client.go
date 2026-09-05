@@ -14,6 +14,8 @@ import (
 	"strings"
 	"time"
 	"unicode/utf8"
+
+	"github.com/enerplanet/tentacron/internal/metrics"
 )
 
 // Error is a classified upstream failure.
@@ -58,6 +60,20 @@ type Client struct {
 	http    *http.Client
 	maxBody int64
 	secrets []string
+	metrics *metrics.Metrics // nil-safe: a nil receiver records nothing
+}
+
+// WithMetrics records latency and status class of every outbound call.
+func (c *Client) WithMetrics(m *metrics.Metrics) *Client {
+	c.metrics = m
+	return c
+}
+
+// observe reports one finished call. op is "<kind> <name>" ("resource
+// resolvent-pv1", "target meme", "poll meme", "result meme").
+func (c *Client) observe(op string, status int, err error, d time.Duration) {
+	kind, name, _ := strings.Cut(op, " ")
+	c.metrics.ObserveUpstream(kind, name, status, err, d)
 }
 
 // New builds a Client. maxBody caps every upstream response body; secrets
@@ -109,9 +125,16 @@ func (c *Client) send(ctx context.Context, op, method, url string, body []byte, 
 	return resp, nil
 }
 
-// do performs one HTTP call and classifies the outcome. 2xx returns the
-// (size-capped) body; anything else returns an *Error.
+// do performs one HTTP call, classifies the outcome and records it. 2xx
+// returns the (size-capped) body; anything else returns an *Error.
 func (c *Client) do(ctx context.Context, op, method, url string, body []byte, headers map[string]string, timeout time.Duration) (int, []byte, error) {
+	start := time.Now()
+	status, respBody, err := c.call(ctx, op, method, url, body, headers, timeout)
+	c.observe(op, status, err, time.Since(start))
+	return status, respBody, err
+}
+
+func (c *Client) call(ctx context.Context, op, method, url string, body []byte, headers map[string]string, timeout time.Duration) (int, []byte, error) {
 	callCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 

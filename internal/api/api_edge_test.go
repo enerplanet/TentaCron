@@ -522,3 +522,23 @@ func TestAcceptUsesTargetMaxAttempts(t *testing.T) {
 		}
 	}
 }
+
+func TestVersionAndHealthzReportTheBuild(t *testing.T) {
+	e := newEnv(t)
+	e.server.Build = BuildInfo{Version: "v1.2.3", Go: "go1.26.8", Revision: "abc123"}
+	rec := e.do(t, "GET", "/version", "", nil)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("/version: %d %s", rec.Code, rec.Body.String())
+	}
+	doc := decodeBody[map[string]string](t, rec)
+	if doc["version"] != "v1.2.3" || doc["go"] != "go1.26.8" || doc["revision"] != "abc123" {
+		t.Errorf("/version = %v", doc)
+	}
+	if _, present := doc["built"]; present {
+		t.Errorf("empty build fields must be omitted: %v", doc)
+	}
+	health := decodeBody[map[string]string](t, e.do(t, "GET", "/healthz", "", nil))
+	if health["status"] != "ok" || health["version"] != "v1.2.3" {
+		t.Errorf("/healthz = %v", health)
+	}
+}

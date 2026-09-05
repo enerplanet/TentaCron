@@ -12,6 +12,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/enerplanet/tentacron/internal/config"
 )
@@ -214,6 +215,8 @@ func (c *Client) PollTarget(ctx context.Context, name string, tcfg config.Target
 func (c *Client) FetchResult(ctx context.Context, name string, tcfg config.Target, targetJobID string) (contentType string, body []byte, err error) {
 	poll := tcfg.Response.Poll
 	resultURL := strings.ReplaceAll(poll.ResultURLTemplate, "{id}", url.PathEscape(targetJobID))
+	start, status := time.Now(), 0
+	defer func() { c.observe("result "+name, status, err, time.Since(start)) }()
 
 	callCtx, cancel := context.WithTimeout(ctx, tcfg.Timeout.Std())
 	defer cancel()
@@ -222,6 +225,7 @@ func (c *Client) FetchResult(ctx context.Context, name string, tcfg config.Targe
 		return "", nil, err
 	}
 	defer resp.Body.Close()
+	status = resp.StatusCode
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		transient := resp.StatusCode == http.StatusTooManyRequests || resp.StatusCode >= 500
 		return "", nil, &Error{Op: "result " + name, Status: resp.StatusCode, Transient: transient}

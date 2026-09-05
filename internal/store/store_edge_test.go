@@ -733,3 +733,29 @@ func TestClaimNextNeverOrphansAClaimedJob(t *testing.T) {
 		t.Fatalf("%d claims committed but were not handed to the caller (%d returned)", orphaned, returned)
 	}
 }
+
+func TestCountByState(t *testing.T) {
+	s := openTest(t)
+	ctx := context.Background()
+	if counts, err := s.CountByState(ctx); err != nil || len(counts) != 0 {
+		t.Fatalf("empty store: %v (err %v)", counts, err)
+	}
+	a, b, c := newJob(t, "meme"), newJob(t, "meme"), newJob(t, "meme")
+	for _, j := range []*Job{a, b, c} {
+		mustCreate(t, s, j)
+	}
+	if err := s.MarkFailed(ctx, c.ID, "target_error", "x"); err != nil {
+		t.Fatal(err)
+	}
+	if claimed, _ := s.ClaimNext(ctx, noPoll); claimed == nil || claimed.ID != a.ID {
+		t.Fatalf("claim = %v", claimed)
+	}
+	counts, err := s.CountByState(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := map[string]int{StateReceived: 1, StateResolving: 1, StateFailed: 1}
+	if !reflect.DeepEqual(counts, want) {
+		t.Errorf("counts = %v, want %v", counts, want)
+	}
+}

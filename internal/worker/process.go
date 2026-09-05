@@ -323,8 +323,10 @@ func (p *Pool) fetchOne(ctx, bg context.Context, f *resolver.Found) (body []byte
 	// fall through and fetch fresh rather than fail the job over a cache
 	// problem.
 	if body, hit, err := p.store.GetSeries(ctx, f.Hash); err == nil && hit {
+		p.metrics.CacheLookup(true)
 		return body, true, nil
 	}
+	p.metrics.CacheLookup(false)
 	rcfg := p.cfg.Resolvents[f.Type]
 	body, err = p.callResolventBackend(ctx, f, rcfg)
 	if err != nil {
@@ -529,8 +531,10 @@ func (p *Pool) markCompleted(bg context.Context, job *store.Job, status int, bod
 	case err != nil:
 		p.logger.Error("mark completed failed", "job_id", job.ID, "error", err)
 	case path != "":
+		p.metrics.JobFinished(job.Target, "completed", "")
 		p.logger.Info("job completed with file result", "job_id", job.ID, "target", job.Target, "result_path", path)
 	default:
+		p.metrics.JobFinished(job.Target, "completed", "")
 		p.logger.Info("job completed", "job_id", job.ID, "target", job.Target)
 	}
 }
@@ -624,5 +628,6 @@ func (p *Pool) failJob(bg context.Context, job *store.Job, code, message string)
 		p.logger.Error("mark failed failed", "job_id", job.ID, "error", err)
 		return
 	}
+	p.metrics.JobFinished(job.Target, "failed", code)
 	p.logger.Warn("job failed", "job_id", job.ID, "target", job.Target, "code", code, "message", message)
 }

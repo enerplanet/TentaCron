@@ -8,6 +8,7 @@ standard library and the following direct third-party modules (see
 |---|---|---|
 | [modernc.org/sqlite](https://gitlab.com/cznic/sqlite) | pure-Go SQLite driver behind the job store, audit trail and series cache | BSD-3-Clause (SQLite itself is public domain) |
 | [gopkg.in/yaml.v3](https://github.com/go-yaml/yaml) | configuration parsing | MIT and Apache-2.0 |
+| [github.com/prometheus/client_golang](https://github.com/prometheus/client_golang) | Prometheus metrics registry and exposition (`/metrics`) | Apache-2.0 |
 
 The documentation site uses [MkDocs](https://www.mkdocs.org/) with the
 [Material for MkDocs](https://squidfunk.github.io/mkdocs-material/) theme

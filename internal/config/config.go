@@ -3,6 +3,7 @@ package config
 
 import (
 	"fmt"
+	"log/slog"
 	"os"
 	"slices"
 	"sort"
@@ -50,6 +51,27 @@ type Server struct {
 	WriteTimeout  Duration `yaml:"write_timeout"`
 	ShutdownGrace Duration `yaml:"shutdown_grace"`
 	MaxBodyBytes  int64    `yaml:"max_body_bytes"`
+	// MetricsAddr, when set, serves Prometheus metrics on a second listener
+	// that answers /metrics only, so they never share the public listener.
+	MetricsAddr string `yaml:"metrics_addr"`
+	// LogLevel is the minimum level written to the structured log: debug,
+	// info (default), warn or error.
+	LogLevel string `yaml:"log_level"`
+}
+
+// SlogLevel maps the configured log level onto slog; an unknown value (which
+// validation rejects) falls back to info.
+func (s Server) SlogLevel() slog.Level {
+	switch s.LogLevel {
+	case "debug":
+		return slog.LevelDebug
+	case "warn":
+		return slog.LevelWarn
+	case "error":
+		return slog.LevelError
+	default:
+		return slog.LevelInfo
+	}
 }
 
 // APIKey is one named client credential.
@@ -291,6 +313,9 @@ func (s *Server) applyDefaults() {
 	setDur(&s.ShutdownGrace, 20*time.Second)
 	if s.MaxBodyBytes == 0 {
 		s.MaxBodyBytes = 10 << 20
+	}
+	if s.LogLevel == "" {
+		s.LogLevel = "info"
 	}
 }
 

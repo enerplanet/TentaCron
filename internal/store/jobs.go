@@ -276,6 +276,26 @@ func (s *Store) ListJobs(ctx context.Context, state string, limit int) ([]*Job, 
 	return jobs, rows.Err()
 }
 
+// CountByState returns how many jobs sit in each state; states without jobs
+// are absent. It backs the queue-depth gauge scraped by Prometheus.
+func (s *Store) CountByState(ctx context.Context) (map[string]int, error) {
+	rows, err := s.db.QueryContext(ctx, `SELECT state, count(*) FROM jobs GROUP BY state`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	counts := map[string]int{}
+	for rows.Next() {
+		var state string
+		var n int
+		if err := rows.Scan(&state, &n); err != nil {
+			return nil, err
+		}
+		counts[state] = n
+	}
+	return counts, rows.Err()
+}
+
 // ClaimNext atomically claims the next eligible job. Jobs in "received" move
 // to "resolving"; attempts is incremented at claim time, not on failure, so
 // an attempt cut short by a crash or restart is still counted after recovery.

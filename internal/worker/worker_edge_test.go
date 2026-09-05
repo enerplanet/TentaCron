@@ -20,6 +20,7 @@ import (
 	"time"
 
 	"github.com/enerplanet/tentacron/internal/config"
+	"github.com/enerplanet/tentacron/internal/metrics"
 	"github.com/enerplanet/tentacron/internal/store"
 	"github.com/enerplanet/tentacron/internal/upstream"
 )
@@ -1016,5 +1017,54 @@ func TestSweepPrunesBacklogInBatches(t *testing.T) {
 	}
 	if !strings.Contains(logs.String(), "jobs=7") || !strings.Contains(logs.String(), "result_files=7") {
 		t.Errorf("sweep summary must report totals across batches:\n%s", logs.String())
+	}
+}
+
+// The pool and the outbound client record what a dashboard needs: outcomes
+// per target, failure codes, cache hits and misses, upstream calls by kind
+// and status class, and the live queue depth.
+func TestMetricsRecordOutcomesCacheAndUpstreamCalls(t *testing.T) {
+	cfg := baseConfig(t)
+	resource, _ := fakeResource(t, 0)
+	target, _ := fakeDirectTarget(t, 200, `{"ok":true}`)
+	cfg.Resolvents["resolvent-pv1"] = resolventCfg(resource.URL)
+	cfg.Targets["demo"] = directTargetCfg(target.URL)
+	st := openStore(t)
+	m := metrics.New(st)
+	client := upstream.New(cfg.Server.MaxBodyBytes, nil).WithMetrics(m)
+	pool := New(cfg, st, client, discardLogger(), make(chan struct{}, 1)).WithMetrics(m)
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		pool.Run(ctx)
+	}()
+	t.Cleanup(func() {
+		cancel()
+		<-done
+	})
+	payload := `{"time-series":[{"type":"resolvent-pv1","lat":1}]}`
+	waitForTerminal(t, st, createJob(t, st, "demo", payload, 3))
+	waitForTerminal(t, st, createJob(t, st, "demo", payload, 3)) // served from cache
+	waitForTerminal(t, st, createJob(t, st, "demo", `{"time-series":[{"type":"resolvent-tidal"}]}`, 3))
+
+	rec := httptest.NewRecorder()
+	m.Handler().ServeHTTP(rec, httptest.NewRequest("GET", "/metrics", nil))
+	out := rec.Body.String()
+	for _, want := range []string{
+		`tentacron_jobs_total{outcome="completed",target="demo"} 2`,
+		`tentacron_jobs_total{outcome="failed",target="demo"} 1`,
+		`tentacron_job_failures_total{code="unknown_resolvent",target="demo"} 1`,
+		`tentacron_series_cache_lookups_total{result="hit"} 1`,
+		`tentacron_series_cache_lookups_total{result="miss"} 1`,
+		`tentacron_upstream_requests_total{class="2xx",kind="resource",name="resolvent-pv1"} 1`,
+		`tentacron_upstream_requests_total{class="2xx",kind="target",name="demo"} 2`,
+		`tentacron_upstream_request_duration_seconds_count{kind="target",name="demo"} 2`,
+		`tentacron_jobs_in_state{state="completed"} 2`,
+		`tentacron_jobs_in_state{state="failed"} 1`,
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("scrape lacks %q", want)
+		}
 	}
 }

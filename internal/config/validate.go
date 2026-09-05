@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"maps"
+	"net"
 	"net/url"
 	"slices"
 	"strings"
@@ -62,6 +63,16 @@ func (v *validator) server(s Server) {
 	v.positiveDur("server.write_timeout", s.WriteTimeout)
 	v.positiveDur("server.shutdown_grace", s.ShutdownGrace)
 	v.positiveInt("server.max_body_bytes", s.MaxBodyBytes)
+	switch s.LogLevel {
+	case "debug", "info", "warn", "error":
+	default:
+		v.fail("server.log_level: must be one of debug, info, warn, error (got %q)", s.LogLevel)
+	}
+	if s.MetricsAddr != "" {
+		if _, _, err := net.SplitHostPort(s.MetricsAddr); err != nil {
+			v.fail("server.metrics_addr: %q is not a host:port listen address", s.MetricsAddr)
+		}
+	}
 }
 
 func (v *validator) storage(s Storage) {

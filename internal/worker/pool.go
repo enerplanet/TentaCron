@@ -10,22 +10,30 @@ import (
 	"time"
 
 	"github.com/enerplanet/tentacron/internal/config"
+	"github.com/enerplanet/tentacron/internal/metrics"
 	"github.com/enerplanet/tentacron/internal/store"
 	"github.com/enerplanet/tentacron/internal/upstream"
 )
 
 // Pool runs the worker goroutines and the housekeeping sweeper.
 type Pool struct {
-	cfg    *config.Config
-	store  *store.Store
-	client *upstream.Client
-	logger *slog.Logger
-	nudge  <-chan struct{}
+	cfg     *config.Config
+	store   *store.Store
+	client  *upstream.Client
+	logger  *slog.Logger
+	nudge   <-chan struct{}
+	metrics *metrics.Metrics // nil-safe: a nil receiver records nothing
 }
 
 // New builds a Pool. nudge wakes an idle worker when the API accepts a job.
 func New(cfg *config.Config, st *store.Store, client *upstream.Client, logger *slog.Logger, nudge <-chan struct{}) *Pool {
 	return &Pool{cfg: cfg, store: st, client: client, logger: logger, nudge: nudge}
+}
+
+// WithMetrics records job outcomes and series-cache lookups.
+func (p *Pool) WithMetrics(m *metrics.Metrics) *Pool {
+	p.metrics = m
+	return p
 }
 
 // Run recovers interrupted jobs, then processes work until ctx is cancelled

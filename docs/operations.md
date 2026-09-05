@@ -74,7 +74,9 @@ invalid, 2 usage error. CI runs it against both reference configs.
 
 ## Logs
 
-Structured JSON on stdout (`log/slog`). One line per HTTP request
+Structured JSON on stdout (`log/slog`), at `server.log_level` and above
+(`info` by default; `debug` adds the per-tick poll status and dropped
+duplicate outcomes). One line per HTTP request
 (`request_id` echoed from/into `X-Request-ID`, `method`, `path`, `status`,
 `duration_ms`) and one per job transition (`job_id`, `target`, `attempt`,
 `client` — the name of the API key used — `error`). Substitution warnings
@@ -83,6 +85,37 @@ not fail the job. API keys are never logged; upstream error bodies have every
 configured downstream credential redacted and are then truncated to 512
 bytes — a resource or target API echoing the request back in an error cannot
 leak a key into logs, the audit store, or API responses.
+
+## Metrics
+
+Set `server.metrics_addr` (for example `127.0.0.1:9090`) and tentacron
+serves Prometheus metrics on `/metrics` on that second listener and nothing
+else there — the public API listener never exposes them. `GET /version` on
+the API listener reports the build (version, Go version, VCS revision and
+time) without authentication, and `/healthz` carries the version too.
+
+| Metric | Labels | Meaning |
+|---|---|---|
+| `tentacron_jobs_total` | `target`, `outcome` | Jobs that reached `completed` or `failed`. |
+| `tentacron_job_failures_total` | `target`, `code` | Failed jobs by job error code (`target_timeout`, `max_attempts_exceeded`, …). |
+| `tentacron_jobs_in_state` | `state` | Queue depth per state, read from the store at scrape time. |
+| `tentacron_upstream_requests_total` | `kind`, `name`, `class` | Outbound calls by kind (`resource`, `target`, `poll`, `result`), target or resolvent name, and status class (`2xx`…`5xx`, `error` for transport failures). |
+| `tentacron_upstream_request_duration_seconds` | `kind`, `name` | Outbound call latency histogram. |
+| `tentacron_series_cache_lookups_total` | `result` | Series cache `hit` / `miss`. |
+| `tentacron_metrics_scrape_errors_total` | – | Scrapes on which the queue depth could not be read. |
+
+Plus the standard Go runtime and process collectors. A minimal scrape
+configuration and three alerts worth having:
+
+```yaml
+scrape_configs:
+  - job_name: tentacron
+    static_configs: [{ targets: ["tentacron.internal:9090"] }]
+```
+
+- **Failure rate:** `sum(rate(tentacron_jobs_total{outcome="failed"}[15m])) / sum(rate(tentacron_jobs_total[15m])) > 0.1`
+- **Queue not draining:** `tentacron_jobs_in_state{state="received"} > 50` for 15 minutes
+- **Targets timing out:** `increase(tentacron_job_failures_total{code="target_timeout"}[1h]) > 0`
 
 ## Inspecting state
 

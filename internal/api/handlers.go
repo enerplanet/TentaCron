@@ -307,7 +307,13 @@ func (s *Server) serveResultFile(w http.ResponseWriter, job *store.Job) {
 }
 
 func (s *Server) handleHealthz(w http.ResponseWriter, _ *http.Request) {
-	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+	writeJSON(w, http.StatusOK, map[string]string{"status": "ok", "version": s.Build.Version})
+}
+
+// handleVersion is unauthenticated: it tells an operator which build answers
+// without revealing configuration.
+func (s *Server) handleVersion(w http.ResponseWriter, _ *http.Request) {
+	writeJSON(w, http.StatusOK, s.Build)
 }
 
 func (s *Server) handleReadyz(w http.ResponseWriter, r *http.Request) {

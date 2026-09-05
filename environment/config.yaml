@@ -7,6 +7,8 @@
 
 server:
   addr: ":${PORT}"
+  metrics_addr: ":9090" # scraped inside the compose network; not published by default
+  log_level: info
 
 auth:
   api_keys:

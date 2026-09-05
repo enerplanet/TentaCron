@@ -22,6 +22,8 @@ for a complete annotated example covering every integration below.
 | `write_timeout` | `30s` | HTTP write timeout. |
 | `shutdown_grace` | `20s` | Drain window on SIGTERM/SIGINT. |
 | `max_body_bytes` | `10485760` | Caps inbound request bodies **and** upstream response bodies. |
+| `metrics_addr` | – (off) | `host:port` of a second listener that serves Prometheus metrics on `/metrics` only. Keep it off the public network; see [Operations → Metrics](operations.md#metrics). |
+| `log_level` | `info` | Minimum level written to the structured log: `debug`, `info`, `warn` or `error`. |
 
 ## auth
 

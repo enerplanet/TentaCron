@@ -129,11 +129,18 @@ positive integer). Items have the same shape as `GET /v1/requests/{id}`.
 { "items": [ { "id": "…", "state": "failed", "error": { "code": "target_timeout", "message": "…" } } ] }
 ```
 
-## Health
+## Health and build
 
-- `GET /healthz` — liveness, always `200` while the process runs.
+- `GET /healthz` — liveness, always `200` while the process runs;
+  `{ "status": "ok", "version": "v0.2.0" }`.
 - `GET /readyz` — `200` once migrations ran and the database answers,
   `503` otherwise.
+- `GET /version` — the running build: `version`, `go`, and `revision` /
+  `built` when the binary was built inside the repository. Unauthenticated,
+  reveals no configuration.
+
+Prometheus metrics are not on this listener; see
+[Operations → Metrics](operations.md#metrics).
 
 Any other route answers `404 not_found` in the standard error shape; a known
 route with an unsupported method answers `405 method_not_allowed` with an
