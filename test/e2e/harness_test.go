@@ -101,6 +101,10 @@ func (f fakes) withResourceDefaults() fakes {
 				return reply{200, `[{"object_id":"DEHB01AL3AU0004T","number_of_storeys":2,"area_total_wall":214.5,"area_total_roof":98.2,"tabula_variant_code":"DE.N.SFH.04.Gen.ReEx.001.001"}]`, ""}
 			case strings.HasPrefix(path, "/data/"):
 				return reply{200, `{"country":"DE","variant_code":"DE.N.SFH.04.Gen.ReEx.001.001","expected_q_h_nd":112.4,"tabula_data":{"u_wall":1.6,"u_roof":1.2}}`, ""}
+			case strings.HasPrefix(path, "/seriescalc"):
+				// PVGIS seriescalc, verified against the public API: the
+				// hourly rows sit under outputs.hourly with P in watts.
+				return reply{200, `{"inputs":{"location":{"latitude":48.83,"longitude":12.95,"elevation":316.0},"meteo_data":{"radiation_db":"PVGIS-SARAH3","meteo_db":"ERA5","year_min":2020,"year_max":2020},"pv_module":{"technology":"c-Si","peak_power":12.5,"system_loss":14.0}},"outputs":{"hourly":[{"time":"20200101:0010","P":0.0,"G(i)":0.0,"T2m":-1.76},{"time":"20200101:1210","P":3812.4,"G(i)":401.2,"T2m":3.1},{"time":"20200101:1310","P":4105.0,"G(i)":433.9,"T2m":3.4}]},"meta":{"outputs":{"hourly":{"type":"time series","variables":{"P":{"description":"PV system power","units":"W"}}}}}}`, ""}
 			default:
 				return reply{404, `{"error":"unknown resource path"}`, ""}
 			}
@@ -402,6 +406,18 @@ func goldenResolvents(base string) map[string]config.Resolvent {
 		"resolvent-ignis": {URL: base + "/data/{code}", Method: "GET",
 			APIKey: resourceSecret, APIKeyHeader: "X-Api-Key",
 			Timeout: dur(2 * time.Second), CacheTTL: dur(time.Hour)},
+		// The verified PVGIS contract: resolvent fields renamed onto the
+		// API's parameters (query_map), the hourly rows reshaped into a
+		// time-series object (response_map), power rescaled to kW.
+		"resolvent-pvgis": {URL: base + "/seriescalc?outputformat=json&pvcalculation=1", Method: "GET",
+			Timeout: dur(2 * time.Second), CacheTTL: dur(time.Hour),
+			QueryMap: map[string]string{"capacity_kw": "peakpower", "tilt": "angle", "azimuth": "aspect", "from_year": "startyear", "to_year": "endyear"},
+			ResponseMap: map[string]any{
+				"type": "time-series", "unit": "kW", "resolution": "PT1H",
+				"index":  ".outputs.hourly[*].time",
+				"values": map[string]any{"path": ".outputs.hourly[*].P", "scale": 0.001},
+				"source": ".inputs.meteo_data.radiation_db",
+			}},
 		// Target composition: resolved by forwarding the resolvent's
 		// "payload" field through the buem-building target and
 		// extracting the load-profile timeseries from the response.

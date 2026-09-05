@@ -10,6 +10,14 @@ under "Changed" with the keys or fields concerned.
 
 ### Added
 
+- Response adapters: a resolvent's `response_map` builds the series object
+  from a backend that does not speak the series contract (`".path"`
+  selections with a `[*]` projection, `{path, scale}` rescaling, literals),
+  and `query_map` renames resolvent fields onto a GET API's parameter
+  names. Both are validated at startup and fuzzed. The reference configs
+  wire PVGIS `seriescalc` as `resolvent-pvgis` — hourly PV production from
+  the public API, verified against it — with an example request executed by
+  the golden suite.
 - `POST /v1/requests/validate` dry-runs a submission: the resolvents the
   payload contains (JSON pointers, names, cache state) and the problems that
   would fail the job, without persisting anything or calling any upstream.
@@ -82,6 +90,8 @@ under "Changed" with the keys or fields concerned.
 
 ### Changed
 
+- GET resolvents no longer send the object's `name` field as a query
+  parameter (it is tentacron's label, like `type`).
 - `server.max_body_bytes` caps inbound request bodies only. The JSON
   responses of resource, target and status-poll calls are capped by the new
   `upstream.max_response_bytes` (same 10 MiB default); a deployment that had

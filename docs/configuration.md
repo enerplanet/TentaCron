@@ -242,6 +242,8 @@ One entry per resolvent type. Keys must start with `resolvent-`.
 | `target` | – | A configured **direct-mode** target as backend instead of `url`. |
 | `payload_field` | – (whole object) | Resolvent field whose value is sent as the call's payload. |
 | `response_path` | – (whole response) | Dot path extracting the series from the response; numeric segments index arrays. |
+| `query_map` | – | GET only: renames resolvent fields to the API's parameter names (`capacity_kw: peakpower`); unmapped fields keep their name. |
+| `response_map` | – | Builds the series object from a response that is not one: keys become series keys, `".path"` values select from the response (`[*]` projects over an array), `{path, scale}` rescales, anything else is a literal. Applied after `response_path`. |
 
 `method`, `api_key_header` and `timeout` are only defaulted for URL-backed
 resolvents; a target-backed resolvent inherits transport settings from its
@@ -302,13 +304,56 @@ a body — the contract of the verified
 - **every remaining field becomes a query parameter**, appended to any query
   fixed in the URL (e.g. `?format=json`); parameters are emitted in sorted
   order, so outbound URLs are deterministic. Keep GET resolvent objects to
-  the API's parameters — a `name` or comment field would be sent too;
+  the API's parameters — a comment field would be sent too (`type` and
+  `name` are tentacron's own and never sent; see `query_map` to rename);
 - arrays of scalars join comma-separated (`variables=T,GHI`,
   `osm_ids=123,456` — the convention of those APIs); the `type` field is
   tentacron's marker and never sent; nested objects are an authoring error
   (nest complex data under a POST resolvent instead);
 - `response_path` accepts numeric segments to index array responses —
   city2tabula's building list resolves one building via `response_path: "0"`.
+
+### Adapting third-party APIs (`query_map`, `response_map`)
+
+Most public APIs speak neither tentacron's field names nor its series
+shape. Two declarative adapters wire them without a shim service — the
+verified [PVGIS](https://re.jrc.ec.europa.eu/pvg_tools/en/) integration:
+
+```yaml
+  resolvent-pvgis:
+    url: "https://re.jrc.ec.europa.eu/api/v5_3/seriescalc?outputformat=json&pvcalculation=1&pvtechchoice=crystSi"
+    method: GET
+    query_map: { capacity_kw: peakpower, tilt: angle, azimuth: aspect, from_year: startyear, to_year: endyear }
+    response_map:
+      type: time-series
+      unit: kW
+      resolution: PT1H
+      index: ".outputs.hourly[*].time"
+      values: { path: ".outputs.hourly[*].P", scale: 0.001 }
+      source: ".inputs.meteo_data.radiation_db"
+```
+
+- `query_map` renames resolvent fields onto the API's parameter names; a
+  field without an entry is sent under its own name. `type` and `name` are
+  tentacron's own fields and are never sent.
+- `response_map` describes the series object to build: every key becomes a
+  key of the substituted object. A string starting with `.` is a path into
+  the response in jq style — dot-separated, objects by key, arrays by index,
+  and at most one `[*]` that projects over every element of an array
+  (`.outputs.hourly[*].P` yields the list of `P` values); `.` alone is the
+  whole response. The object form `{path: ".…", scale: 0.001}` multiplies
+  the selected number or every number of the selected list, in exact
+  decimal arithmetic (`612.4 × 0.001` is `0.6124`); `{value: …}` copies a
+  literal (the escape for a literal string that starts with `.`). Any other
+  value — string, number, boolean, list, object — is copied as a literal.
+  (The marker is a dot rather than `$` because `${VAR}` interpolation runs
+  over the whole configuration file.)
+- Numbers reach the series verbatim unless scaled. A path that does not
+  match the response fails the job with `invalid_resource_response`, naming
+  the key. Path syntax is validated at startup.
+- The mapped object is what the series cache stores: after changing a
+  `response_map`, entries resolved earlier keep the old shape until their
+  `cache_ttl` expires (or the `series_cache` table is cleared).
 
 ### Target-backed resolvents (composition)
 

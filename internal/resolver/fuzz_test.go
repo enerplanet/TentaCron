@@ -82,3 +82,28 @@ func FuzzSubstituteBody(f *testing.F) {
 		}
 	})
 }
+
+// FuzzApplyMap feeds arbitrary responses and path expressions through the
+// response mapper: it must never panic, and whatever it produces must be a
+// valid JSON object.
+func FuzzApplyMap(f *testing.F) {
+	for _, body := range []string{
+		`{"outputs":{"hourly":[{"time":"a","P":1},{"time":"b","P":2.5}]},"inputs":{"x":null}}`,
+		`[1,[2,[3]]]`, `{"a":{"b":{"c":[1,2,3]}}}`, `null`, `{}`, `{"n":1e400,"big":12345678901234567890}`,
+	} {
+		for _, expr := range []string{".", ".outputs.hourly[*].P", ".outputs.hourly.0.time", ".a.b.c[*]", ".0.1.0", ".x[*]", "literal", ".a..b"} {
+			f.Add(body, expr)
+		}
+	}
+	f.Fuzz(func(t *testing.T, body, expr string) {
+		m := map[string]any{"v": expr, "s": map[string]any{"path": expr, "scale": 0.5}, "lit": 7}
+		out, err := ApplyMap([]byte(body), m)
+		if err != nil {
+			return
+		}
+		var obj map[string]any
+		if json.Unmarshal(out, &obj) != nil {
+			t.Fatalf("ApplyMap produced invalid JSON: %s", out)
+		}
+	})
+}

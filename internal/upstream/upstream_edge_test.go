@@ -237,7 +237,7 @@ func TestBuildResolventURLEdgeCases(t *testing.T) {
 	}
 	for _, tt := range cases {
 		t.Run(tt.name, func(t *testing.T) {
-			got, err := buildResolventURL(tt.tmpl, decodePayload(t, tt.payload))
+			got, err := buildResolventURL(tt.tmpl, decodePayload(t, tt.payload), nil)
 			if tt.wantErr != "" {
 				if err == nil || !strings.Contains(err.Error(), tt.wantErr) {
 					t.Fatalf("want error containing %q, got %v (url %q)", tt.wantErr, err, got)
@@ -254,7 +254,7 @@ func TestBuildResolventURLEdgeCases(t *testing.T) {
 	}
 	// A brace group that is not a placeholder ([A-Za-z0-9_]+) stays literal
 	// and the field of that name goes to the query like any other.
-	got, err := buildResolventURL("https://x.example.com/{co-de}", decodePayload(t, `{"type":"t","co-de":"x"}`))
+	got, err := buildResolventURL("https://x.example.com/{co-de}", decodePayload(t, `{"type":"t","co-de":"x"}`), nil)
 	if err != nil || !strings.Contains(got, "%7Bco-de%7D") || !strings.Contains(got, "co-de=x") {
 		t.Errorf("non-placeholder braces: url=%q err=%v", got, err)
 	}

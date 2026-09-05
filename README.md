@@ -63,7 +63,8 @@ by the golden E2E suite; replace the example hosts with your deployments.
 | `resolvents.resolvent-city2tabula` | GET resolvent, list response indexed via `response_path: "0"` | [city2tabula](https://github.com/THD-Spatial-AI/city2tabula) |
 | `resolvents.resolvent-ignis` | GET resolvent, `{code}` templated into the path | ignis `GET /api/v1/data/{code}` |
 | `resolvents.resolvent-buem` | target-backed resolvent (BuEM run feeding another model) | buem-gateway via `buem-building` |
-| `resolvents.resolvent-pv1`, `resolvent-wind` | POST resolvents (object as body) | illustrative — point at your profile services |
+| `resolvents.resolvent-pvgis` | GET resolvent adapted with `query_map` + `response_map` | [PVGIS](https://re.jrc.ec.europa.eu/pvg_tools/en/) `seriescalc`, hourly PV production (public, no key) |
+| `resolvents.resolvent-pv1`, `resolvent-wind` | POST resolvents (object as body) | illustrative — the shape of an in-house profile service |
 
 ## Quickstart
 

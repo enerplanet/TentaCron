@@ -95,6 +95,21 @@ var exampleScenarios = []scenario{
 		},
 	},
 	{
+		// A real third-party backend without a shim: PVGIS's seriescalc
+		// answers with its own document shape; query_map renames the
+		// resolvent's fields onto PVGIS parameters (the exact request line
+		// is frozen) and response_map reshapes the hourly rows into the
+		// time-series object the target receives, power rescaled to kW.
+		name: "example-pvgis-hourly",
+		run: func(t *testing.T, h *harness) {
+			id := h.post("submit examples/pvgis-hourly.json", exampleRequest(t, "pvgis-hourly.json"), nil)
+			h.await("final state", id)
+			h.resourceRequests("exact PVGIS request (fields renamed, name and type never sent)")
+			h.forwarded("payload the demo target received (hourly rows mapped to a series)", "demo")
+			h.counts()
+		},
+	},
+	{
 		name: "example-no-resolvents",
 		run: func(t *testing.T, h *harness) {
 			id := h.post("submit examples/no-resolvents.json", exampleRequest(t, "no-resolvents.json"), nil)

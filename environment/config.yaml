@@ -118,6 +118,26 @@ resolvents:
     timeout: 30s
     cache_ttl: 24h
 
+  resolvent-pvgis:
+    # PVGIS; see ../config.example.yaml for the annotated entry.
+    url: "https://re.jrc.ec.europa.eu/api/v5_3/seriescalc?outputformat=json&pvcalculation=1&pvtechchoice=crystSi"
+    method: GET
+    timeout: 120s
+    cache_ttl: 168h # historical years never change
+    query_map:
+      capacity_kw: peakpower
+      tilt: angle
+      azimuth: aspect
+      from_year: startyear
+      to_year: endyear
+    response_map:
+      type: time-series
+      unit: kW
+      resolution: PT1H
+      index: ".outputs.hourly[*].time" # PVGIS's own stamps, e.g. 20200101:0010
+      values: { path: ".outputs.hourly[*].P", scale: 0.001 } # W -> kW
+      source: ".inputs.meteo_data.radiation_db"
+
   resolvent-weather:
     url: "https://weather.example.com/v1/weather/point?format=json"
     method: GET

@@ -1,0 +1,27 @@
+{
+  "api_key": "your-tentacron-api-key",
+  "target": "demo",
+  "payload": {
+    "scenario": "rooftop-pv-hourly-2020",
+    "time-series": [
+      {
+        "name": "pv_south_roof",
+        "type": "resolvent-pvgis",
+        "lat": 48.83,
+        "lon": 12.95,
+        "capacity_kw": 12.5,
+        "tilt": 35,
+        "azimuth": 0,
+        "loss": 14,
+        "from_year": 2020,
+        "to_year": 2020
+      },
+      {
+        "name": "household_load",
+        "type": "time-series",
+        "unit": "kW",
+        "values": [0.42, 0.38, 0.35]
+      }
+    ]
+  }
+}

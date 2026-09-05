@@ -35,7 +35,7 @@ func FuzzBuildResolventURL(f *testing.F) {
 		if !ok {
 			return
 		}
-		got, err := buildResolventURL(tmpl, obj)
+		got, err := buildResolventURL(tmpl, obj, nil)
 		if err != nil {
 			return
 		}

@@ -313,6 +313,15 @@ func (p *Pool) fetchOne(ctx, bg context.Context, f *resolver.Found) (body []byte
 		}
 		body = extracted
 	}
+	if len(rcfg.ResponseMap) > 0 {
+		// The adapter for backends that do not speak the series contract;
+		// the mapped object is what gets cached and substituted.
+		mapped, err := resolver.ApplyMap(body, rcfg.ResponseMap)
+		if err != nil {
+			return nil, false, fmt.Errorf("resource %s response does not fit its response_map (%v): %w", f.Type, err, errBadResourceBody)
+		}
+		body = mapped
+	}
 	var probe map[string]any
 	if err := json.Unmarshal(body, &probe); err != nil {
 		return nil, false, fmt.Errorf("resource %s returned malformed JSON (%v): %w", f.Type, err, errBadResourceBody)

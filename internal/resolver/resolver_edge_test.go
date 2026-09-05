@@ -254,3 +254,84 @@ func TestFoundPathsAndNames(t *testing.T) {
 		t.Errorf("container-as-resolvent path/name = %s/%s", self[0].Path, self[0].Name)
 	}
 }
+
+// A response_map builds the series object from a third-party response:
+// ".path" values navigate objects and arrays, [*] projects over an array,
+// {path, scale} rescales, everything else is a literal — with number
+// fidelity kept wherever nothing is scaled.
+func TestApplyMapBuildsTheSeriesFromAForeignResponse(t *testing.T) {
+	body := []byte(`{"inputs":{"meteo_data":{"radiation_db":"PVGIS-SARAH3"}},
+		"outputs":{"hourly":[{"time":"20200101:0010","P":0.0},{"time":"20200101:1210","P":612.4},{"time":"20200101:1310","P":9007199254740993}]},"meta":{}}`)
+	m := map[string]any{
+		"type":       "time-series",
+		"unit":       "kW",
+		"index":      ".outputs.hourly[*].time",
+		"values":     map[string]any{"path": ".outputs.hourly[*].P", "scale": 0.001},
+		"raw_watts":  ".outputs.hourly[*].P",
+		"first":      ".outputs.hourly.0.P",
+		"source":     ".inputs.meteo_data.radiation_db",
+		"dot":        map[string]any{"value": ".not a path"},
+		"count":      3,
+		"everything": ".meta",
+	}
+	out, err := ApplyMap(body, m)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := `{"count":3,"dot":".not a path","everything":{},"first":0.0,"index":["20200101:0010","20200101:1210","20200101:1310"],"raw_watts":[0.0,612.4,9007199254740993],"source":"PVGIS-SARAH3","type":"time-series","unit":"kW","values":[0,0.6124,9007199254740.993]}`
+	if string(out) != want {
+		t.Errorf("mapped =\n%s\nwant\n%s", out, want)
+	}
+	for spec, wantErr := range map[string]string{
+		".outputs.missing[*].P":   `segment "missing": not found`,
+		".outputs.hourly[*].nope": `element 0: segment "nope": not found`,
+		".inputs[*].x":            "[*] needs an array",
+		".outputs.hourly.9.P":     "index out of range",
+		".outputs.hourly.first":   "expected a numeric index",
+	} {
+		_, err := ApplyMap(body, map[string]any{"v": spec})
+		if err == nil || !strings.Contains(err.Error(), wantErr) {
+			t.Errorf("%s: err = %v, want %q", spec, err, wantErr)
+		}
+	}
+	if _, err := ApplyMap([]byte(`not json`), m); err == nil {
+		t.Error("a non-JSON response must error")
+	}
+	if _, err := ApplyMap(body, map[string]any{"v": map[string]any{"path": ".inputs.meteo_data.radiation_db", "scale": 2}}); err == nil {
+		t.Error("scaling a string must error")
+	}
+}
+
+func TestParsePathAndValidateResponseMap(t *testing.T) {
+	for _, bad := range []string{"outputs.hourly", ".a..b", ".a[*].b[*].c", "..", ".a.[*]", ""} {
+		if _, err := ParsePath(bad); err == nil {
+			t.Errorf("ParsePath(%q) must fail", bad)
+		}
+	}
+	for _, good := range []string{".", ".a", ".a.b[*].c", ".outputs.hourly.0.P"} {
+		if _, err := ParsePath(good); err != nil {
+			t.Errorf("ParsePath(%q): %v", good, err)
+		}
+	}
+	if err := ValidateResponseMap(map[string]any{}); err == nil {
+		t.Error("empty map must fail")
+	}
+	if err := ValidateResponseMap(map[string]any{"": "x"}); err == nil {
+		t.Error("empty key must fail")
+	}
+	if err := ValidateResponseMap(map[string]any{"v": ".a..b"}); err == nil {
+		t.Error("bad path must fail")
+	}
+	if err := ValidateResponseMap(map[string]any{"v": map[string]any{"path": ".a", "scale": "x"}}); err == nil {
+		t.Error("non-numeric scale must fail")
+	}
+	if err := ValidateResponseMap(map[string]any{"v": map[string]any{"path": ".a", "unit": "W"}}); err == nil {
+		t.Error("unknown key next to path must fail")
+	}
+	if err := ValidateResponseMap(map[string]any{"v": map[string]any{"path": 5}}); err == nil {
+		t.Error("non-string path must fail")
+	}
+	if err := ValidateResponseMap(map[string]any{"type": "time-series", "v": map[string]any{"path": ".a[*]", "scale": 1}, "lit": map[string]any{"a": 1}, "esc": map[string]any{"value": ".x"}}); err != nil {
+		t.Errorf("valid map rejected: %v", err)
+	}
+}

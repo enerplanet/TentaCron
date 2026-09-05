@@ -406,7 +406,7 @@ func TestBuildResolventURL(t *testing.T) {
 	t.Run("query mapping with fixed params, arrays and numbers", func(t *testing.T) {
 		payload := decodePayload(t, `{"type":"resolvent-weather","provider":"era5-land",
 			"lat":48.831,"lon":12.957,"year":2018,"variables":["T","GHI"]}`)
-		got, err := buildResolventURL("https://w.example.com/v1/weather/point?format=json", payload)
+		got, err := buildResolventURL("https://w.example.com/v1/weather/point?format=json", payload, nil)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -417,7 +417,7 @@ func TestBuildResolventURL(t *testing.T) {
 	})
 	t.Run("path templating consumes the field", func(t *testing.T) {
 		payload := decodePayload(t, `{"type":"resolvent-ignis","code":"DE.N.SFH.01.Gen.ReEx.001.001"}`)
-		got, err := buildResolventURL("https://i.example.com/api/v1/data/{code}", payload)
+		got, err := buildResolventURL("https://i.example.com/api/v1/data/{code}", payload, nil)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -427,7 +427,7 @@ func TestBuildResolventURL(t *testing.T) {
 	})
 	t.Run("number fidelity above 2^53", func(t *testing.T) {
 		payload := decodePayload(t, `{"type":"resolvent-x","meter":1234567890123456789,"active":true}`)
-		got, err := buildResolventURL("https://x.example.com/q", payload)
+		got, err := buildResolventURL("https://x.example.com/q", payload, nil)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -437,13 +437,13 @@ func TestBuildResolventURL(t *testing.T) {
 	})
 	t.Run("missing placeholder field errors", func(t *testing.T) {
 		payload := decodePayload(t, `{"type":"resolvent-ignis","country":"DE"}`)
-		if _, err := buildResolventURL("https://i.example.com/api/v1/data/{code}", payload); err == nil {
+		if _, err := buildResolventURL("https://i.example.com/api/v1/data/{code}", payload, nil); err == nil {
 			t.Error("want error for unresolved placeholder")
 		}
 	})
 	t.Run("nested object errors with guidance", func(t *testing.T) {
 		payload := decodePayload(t, `{"type":"resolvent-x","location":{"lat":1}}`)
-		_, err := buildResolventURL("https://x.example.com/q", payload)
+		_, err := buildResolventURL("https://x.example.com/q", payload, nil)
 		if err == nil || !strings.Contains(err.Error(), "POST resolvent") {
 			t.Errorf("err = %v, want flat-fields guidance", err)
 		}

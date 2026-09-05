@@ -288,6 +288,33 @@ func (v *validator) resolvents(resolvents map[string]Resolvent, targets map[stri
 			}
 			v.positiveDur(p+".timeout", r.Timeout)
 		}
+		v.adapters(p, r)
+	}
+}
+
+// adapters checks the query_map and response_map of a resolvent.
+func (v *validator) adapters(p string, r Resolvent) {
+	if r.QueryMap != nil {
+		if r.Method != "GET" {
+			v.fail("%s.query_map: only GET resolvents map fields onto query parameters", p)
+		}
+		seen := map[string]string{}
+		for _, field := range slices.Sorted(maps.Keys(r.QueryMap)) {
+			param := r.QueryMap[field]
+			if field == "" || param == "" {
+				v.fail("%s.query_map: field and parameter names must not be empty", p)
+				continue
+			}
+			if other, dup := seen[param]; dup {
+				v.fail("%s.query_map: fields %q and %q both map to parameter %q", p, other, field, param)
+			}
+			seen[param] = field
+		}
+	}
+	if r.ResponseMap != nil {
+		if err := resolver.ValidateResponseMap(r.ResponseMap); err != nil {
+			v.fail("%s.%v", p, err)
+		}
 	}
 }
 

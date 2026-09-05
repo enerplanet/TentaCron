@@ -1,0 +1,102 @@
+[
+  {
+    "request": "POST /v1/requests",
+    "response": {
+      "id": "«job-1»",
+      "links": {
+        "self": "/v1/requests/«job-1»"
+      },
+      "state": "received"
+    },
+    "status": 202,
+    "step": "submit examples/pvgis-hourly.json"
+  },
+  {
+    "request": "GET /v1/requests/{id}",
+    "response": {
+      "attempts": 1,
+      "completed_at": "«ts»",
+      "created_at": "«ts»",
+      "error": null,
+      "id": "«job-1»",
+      "result": {
+        "target_response": {
+          "ok": true
+        },
+        "target_status": 200
+      },
+      "state": "completed",
+      "target": "demo",
+      "updated_at": "«ts»"
+    },
+    "status": 200,
+    "step": "final state"
+  },
+  {
+    "resource_get_requests": [
+      "GET /seriescalc?angle=35\u0026aspect=0\u0026endyear=2020\u0026lat=48.83\u0026lon=12.95\u0026loss=14\u0026outputformat=json\u0026peakpower=12.5\u0026pvcalculation=1\u0026startyear=2020"
+    ],
+    "step": "exact PVGIS request (fields renamed, name and type never sent)"
+  },
+  {
+    "endpoint": "demo",
+    "step": "payload the demo target received (hourly rows mapped to a series)",
+    "target_auth_header": "demo-golden-secret",
+    "target_path": "/run",
+    "target_received": {
+      "scenario": "rooftop-pv-hourly-2020",
+      "time-series": [
+        {
+          "index": [
+            "20200101:0010",
+            "20200101:1210",
+            "20200101:1310"
+          ],
+          "resolution": "PT1H",
+          "resolvent": {
+            "azimuth": 0,
+            "capacity_kw": 12.5,
+            "from_year": 2020,
+            "lat": 48.83,
+            "lon": 12.95,
+            "loss": 14,
+            "name": "pv_south_roof",
+            "tilt": 35,
+            "to_year": 2020,
+            "type": "resolvent-pvgis"
+          },
+          "source": "PVGIS-SARAH3",
+          "type": "time-series",
+          "unit": "kW",
+          "values": [
+            0,
+            3.8124,
+            4.105
+          ]
+        },
+        {
+          "name": "household_load",
+          "type": "time-series",
+          "unit": "kW",
+          "values": [
+            0.42,
+            0.38,
+            0.35
+          ]
+        }
+      ]
+    }
+  },
+  {
+    "buem_building_calls": 0,
+    "buem_calls": 0,
+    "demo_calls": 1,
+    "ignis_calculate_calls": 0,
+    "meme_accept_calls": 0,
+    "meme_result_calls": "not asserted (timing-dependent)",
+    "meme_status_calls": "not asserted (timing-dependent)",
+    "resource_calls": 1,
+    "step": "upstream call counts",
+    "unexpected_upstream_requests": []
+  }
+]

@@ -318,6 +318,17 @@ type Resolvent struct {
 	// "buem.thermal_load_profile.timeseries". Empty substitutes the whole
 	// response.
 	ResponsePath string `yaml:"response_path"`
+	// QueryMap renames resolvent fields to the parameter names a GET
+	// backend expects ({capacity_kw: peakpower}); unmapped fields keep
+	// their name. GET resolvents only.
+	QueryMap map[string]string `yaml:"query_map"`
+	// ResponseMap builds the substituted series object from a backend
+	// whose response is not a time-series object: each key becomes a key
+	// of the series, "$path" values select from the response (with an
+	// optional [*] projection over an array), {path, scale} rescales and
+	// anything else is a literal. Applied after ResponsePath. See
+	// resolver.ApplyMap.
+	ResponseMap map[string]any `yaml:"response_map"`
 }
 
 // Load reads the YAML file at path, interpolates ${ENV} references, applies

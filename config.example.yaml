@@ -140,8 +140,8 @@ targets:
 resolvents:
   # resolvent-pv1 and resolvent-wind are ILLUSTRATIVE entries showing the
   # classic POST contract (whole resolvent object as JSON body, JSON series
-  # back); no real PV/wind profile service is wired yet — point them at
-  # yours. The entries below them are verified integrations.
+  # back) — the shape of an in-house profile service. For real PV production
+  # use resolvent-pvgis below; the other entries are verified integrations.
   resolvent-pv1:
     url: "https://pvsim.example.com/v1/generate"
     method: POST
@@ -157,6 +157,31 @@ resolvents:
     api_key_header: X-API-Key
     timeout: 30s
     cache_ttl: 24h
+
+  resolvent-pvgis:
+    # PVGIS (JRC) hourly PV production — the real PV backend, verified against
+    # the public API: no key, ~800 KB per year. The resolvent's fields are
+    # renamed onto PVGIS parameters (query_map) and the hourly rows are
+    # reshaped into a time-series object (response_map), power in kW. Fields
+    # not in query_map (lat, lon, loss) pass through under their own name.
+    # PVGIS aspect: 0 = south, -90 = east, 90 = west.
+    url: "https://re.jrc.ec.europa.eu/api/v5_3/seriescalc?outputformat=json&pvcalculation=1&pvtechchoice=crystSi"
+    method: GET
+    timeout: 120s
+    cache_ttl: 168h # historical years never change
+    query_map:
+      capacity_kw: peakpower
+      tilt: angle
+      azimuth: aspect
+      from_year: startyear
+      to_year: endyear
+    response_map:
+      type: time-series
+      unit: kW
+      resolution: PT1H
+      index: ".outputs.hourly[*].time" # PVGIS's own stamps, e.g. 20200101:0010
+      values: { path: ".outputs.hourly[*].P", scale: 0.001 } # W -> kW
+      source: ".inputs.meteo_data.radiation_db"
 
   resolvent-weather:
     # enerplanet/weather's point-query API. A GET resolvent: the object's

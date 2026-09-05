@@ -71,6 +71,11 @@
         {
           "backend": "get",
           "cache_ttl": "1h0m0s",
+          "type": "resolvent-pvgis"
+        },
+        {
+          "backend": "get",
+          "cache_ttl": "1h0m0s",
           "type": "resolvent-weather"
         },
         {
