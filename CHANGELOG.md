@@ -10,6 +10,14 @@ under "Changed" with the keys or fields concerned.
 
 ### Added
 
+- `tentacron validate -config FILE` loads a configuration exactly as `serve`
+  would — `${ENV}` interpolation, defaults, every validation rule — and
+  prints a summary of targets and resolvents (never credentials) or every
+  problem at once; exit code 1 on an invalid config, 2 on usage errors.
+  `tentacron version` prints build information. `serve` is the default
+  command, so the existing `tentacron -config FILE` keeps working.
+  `make validate`, a compose `validate` service and a CI step against both
+  reference configs use it.
 - Per-target `job_timeout`, `max_attempts` and `retry_on_timeout`. A target
   can bound its own processing attempts and cap its retries; with
   `retry_on_timeout: false` a forward cut off by a deadline fails the job

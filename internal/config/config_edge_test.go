@@ -630,3 +630,30 @@ targets:
 		}
 	}
 }
+
+// Describe is the operator summary behind `tentacron validate`: every target
+// and resolvent with its routing knobs, sorted, and never a credential.
+func TestDescribeListsEverythingWithoutSecrets(t *testing.T) {
+	for _, v := range []string{"TENTACRON_KEY_FRONTEND", "TENTACRON_KEY_BATCH", "MEME_API_KEY", "BUEM_API_KEY",
+		"PV1_API_KEY", "WIND_API_KEY", "WEATHER_API_KEY", "IGNIS_API_KEY"} {
+		t.Setenv(v, "secret-"+v)
+	}
+	cfg, err := Load("../../config.example.yaml")
+	if err != nil {
+		t.Fatal(err)
+	}
+	out := Describe(cfg)
+	for _, want := range []string{"5 target(s)", "6 resolvent type(s)", "  buem ", "poll", "proxy",
+		"not retried on timeout", "via target buem-building", "response path buem.thermal_load_profile.timeseries",
+		"resolvents in model.timeseries", "key via body_field"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("summary lacks %q:\n%s", want, out)
+		}
+	}
+	if strings.Contains(out, "secret-") {
+		t.Errorf("summary leaks a credential:\n%s", out)
+	}
+	if idx := strings.Index(out, "  buem "); idx < 0 || idx > strings.Index(out, "  demo ") {
+		t.Errorf("targets must be sorted by name:\n%s", out)
+	}
+}

@@ -76,7 +76,8 @@ export TENTACRON_KEY_FRONTEND=dev-key TENTACRON_KEY_BATCH=dev-key2 \
        MEME_API_KEY=… BUEM_API_KEY=… PV1_API_KEY=… WIND_API_KEY=… \
        WEATHER_API_KEY=… IGNIS_API_KEY=…
 
-# 3. Run
+# 3. Check the configuration, then run
+./bin/tentacron validate -config config.yaml   # prints every target and resolvent, or every problem
 ./bin/tentacron -config config.yaml
 ```
 
@@ -151,6 +152,7 @@ make stress         # race detector, shuffled, repeated (STRESS_COUNT=…)
 make live           # one real request through real upstreams (env-gated)
 make lint           # go vet + golangci-lint
 make run            # build and run with config.example.yaml
+make validate       # build and validate config.example.yaml (CONFIG=… for another file)
 ```
 
 The test suite spins up fake resource/target services in-process — no network

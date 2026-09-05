@@ -7,6 +7,7 @@
 # sqlite3, bind-mounted sources) lives in environment/Dockerfile.
 #
 #   docker build --build-arg VERSION=$(git describe --tags --always) -t tentacron .
+#   docker run --rm tentacron validate -config /etc/tentacron/config.yaml   # pre-deploy check
 #   docker run --rm -p 8080:8080 \
 #     -v "$PWD/config.yaml:/etc/tentacron/config.yaml:ro" \
 #     -v tentacron-data:/data \

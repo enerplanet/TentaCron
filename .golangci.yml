@@ -28,6 +28,11 @@ linters:
         - (io.Closer).Close
         - (*database/sql.Rows).Close
         - (*os.File).Close
+        # Writes to the CLI's stdout/stderr: a failed write there has no
+        # better handling than the exit code the command already returns.
+        - fmt.Fprint
+        - fmt.Fprintf
+        - fmt.Fprintln
     revive:
       rules:
         - name: package-comments

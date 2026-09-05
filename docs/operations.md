@@ -42,9 +42,29 @@ make build && ./bin/tentacron -config /etc/tentacron/config.yaml
 The development image (`make -C environment run`) bind-mounts the sources,
 compiles at start and runs as root; it is for local work, not deployment.
 
-Before pointing production traffic at a config, run one real request through
-it with the env-gated live tier (`make live`, see
-[test/README.md](https://github.com/enerplanet/tentacron/blob/main/test/README.md)).
+Before pointing production traffic at a config, validate it exactly as the
+service would load it, then run one real request through it with the
+env-gated live tier (`make live`, see
+[test/README.md](https://github.com/enerplanet/tentacron/blob/main/test/README.md)):
+
+```bash
+tentacron validate -config /etc/tentacron/config.yaml   # or: make validate CONFIG=…
+docker run --rm -v /etc/tentacron/config.yaml:/etc/tentacron/config.yaml:ro \
+  --env-file /etc/tentacron/secrets.env ghcr.io/enerplanet/tentacron:0.1.0 validate
+```
+
+`validate` interpolates `${VARS}`, applies defaults and runs every validation
+rule, printing a summary of targets and resolvents (never credentials) on
+success and every problem at once on failure. Exit codes: 0 valid, 1
+invalid, 2 usage error. CI runs it against both reference configs.
+
+## Command line
+
+| Command | Purpose |
+|---|---|
+| `tentacron [serve] -config FILE` | Start the service; `serve` is the default, so `tentacron -config FILE` still works. |
+| `tentacron validate -config FILE` | Load and validate a configuration without starting anything. |
+| `tentacron version` | Print the build version and Go version. |
 
 ## Health and readiness
 

@@ -65,6 +65,31 @@ services:
       - "${HOST_PORT:-8080}:${PORT:-8080}"
     restart: unless-stopped
 
+  # One-shot: validate the config the api service would load, with the same
+  # env file — the pre-deploy check.
+  validate:
+    image: ${IMAGE_TAG:-tentacron-env:latest}
+    build:
+      context: ..
+      dockerfile: environment/Dockerfile
+    working_dir: /src
+    environment:
+      - PORT=${PORT:-8080}
+      - CONFIG=${CONFIG:-environment/config.yaml}
+      - TENTACRON_KEY_FRONTEND=${TENTACRON_KEY_FRONTEND:?set in environment/.env.dev|prod}
+      - TENTACRON_KEY_BATCH=${TENTACRON_KEY_BATCH:?set in environment/.env.dev|prod}
+      - MEME_API_KEY=${MEME_API_KEY:?set in environment/.env.dev|prod}
+      - BUEM_API_KEY=${BUEM_API_KEY:?set in environment/.env.dev|prod}
+      - PV1_API_KEY=${PV1_API_KEY:?set in environment/.env.dev|prod}
+      - WIND_API_KEY=${WIND_API_KEY:?set in environment/.env.dev|prod}
+      - WEATHER_API_KEY=${WEATHER_API_KEY:?set in environment/.env.dev|prod}
+      - IGNIS_API_KEY=${IGNIS_API_KEY:?set in environment/.env.dev|prod}
+    volumes:
+      - ..:/src
+      - go-build:/root/.cache/go-build
+      - go-mod:/root/go/pkg/mod
+    command: make validate
+
   # One-shot: compile everything and run the Go test suite.
   test:
     image: ${IMAGE_TAG:-tentacron-env:latest}

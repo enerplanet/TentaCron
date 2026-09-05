@@ -1,14 +1,22 @@
 // Command tentacron runs the tentacron orchestration and resolvent API.
+//
+//	tentacron [serve] -config config.yaml   start the service (the default)
+//	tentacron validate -config config.yaml  load and validate a configuration
+//	tentacron version                       print build information
 package main
 
 import (
 	"context"
 	"errors"
 	"flag"
+	"fmt"
+	"io"
 	"log/slog"
 	"net/http"
 	"os"
 	"os/signal"
+	"runtime"
+	"strings"
 	"syscall"
 
 	"github.com/enerplanet/tentacron/internal/api"
@@ -20,21 +28,101 @@ import (
 
 var version = "dev" // overridden at build time via -ldflags
 
+const usage = `Usage:
+  tentacron [serve] [-config FILE]   start the service (default command)
+  tentacron validate [-config FILE]  load, interpolate and validate a configuration
+  tentacron version                  print build information
+
+FILE defaults to config.yaml. Exit codes: 0 ok, 1 invalid configuration or
+runtime failure, 2 usage error.
+`
+
 func main() {
-	if err := run(); err != nil {
-		slog.Error("fatal", "error", err)
-		os.Exit(1)
+	os.Exit(run(os.Args[1:], os.Stdout, os.Stderr))
+}
+
+// run dispatches on the first argument. A leading flag means "serve", so the
+// original `tentacron -config …` invocation keeps working unchanged.
+func run(args []string, stdout, stderr io.Writer) int {
+	cmd, rest := "serve", args
+	if len(args) > 0 && !strings.HasPrefix(args[0], "-") {
+		cmd, rest = args[0], args[1:]
+	}
+	switch cmd {
+	case "serve":
+		return runServe(rest, stdout, stderr)
+	case "validate":
+		return runValidate(rest, stdout, stderr)
+	case "version":
+		fmt.Fprintf(stdout, "tentacron %s %s %s/%s\n", version, runtime.Version(), runtime.GOOS, runtime.GOARCH)
+		return 0
+	case "help", "-h", "--help":
+		fmt.Fprint(stdout, usage)
+		return 0
+	default:
+		fmt.Fprintf(stderr, "tentacron: unknown command %q\n\n%s", cmd, usage)
+		return 2
 	}
 }
 
-func run() error {
-	configPath := flag.String("config", "config.yaml", "path to the YAML configuration file")
-	flag.Parse()
+// configFlag parses the shared -config flag; a help request prints usage
+// and reports done.
+func configFlag(name string, args []string, stdout, stderr io.Writer) (path string, done bool, code int) {
+	fs := flag.NewFlagSet("tentacron "+name, flag.ContinueOnError)
+	fs.SetOutput(stderr)
+	fs.StringVar(&path, "config", "config.yaml", "path to the YAML configuration file")
+	if err := fs.Parse(args); err != nil {
+		if errors.Is(err, flag.ErrHelp) {
+			fmt.Fprint(stdout, usage)
+			return "", true, 0
+		}
+		return "", true, 2
+	}
+	if fs.NArg() > 0 {
+		fmt.Fprintf(stderr, "tentacron %s: unexpected argument %q\n\n%s", name, fs.Arg(0), usage)
+		return "", true, 2
+	}
+	return path, false, 0
+}
 
+// runValidate loads the configuration exactly as serve would — file, ${ENV}
+// interpolation, defaults, validation — and prints what it found or every
+// problem at once. Meant for deploy pipelines and CI.
+func runValidate(args []string, stdout, stderr io.Writer) int {
+	path, done, code := configFlag("validate", args, stdout, stderr)
+	if done {
+		return code
+	}
+	cfg, err := config.Load(path)
+	if err != nil {
+		fmt.Fprintf(stderr, "%s: configuration is invalid:\n", path)
+		for _, line := range strings.Split(err.Error(), "\n") {
+			fmt.Fprintf(stderr, "  - %s\n", line)
+		}
+		return 1
+	}
+	fmt.Fprint(stdout, config.Describe(cfg))
+	return 0
+}
+
+func runServe(args []string, stdout, stderr io.Writer) int {
+	path, done, code := configFlag("serve", args, stdout, stderr)
+	if done {
+		return code
+	}
 	logger := slog.New(slog.NewJSONHandler(os.Stdout, nil))
 	slog.SetDefault(logger)
+	if err := serveFromConfig(path, logger); err != nil {
+		logger.Error("fatal", "error", err)
+		return 1
+	}
+	return 0
+}
 
-	cfg, err := config.Load(*configPath)
+// serveFromConfig wires the store, the worker pool and the HTTP server from
+// the configuration file and runs them until shutdown.
+func serveFromConfig(path string, logger *slog.Logger) error {
+	cfg, err := config.Load(path)
 	if err != nil {
 		return err
 	}
