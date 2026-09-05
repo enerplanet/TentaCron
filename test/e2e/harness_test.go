@@ -547,6 +547,21 @@ func (h *harness) get(label, path string, hdr map[string]string) {
 	})
 }
 
+// getJSON is get for steps whose response the scenario needs to read back
+// (a page cursor, say); it records the step like get and returns the
+// decoded body.
+func (h *harness) getJSON(label, path string, hdr map[string]string) map[string]any {
+	h.t.Helper()
+	status, body := h.getOnce(path, hdr)
+	decoded := decodeAny(body)
+	h.record(map[string]any{
+		"step": label, "request": "GET " + normalizePath(path, h.ids),
+		"status": status, "response": scrubTimes(decoded),
+	})
+	doc, _ := decoded.(map[string]any)
+	return doc
+}
+
 func (h *harness) getOnce(path string, hdr map[string]string) (int, []byte) {
 	h.t.Helper()
 	req, _ := http.NewRequest(http.MethodGet, h.api.URL+path, nil)
@@ -717,6 +732,9 @@ var (
 	backoffPattern  = regexp.MustCompile(`retrying in (?:[0-9]+(?:\.[0-9]+)?(?:ns|µs|us|ms|s|m|h))+`)
 	addrPattern     = regexp.MustCompile(`http://127\.0\.0\.1:[0-9]+`)
 	bareAddrPattern = regexp.MustCompile(`127\.0\.0\.1:[0-9]+`)
+	// Page cursors encode creation timestamps and are volatile by nature.
+	cursorParam = regexp.MustCompile(`cursor=[A-Za-z0-9_-]+`)
+	cursorField = regexp.MustCompile(`"next_cursor": "[A-Za-z0-9_-]+"`)
 )
 
 // normalize replaces run-specific values (job ids, jittered backoff
@@ -728,6 +746,8 @@ func (h *harness) normalize(s string) string {
 	}
 	s = addrPattern.ReplaceAllString(s, "«upstream»")
 	s = bareAddrPattern.ReplaceAllString(s, "«addr»")
+	s = cursorParam.ReplaceAllString(s, "cursor=«cursor»")
+	s = cursorField.ReplaceAllString(s, `"next_cursor": "«cursor»"`)
 	return backoffPattern.ReplaceAllString(s, "retrying in «dur»")
 }
 

@@ -803,3 +803,56 @@ func TestListJobsFiltersByClient(t *testing.T) {
 		t.Errorf("unknown client: %d jobs, want 0", n)
 	}
 }
+
+// Target and time-window filters combine with the others; the cursor walks
+// the newest-first listing without skipping or repeating, even across jobs
+// created in the same millisecond.
+func TestListJobsTargetWindowAndCursor(t *testing.T) {
+	s := openTest(t)
+	ctx := context.Background()
+	var ids []string
+	for i, target := range []string{"meme", "demo", "meme", "demo", "meme"} {
+		j := newJob(t, target)
+		mustCreate(t, s, j)
+		ids = append(ids, j.ID)
+		if i == 1 {
+			time.Sleep(3 * time.Millisecond) // a visible gap for the time window
+		}
+	}
+	list := func(f ListFilter) []*Job {
+		jobs, err := s.ListJobs(ctx, f)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return jobs
+	}
+	if got := list(ListFilter{Target: "demo", Limit: 10}); len(got) != 2 || got[0].ID != ids[3] || got[1].ID != ids[1] {
+		t.Errorf("target filter = %v", got)
+	}
+	second, _ := s.GetJob(ctx, ids[2])
+	if got := list(ListFilter{Since: &second.CreatedAt, Limit: 10}); len(got) != 3 {
+		t.Errorf("since (inclusive) returned %d, want the three newest", len(got))
+	}
+	if got := list(ListFilter{Until: &second.CreatedAt, Limit: 10}); len(got) != 2 {
+		t.Errorf("until (exclusive) returned %d, want the two oldest", len(got))
+	}
+	// Walk everything one item per page; same-millisecond neighbours must
+	// still come out exactly once each, newest first.
+	var walked []string
+	var cursor *Cursor
+	for range 10 {
+		page := list(ListFilter{Before: cursor, Limit: 1})
+		if len(page) == 0 {
+			break
+		}
+		walked = append(walked, page[0].ID)
+		cursor = &Cursor{CreatedAt: page[0].CreatedAt, Seq: page[0].Seq}
+	}
+	want := []string{ids[4], ids[3], ids[2], ids[1], ids[0]}
+	if !reflect.DeepEqual(walked, want) {
+		t.Errorf("cursor walk = %v, want %v", walked, want)
+	}
+	if s0, _ := s.GetJob(ctx, ids[0]); s0.Seq <= 0 {
+		t.Errorf("Seq must expose the insertion order, got %d", s0.Seq)
+	}
+}

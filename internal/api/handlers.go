@@ -1,12 +1,14 @@
 package api
 
 import (
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"io"
 	"io/fs"
 	"mime"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -247,52 +249,123 @@ func (s *Server) handleGet(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, toJobResponse(job))
 }
 
+type listResponse struct {
+	Items []jobResponse `json:"items"`
+	// NextCursor is present only when more items exist; pass it back as the
+	// cursor query parameter to fetch the next page.
+	NextCursor string `json:"next_cursor,omitempty"`
+}
+
 func (s *Server) handleList(w http.ResponseWriter, r *http.Request) {
 	id, ok := s.authFromHeader(w, r)
 	if !ok {
 		return
 	}
-	state, limit, ok := listParams(w, r)
+	filter, ok := listParams(w, r, id)
 	if !ok {
 		return
 	}
-	filter := store.ListFilter{State: state, Limit: limit}
-	if !id.admin() {
-		filter.Client = id.name // clients list only their own requests
-	}
+	pageSize := filter.Limit
+	filter.Limit++ // one extra row tells whether a next page exists
 	jobs, err := s.store.ListJobs(r.Context(), filter)
 	if err != nil {
 		s.internalError(w, "list jobs failed", err)
 		return
 	}
-	items := make([]jobResponse, 0, len(jobs))
-	for _, j := range jobs {
-		items = append(items, toJobResponse(j))
+	resp := listResponse{Items: make([]jobResponse, 0, len(jobs))}
+	if len(jobs) > pageSize {
+		jobs = jobs[:pageSize]
+		resp.NextCursor = encodeCursor(jobs[pageSize-1])
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"items": items})
+	for _, j := range jobs {
+		resp.Items = append(resp.Items, toJobResponse(j))
+	}
+	writeJSON(w, http.StatusOK, resp)
 }
 
-// listParams validates the state filter and the limit, answering 400 itself
-// for bad values. The limit defaults to 50 and is capped at 200.
-func listParams(w http.ResponseWriter, r *http.Request) (state string, limit int, ok bool) {
-	state = r.URL.Query().Get("state")
-	switch state {
+// listParams validates the list query and builds the store filter. A client
+// key lists only its own requests; the client parameter is for admin keys.
+func listParams(w http.ResponseWriter, r *http.Request, id identity) (store.ListFilter, bool) {
+	q := r.URL.Query()
+	f := store.ListFilter{State: q.Get("state"), Target: q.Get("target"), Client: id.name, Limit: 50}
+	switch f.State {
 	case "", store.StateReceived, store.StateResolving, store.StateForwarding,
 		store.StateAwaitingTarget, store.StateCompleted, store.StateFailed:
 	default:
-		writeError(w, http.StatusBadRequest, CodeInvalidParameter, "unknown state filter "+strconv.Quote(state))
-		return "", 0, false
+		writeError(w, http.StatusBadRequest, CodeInvalidParameter, "unknown state filter "+strconv.Quote(f.State))
+		return f, false
 	}
-	limit = 50
-	if raw := r.URL.Query().Get("limit"); raw != "" {
+	if raw := q.Get("limit"); raw != "" {
 		n, err := strconv.Atoi(raw)
 		if err != nil || n < 1 {
 			writeError(w, http.StatusBadRequest, CodeInvalidParameter, "limit must be a positive integer")
-			return "", 0, false
+			return f, false
 		}
-		limit = min(n, 200)
+		f.Limit = min(n, 200)
 	}
-	return state, limit, true
+	if client := q.Get("client"); client != "" {
+		if !id.admin() && client != id.name {
+			writeError(w, http.StatusBadRequest, CodeInvalidParameter, "the client filter requires an admin key")
+			return f, false
+		}
+		f.Client = client
+	} else if id.admin() {
+		f.Client = "" // admins list every client's requests
+	}
+	return listWindow(w, q, f)
+}
+
+// listWindow parses the time bounds and the page cursor.
+func listWindow(w http.ResponseWriter, q url.Values, f store.ListFilter) (store.ListFilter, bool) {
+	for name, dst := range map[string]**time.Time{"since": &f.Since, "until": &f.Until} {
+		raw := q.Get(name)
+		if raw == "" {
+			continue
+		}
+		t, err := time.Parse(time.RFC3339, raw)
+		if err != nil {
+			writeError(w, http.StatusBadRequest, CodeInvalidParameter, name+" must be an RFC 3339 timestamp")
+			return f, false
+		}
+		*dst = &t
+	}
+	if token := q.Get("cursor"); token != "" {
+		c, err := decodeCursor(token)
+		if err != nil {
+			writeError(w, http.StatusBadRequest, CodeInvalidParameter, "cursor is not a valid page token")
+			return f, false
+		}
+		f.Before = c
+	}
+	return f, true
+}
+
+// encodeCursor renders a list position as an opaque token: the last item's
+// creation time in Unix milliseconds (the store's precision) and its
+// insertion sequence.
+func encodeCursor(j *store.Job) string {
+	raw := strconv.FormatInt(j.CreatedAt.UnixMilli(), 10) + "." + strconv.FormatInt(j.Seq, 10)
+	return base64.RawURLEncoding.EncodeToString([]byte(raw))
+}
+
+func decodeCursor(token string) (*store.Cursor, error) {
+	raw, err := base64.RawURLEncoding.DecodeString(token)
+	if err != nil {
+		return nil, err
+	}
+	msPart, seqPart, ok := strings.Cut(string(raw), ".")
+	if !ok {
+		return nil, errors.New("cursor: missing separator")
+	}
+	ms, err := strconv.ParseInt(msPart, 10, 64)
+	if err != nil {
+		return nil, err
+	}
+	seq, err := strconv.ParseInt(seqPart, 10, 64)
+	if err != nil {
+		return nil, err
+	}
+	return &store.Cursor{CreatedAt: time.UnixMilli(ms).UTC(), Seq: seq}, nil
 }
 
 func (s *Server) handleResult(w http.ResponseWriter, r *http.Request) {

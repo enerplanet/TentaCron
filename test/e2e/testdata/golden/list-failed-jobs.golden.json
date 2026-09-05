@@ -110,5 +110,100 @@
     },
     "status": 200,
     "step": "list failed jobs, newest first"
+  },
+  {
+    "request": "GET /v1/requests?state=failed\u0026limit=1",
+    "response": {
+      "items": [
+        {
+          "attempts": 1,
+          "completed_at": "«ts»",
+          "created_at": "«ts»",
+          "error": {
+            "code": "unknown_resolvent",
+            "message": "no resolvent config for type \"resolvent-tidal\""
+          },
+          "id": "«job-2»",
+          "result": null,
+          "state": "failed",
+          "target": "demo",
+          "updated_at": "«ts»"
+        }
+      ],
+      "next_cursor": "«cursor»"
+    },
+    "status": 200,
+    "step": "first page of one (with next_cursor)"
+  },
+  {
+    "content_type": "application/json",
+    "request": "GET /v1/requests?state=failed\u0026limit=1\u0026cursor=«cursor»",
+    "response": {
+      "items": [
+        {
+          "attempts": 1,
+          "completed_at": "«ts»",
+          "created_at": "«ts»",
+          "error": {
+            "code": "unknown_resolvent",
+            "message": "no resolvent config for type \"resolvent-tidal\""
+          },
+          "id": "«job-1»",
+          "result": null,
+          "state": "failed",
+          "target": "demo",
+          "updated_at": "«ts»"
+        }
+      ]
+    },
+    "status": 200,
+    "step": "second page via the cursor (no further page)"
+  },
+  {
+    "content_type": "application/json",
+    "request": "GET /v1/requests?target=demo\u0026limit=5",
+    "response": {
+      "items": [
+        {
+          "attempts": 1,
+          "completed_at": "«ts»",
+          "created_at": "«ts»",
+          "error": {
+            "code": "unknown_resolvent",
+            "message": "no resolvent config for type \"resolvent-tidal\""
+          },
+          "id": "«job-2»",
+          "result": null,
+          "state": "failed",
+          "target": "demo",
+          "updated_at": "«ts»"
+        },
+        {
+          "attempts": 1,
+          "completed_at": "«ts»",
+          "created_at": "«ts»",
+          "error": {
+            "code": "unknown_resolvent",
+            "message": "no resolvent config for type \"resolvent-tidal\""
+          },
+          "id": "«job-1»",
+          "result": null,
+          "state": "failed",
+          "target": "demo",
+          "updated_at": "«ts»"
+        }
+      ]
+    },
+    "status": 200,
+    "step": "filtered by target"
+  },
+  {
+    "content_type": "application/json",
+    "request": "GET /v1/requests?target=meme\u0026limit=5",
+    "response": {
+      "items": []
+    },
+    "status": 200,
+    "step": "filtered by an unused target"
   }
 ]

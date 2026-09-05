@@ -10,6 +10,9 @@ under "Changed" with the keys or fields concerned.
 
 ### Added
 
+- `GET /v1/requests` filters by `target`, `since`/`until` (RFC 3339 bounds
+  on creation time) and, for admin keys, `client`, and pages through an
+  opaque `cursor`: a full page returns `next_cursor`, the last page none.
 - Result downloads carry `Content-Length`; file results add
   `Content-Disposition` with a filename and `Accept-Ranges`, honour `Range`
   (`206`) and conditional requests, and answer `HEAD`, so large bundles can

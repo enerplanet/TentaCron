@@ -277,9 +277,9 @@ func TestList(t *testing.T) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("status = %d", rec.Code)
 	}
-	list := decodeBody[map[string][]jobResponse](t, rec)
-	if len(list["items"]) != 2 {
-		t.Errorf("items = %d, want 2", len(list["items"]))
+	list := decodeBody[listResponse](t, rec)
+	if len(list.Items) != 2 {
+		t.Errorf("items = %d, want 2", len(list.Items))
 	}
 	if rec := e.do(t, "GET", "/v1/requests?state=bogus", "", auth); rec.Code != http.StatusBadRequest {
 		t.Errorf("bogus state: status = %d, want 400", rec.Code)

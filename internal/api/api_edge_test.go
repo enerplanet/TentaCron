@@ -10,6 +10,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"reflect"
 	"regexp"
 	"strings"
 	"sync"
@@ -183,7 +184,7 @@ func TestListLimitCapAndDefault(t *testing.T) {
 		if rec.Code != http.StatusOK {
 			t.Fatalf("%s: status %d", q, rec.Code)
 		}
-		return len(decodeBody[map[string][]jobResponse](t, rec)["items"])
+		return len(decodeBody[listResponse](t, rec).Items)
 	}
 	if n := count("?limit=1000"); n != 200 {
 		t.Errorf("limit=1000 returned %d, want the 200 cap", n)
@@ -204,7 +205,7 @@ func TestListOrderNewestFirstAndEmptyBody(t *testing.T) {
 	first := decodeBody[createResponse](t, e.do(t, "POST", "/v1/requests", validBody, nil))
 	time.Sleep(2 * time.Millisecond)
 	second := decodeBody[createResponse](t, e.do(t, "POST", "/v1/requests", validBody, nil))
-	items := decodeBody[map[string][]jobResponse](t, e.do(t, "GET", "/v1/requests", "", authHdr))["items"]
+	items := decodeBody[listResponse](t, e.do(t, "GET", "/v1/requests", "", authHdr)).Items
 	if len(items) != 2 || items[0].ID != second.ID || items[1].ID != first.ID {
 		t.Errorf("list order = %v, want newest first", items)
 	}
@@ -261,7 +262,7 @@ func TestReadsAreScopedToTheClientUnlessAdmin(t *testing.T) {
 		}
 	}
 	items := func(k string) int {
-		return len(decodeBody[map[string][]jobResponse](t, e.do(t, "GET", "/v1/requests", "", hdr(k)))["items"])
+		return len(decodeBody[listResponse](t, e.do(t, "GET", "/v1/requests", "", hdr(k))).Items)
 	}
 	if items("key-a") != 1 || items("key-b") != 0 || items("key-ops") != 1 {
 		t.Errorf("list sizes a=%d b=%d ops=%d, want 1/0/1", items("key-a"), items("key-b"), items("key-ops"))
@@ -704,5 +705,74 @@ func TestResultDownloadHeadersRangesAndHead(t *testing.T) {
 	rec = e.do(t, "GET", "/v1/requests/"+inline+"/result", "", authHdr)
 	if rec.Code != http.StatusOK || rec.Header().Get("Content-Length") != "11" || rec.Body.String() != `{"ok":true}` {
 		t.Errorf("inline: %d len=%s %q", rec.Code, rec.Header().Get("Content-Length"), rec.Body.String())
+	}
+}
+
+// Filters narrow the list and pages chain through an opaque cursor that
+// never skips or repeats an item, even for same-millisecond neighbours.
+func TestListFiltersAndCursorPagination(t *testing.T) {
+	e := newEnvWith(t, func(c *config.Config) {
+		c.Auth.APIKeys = append(c.Auth.APIKeys, config.APIKey{Name: "ops", Key: "ops-key", Role: config.RoleAdmin})
+		c.Targets["other"] = config.Target{URL: "https://other.example.com/run"}
+	}, nil)
+	var ids []string
+	for i := 0; i < 7; i++ {
+		target := "meme"
+		if i%3 == 0 {
+			target = "other"
+		}
+		created := decodeBody[createResponse](t, e.do(t, "POST", "/v1/requests", `{"target":"`+target+`","payload":{}}`, authHdr))
+		ids = append(ids, created.ID)
+	}
+	list := func(q string, hdr map[string]string) listResponse {
+		rec := e.do(t, "GET", "/v1/requests"+q, "", hdr)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("%s: %d %s", q, rec.Code, rec.Body.String())
+		}
+		return decodeBody[listResponse](t, rec)
+	}
+	if got := list("?target=other", authHdr); len(got.Items) != 3 || got.NextCursor != "" {
+		t.Errorf("target filter: %d items, cursor %q", len(got.Items), got.NextCursor)
+	}
+	var walked []string
+	page := list("?limit=3", authHdr)
+	for {
+		for _, it := range page.Items {
+			walked = append(walked, it.ID)
+		}
+		if page.NextCursor == "" {
+			break
+		}
+		page = list("?limit=3&cursor="+page.NextCursor, authHdr)
+	}
+	want := make([]string, 0, len(ids))
+	for i := len(ids) - 1; i >= 0; i-- {
+		want = append(want, ids[i])
+	}
+	if !reflect.DeepEqual(walked, want) {
+		t.Errorf("paged walk = %v\nwant %v", walked, want)
+	}
+	if full := list("?limit=7", authHdr); full.NextCursor != "" {
+		t.Errorf("an exactly full page must not announce a next page: %q", full.NextCursor)
+	}
+	since := time.Now().Add(time.Hour).UTC().Format(time.RFC3339)
+	if got := list("?since="+since, authHdr); len(got.Items) != 0 {
+		t.Errorf("since in the future must list nothing, got %d", len(got.Items))
+	}
+	until := time.Now().Add(time.Hour).UTC().Format(time.RFC3339)
+	if got := list("?until="+until, authHdr); len(got.Items) != 7 {
+		t.Errorf("until in the future must list all, got %d", len(got.Items))
+	}
+	if got := list("?client=test", map[string]string{"X-API-Key": "ops-key"}); len(got.Items) != 7 {
+		t.Errorf("admin client filter: %d items, want 7", len(got.Items))
+	}
+	for _, q := range []string{"?since=yesterday", "?until=2026-13-01T00:00:00Z", "?cursor=@@@", "?cursor=bm90LWEtY3Vyc29y", "?cursor=MTc4ODYxOTEzNTY4MS5hYmM", "?client=someone-else"} {
+		rec := e.do(t, "GET", "/v1/requests"+q, "", authHdr)
+		if rec.Code != http.StatusBadRequest || errCode(t, rec) != CodeInvalidParameter {
+			t.Errorf("%s: %d %s, want 400 invalid_parameter", q, rec.Code, rec.Body.String())
+		}
+	}
+	if got := list("?client=test", authHdr); len(got.Items) != 7 {
+		t.Errorf("a client may name itself in the client filter, got %d", len(got.Items))
 	}
 }

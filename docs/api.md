@@ -159,15 +159,30 @@ transition.
 
 ## GET /v1/requests
 
-List recent requests, newest first — a client's own requests, or every
-request for an admin key. Query parameters: `state` (filter by job
-state) and `limit` (default 50, max 200 — larger values are capped); invalid
-values answer `400 invalid_parameter` (unknown state filter, or limit not a
-positive integer). Items have the same shape as `GET /v1/requests/{id}`.
+List requests, newest first — the caller's own requests, or every client's
+for an `admin` key. Items have the same shape as `GET /v1/requests/{id}`.
+
+| Parameter | Description |
+|---|---|
+| `state` | One of the job states. |
+| `target` | A target name. |
+| `client` | Admin keys only: list one client's requests (a client may name itself). |
+| `since` / `until` | RFC 3339 bounds on `created_at`; `since` inclusive, `until` exclusive. |
+| `limit` | Page size, default 50, max 200 (larger values are capped). |
+| `cursor` | The `next_cursor` of the previous page. |
 
 ```json
-{ "items": [ { "id": "…", "state": "failed", "error": { "code": "target_timeout", "message": "…" } } ] }
+{ "items": [ { "id": "…", "state": "failed", "error": { "code": "target_timeout", "message": "…" } } ],
+  "next_cursor": "MTc1Njk4…" }
 ```
+
+`next_cursor` is present only when more items match; pass it back as
+`cursor` with the same filters to fetch the next page. Cursors are opaque
+tokens tied to the listing order, so pages never skip or repeat a request
+even when many were created in the same millisecond. Invalid values (unknown
+state, non-positive limit, malformed timestamp or cursor, a client filter
+without an admin key) answer `400 invalid_parameter`. No total count is
+returned.
 
 ## Health and build
 

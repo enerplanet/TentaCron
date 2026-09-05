@@ -579,10 +579,16 @@ var apiContractScenarios = []scenario{
 			second := h.post("submit a second job that will fail",
 				requestBody("demo", `{"time-series":[{"type":"resolvent-tidal"}]}`), nil)
 			h.await("second final state", second)
-			h.get("result is not available for a failed job", "/v1/requests/"+id+"/result",
-				map[string]string{"X-API-Key": clientKey})
-			h.get("list failed jobs, newest first", "/v1/requests?state=failed&limit=5",
-				map[string]string{"X-API-Key": clientKey})
+			auth := map[string]string{"X-API-Key": clientKey}
+			h.get("result is not available for a failed job", "/v1/requests/"+id+"/result", auth)
+			h.get("list failed jobs, newest first", "/v1/requests?state=failed&limit=5", auth)
+			// Pagination: a full page announces the next one through an
+			// opaque cursor; the last page carries no cursor.
+			page := h.getJSON("first page of one (with next_cursor)", "/v1/requests?state=failed&limit=1", auth)
+			next, _ := page["next_cursor"].(string)
+			h.get("second page via the cursor (no further page)", "/v1/requests?state=failed&limit=1&cursor="+next, auth)
+			h.get("filtered by target", "/v1/requests?target=demo&limit=5", auth)
+			h.get("filtered by an unused target", "/v1/requests?target=meme&limit=5", auth)
 		},
 	},
 }

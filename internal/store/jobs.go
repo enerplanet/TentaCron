@@ -38,6 +38,11 @@ var ErrIdempotencyConflict = errors.New("idempotency key reused with a different
 // Job is one orchestration request and its processing state. Field order
 // mirrors jobColumns; keep the two in sync.
 type Job struct {
+	// Seq is the row's insertion order (SQLite rowid): the tiebreaker for
+	// jobs created within one millisecond and the second half of a list
+	// cursor. Never exposed as an identifier.
+	Seq int64
+
 	// Identity and queue state.
 	ID             string
 	Client         string // authenticated client name; scopes the idempotency key
@@ -80,7 +85,7 @@ func NewID() (string, error) {
 	return hex.EncodeToString(b), nil
 }
 
-const jobColumns = `id, client, idempotency_key, target, state, attempts, max_attempts,
+const jobColumns = `rowid, id, client, idempotency_key, target, state, attempts, max_attempts,
 	next_attempt_at, payload, resolved_payload, target_job_id, poll_deadline,
 	target_status, target_response, result_path, result_content_type,
 	error_code, error_message, created_at, updated_at, completed_at`
@@ -100,7 +105,7 @@ type jobRow struct {
 func scanJob(r rowScanner) (*Job, error) {
 	var row jobRow
 	j := &row.job
-	err := r.Scan(&j.ID, &j.Client, &row.idem, &j.Target, &j.State, &j.Attempts, &j.MaxAttempts,
+	err := r.Scan(&j.Seq, &j.ID, &j.Client, &row.idem, &j.Target, &j.State, &j.Attempts, &j.MaxAttempts,
 		&row.nextAt, &j.Payload, &j.ResolvedPayload, &row.targetJobID, &row.pollDL,
 		&row.targetStatus, &j.TargetResponse, &row.resultPath, &row.resultCT,
 		&row.errCode, &row.errMsg, &row.createdAt, &row.updatedAt, &row.completedAt)
@@ -248,29 +253,57 @@ func (s *Store) GetJobByIdempotency(ctx context.Context, client, key string) (*J
 	return j, err
 }
 
-// ListFilter narrows ListJobs. Empty State and Client mean no filter on that
-// column; Limit is required.
+// Cursor addresses a position in the newest-first listing: the created_at
+// and insertion sequence of the last item a client has seen. Items strictly
+// older than it form the next page, so pagination never skips or repeats a
+// job even when many were created in the same millisecond.
+type Cursor struct {
+	CreatedAt time.Time
+	Seq       int64
+}
+
+// ListFilter narrows ListJobs. Empty strings and nil pointers mean no filter
+// on that column; Limit is required. Since is inclusive, Until exclusive.
 type ListFilter struct {
 	State  string
 	Client string
+	Target string
+	Since  *time.Time
+	Until  *time.Time
+	Before *Cursor
 	Limit  int
 }
 
-// ListJobs returns jobs newest-first, filtered by state and/or submitting
-// client; rowid breaks created_at ties by insertion order (ids are random
-// hex, so ordering by id would shuffle same-millisecond jobs run to run).
-func (s *Store) ListJobs(ctx context.Context, f ListFilter) ([]*Job, error) {
-	q := `SELECT ` + jobColumns + ` FROM jobs`
-	var where []string
-	args := []any{}
+// clauses renders the filter as SQL conditions with their bound values.
+func (f ListFilter) clauses() (where []string, args []any) {
 	if f.State != "" {
-		where = append(where, "state = ?")
-		args = append(args, f.State)
+		where, args = append(where, "state = ?"), append(args, f.State)
 	}
 	if f.Client != "" {
-		where = append(where, "client = ?")
-		args = append(args, f.Client)
+		where, args = append(where, "client = ?"), append(args, f.Client)
 	}
+	if f.Target != "" {
+		where, args = append(where, "target = ?"), append(args, f.Target)
+	}
+	if f.Since != nil {
+		where, args = append(where, "created_at >= ?"), append(args, ts(*f.Since))
+	}
+	if f.Until != nil {
+		where, args = append(where, "created_at < ?"), append(args, ts(*f.Until))
+	}
+	if f.Before != nil {
+		where = append(where, "(created_at < ? OR (created_at = ? AND rowid < ?))")
+		args = append(args, ts(f.Before.CreatedAt), ts(f.Before.CreatedAt), f.Before.Seq)
+	}
+	return where, args
+}
+
+// ListJobs returns jobs newest-first under the filter; rowid breaks
+// created_at ties by insertion order (ids are random hex, so ordering by id
+// would shuffle same-millisecond jobs run to run).
+func (s *Store) ListJobs(ctx context.Context, f ListFilter) ([]*Job, error) {
+	q := `SELECT ` + jobColumns + ` FROM jobs`
+	where, args := f.clauses()
 	if len(where) > 0 {
 		// The clauses are compile-time constants; every value is bound.
 		q += ` WHERE ` + strings.Join(where, " AND ") //nolint:gosec // G202
