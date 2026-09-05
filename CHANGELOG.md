@@ -17,6 +17,15 @@ under "Changed" with the keys or fields concerned.
   queue, the asynchronous API, polling targets to completion, per-target
   resolvent location), and an API stability statement in `docs/api.md`.
 
+### Fixed
+
+- Retention pruning could stop working for good: the delete bound one SQL
+  parameter per job id and SQLite refuses statements with more than 32,766
+  of them, so once a sweep selected a larger backlog every sweep failed and
+  the database grew without bound (result files were already unlinked before
+  the failing delete). Rows are now deleted in chunks of 500 and each sweep
+  works through the backlog in passes of 1,000 jobs.
+
 ## [0.1.0] - 2026-09-05
 
 Initial release of the tentacron orchestration and resolvent API.

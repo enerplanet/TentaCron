@@ -55,26 +55,51 @@ func (p *Pool) rescueStuckJobs(ctx context.Context) {
 	}
 }
 
-// pruneRetention removes terminal jobs past the retention window. Result
-// files go before their rows: a crash in between leaves rows for the next
-// sweep to retry, never orphaned files.
+// pruneBatch bounds one retention pass. Files are removed and rows deleted
+// per batch, so a large backlog never becomes one huge statement or a
+// long-held write lock, and a crash between batches only leaves rows the
+// next pass re-selects. A variable so tests can exercise multiple passes
+// without thousands of rows.
+var pruneBatch = 1000
+
+// pruneRetention removes terminal jobs past the retention window, batch by
+// batch until a pass comes back short. Result files go before their rows:
+// a crash in between leaves rows for the next sweep to retry, never
+// orphaned files.
 func (p *Pool) pruneRetention(ctx context.Context) {
 	cutoff := time.Now().Add(-p.cfg.Storage.Retention.Std())
-	ids, paths, err := p.store.TerminalBefore(ctx, cutoff)
-	if err != nil {
-		p.logger.Error("job retention scan failed", "error", err)
-		return
+	jobs, files := 0, 0
+	for ctx.Err() == nil {
+		ids, paths, err := p.store.TerminalBefore(ctx, cutoff, pruneBatch)
+		if err != nil {
+			p.logger.Error("job retention scan failed", "error", err)
+			return
+		}
+		if len(ids) == 0 {
+			break
+		}
+		p.removeResultFiles(paths)
+		if err := p.store.DeleteJobs(ctx, ids); err != nil {
+			p.logger.Error("job retention prune failed", "error", err, "pruned_so_far", jobs)
+			return
+		}
+		jobs += len(ids)
+		files += len(paths)
+		if len(ids) < pruneBatch {
+			break
+		}
 	}
+	if jobs > 0 {
+		p.logger.Info("pruned terminal jobs past retention", "jobs", jobs, "result_files", files)
+	}
+}
+
+// removeResultFiles unlinks pruned result files; a file that is already
+// gone is fine, anything else is logged and left for the operator.
+func (p *Pool) removeResultFiles(paths []string) {
 	for _, path := range paths {
 		if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
 			p.logger.Warn("could not delete pruned result file", "path", path, "error", err)
 		}
-	}
-	if err := p.store.DeleteJobs(ctx, ids); err != nil {
-		p.logger.Error("job retention prune failed", "error", err)
-		return
-	}
-	if len(ids) > 0 {
-		p.logger.Info("pruned terminal jobs past retention", "jobs", len(ids), "result_files", len(paths))
 	}
 }

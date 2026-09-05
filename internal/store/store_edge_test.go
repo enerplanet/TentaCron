@@ -3,9 +3,12 @@ package store
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
+	"reflect"
 	"regexp"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -397,7 +400,7 @@ func TestTerminalBeforeRespectsCutoffAndEmptyDelete(t *testing.T) {
 	if err := s.MarkCompleted(ctx, j.ID, 200, nil, "", "", ""); err != nil {
 		t.Fatal(err)
 	}
-	ids, paths, err := s.TerminalBefore(ctx, time.Now().Add(-time.Hour))
+	ids, paths, err := s.TerminalBefore(ctx, time.Now().Add(-time.Hour), 100)
 	if err != nil || len(ids) != 0 || len(paths) != 0 {
 		t.Errorf("a fresh terminal job must not be listed: ids=%v paths=%v err=%v", ids, paths, err)
 	}
@@ -576,5 +579,78 @@ func BenchmarkClaimNext(b *testing.B) {
 		if c, err := s.ClaimNext(ctx, noPoll); err != nil || c == nil {
 			b.Fatalf("claim %d: %v %v", i, c, err)
 		}
+	}
+}
+
+// insertTerminalRows bulk-inserts completed jobs straight into the table
+// (CreateJob would take one transaction per row) with completed_at spread
+// one millisecond apart from base, oldest first.
+func insertTerminalRows(t *testing.T, s *Store, n int, base time.Time) []string {
+	t.Helper()
+	ids := make([]string, 0, n)
+	const perStmt = 400
+	for start := 0; start < n; start += perStmt {
+		end := min(start+perStmt, n)
+		var sb strings.Builder
+		sb.WriteString(`INSERT INTO jobs (id, target, state, max_attempts, payload, created_at, updated_at, completed_at) VALUES `)
+		args := make([]any, 0, (end-start)*8)
+		for i := start; i < end; i++ {
+			if i > start {
+				sb.WriteString(",")
+			}
+			sb.WriteString("(?,?,?,?,?,?,?,?)")
+			id := fmt.Sprintf("%032x", i)
+			at := ts(base.Add(time.Duration(i) * time.Millisecond))
+			args = append(args, id, "demo", StateCompleted, 1, []byte(`{}`), at, at, at)
+			ids = append(ids, id)
+		}
+		if _, err := s.db.ExecContext(context.Background(), sb.String(), args...); err != nil {
+			t.Fatal(err)
+		}
+	}
+	return ids
+}
+
+// One id is one bound parameter and SQLite caps a statement at 32766 of
+// them; a retention backlog past that size used to fail every sweep, so
+// the database grew without bound. The delete must chunk.
+func TestDeleteJobsBeyondSQLiteParameterLimit(t *testing.T) {
+	s := openTest(t)
+	ctx := context.Background()
+	const n = 40000
+	insertTerminalRows(t, s, n, time.Now().Add(-48*time.Hour))
+	ids, _, err := s.TerminalBefore(ctx, time.Now().Add(-time.Hour), n+1)
+	if err != nil || len(ids) != n {
+		t.Fatalf("TerminalBefore listed %d rows (err %v), want %d", len(ids), err, n)
+	}
+	if err := s.DeleteJobs(ctx, ids); err != nil {
+		t.Fatalf("DeleteJobs(%d ids): %v", n, err)
+	}
+	var left int
+	if err := s.db.QueryRowContext(ctx, `SELECT count(*) FROM jobs`).Scan(&left); err != nil || left != 0 {
+		t.Errorf("%d rows left after the prune (err %v)", left, err)
+	}
+}
+
+// TerminalBefore returns at most limit rows, oldest completion first, so a
+// bounded sweep always makes progress on the oldest backlog.
+func TestTerminalBeforeHonoursLimitOldestFirst(t *testing.T) {
+	s := openTest(t)
+	ctx := context.Background()
+	base := time.Now().Add(-2 * time.Hour)
+	ids := insertTerminalRows(t, s, 5, base)
+	got, _, err := s.TerminalBefore(ctx, time.Now().Add(-time.Hour), 3)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(got, ids[:3]) {
+		t.Errorf("limited listing = %v, want the three oldest %v", got, ids[:3])
+	}
+	if err := s.DeleteJobs(ctx, got); err != nil {
+		t.Fatal(err)
+	}
+	rest, _, err := s.TerminalBefore(ctx, time.Now().Add(-time.Hour), 3)
+	if err != nil || !reflect.DeepEqual(rest, ids[3:]) {
+		t.Errorf("second pass = %v (err %v), want the remaining %v", rest, err, ids[3:])
 	}
 }

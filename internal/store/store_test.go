@@ -288,7 +288,7 @@ func TestTerminalBeforeAndDeleteJobs(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	ids, paths, err := s.TerminalBefore(ctx, time.Now().Add(time.Minute))
+	ids, paths, err := s.TerminalBefore(ctx, time.Now().Add(time.Minute), 100)
 	if err != nil {
 		t.Fatalf("TerminalBefore: %v", err)
 	}

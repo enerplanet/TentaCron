@@ -501,14 +501,17 @@ func (s *Store) requeueAll(ctx context.Context, ids []string, detail string) err
 	return nil
 }
 
-// TerminalBefore lists completed/failed jobs finished before cutoff, with
-// their result file paths. The caller removes the files first and then calls
-// DeleteJobs — in that order a crash in between leaves rows that the next
-// sweep re-selects, instead of orphaned files no row references anymore.
-func (s *Store) TerminalBefore(ctx context.Context, cutoff time.Time) (ids, paths []string, err error) {
+// TerminalBefore lists up to limit completed/failed jobs finished before
+// cutoff, oldest first, with their result file paths. The caller removes
+// the files first and then calls DeleteJobs — in that order a crash in
+// between leaves rows that the next sweep re-selects, instead of orphaned
+// files no row references anymore. The limit bounds one housekeeping pass;
+// the sweeper loops until a pass comes back short.
+func (s *Store) TerminalBefore(ctx context.Context, cutoff time.Time, limit int) (ids, paths []string, err error) {
 	rows, err := s.db.QueryContext(ctx, `SELECT id, result_path FROM jobs
-		WHERE state IN (?, ?) AND completed_at < ?`,
-		StateCompleted, StateFailed, ts(cutoff))
+		WHERE state IN (?, ?) AND completed_at < ?
+		ORDER BY completed_at LIMIT ?`,
+		StateCompleted, StateFailed, ts(cutoff), limit)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -527,11 +530,25 @@ func (s *Store) TerminalBefore(ctx context.Context, cutoff time.Time) (ids, path
 	return ids, paths, rows.Err()
 }
 
-// DeleteJobs removes the given jobs (their events cascade).
+// deleteChunk caps the ids per DELETE statement. One id is one bound
+// parameter and SQLite refuses statements with more than 32766 of them, so
+// an unchunked delete of a large backlog would fail on every sweep and the
+// database would grow without bound.
+const deleteChunk = 500
+
+// DeleteJobs removes the given jobs (their events cascade), in chunks of
+// deleteChunk ids. Each chunk is its own statement: a crash between chunks
+// leaves rows the next sweep re-selects, never a half-applied statement.
 func (s *Store) DeleteJobs(ctx context.Context, ids []string) error {
-	if len(ids) == 0 {
-		return nil
+	for start := 0; start < len(ids); start += deleteChunk {
+		if err := s.deleteJobChunk(ctx, ids[start:min(start+deleteChunk, len(ids))]); err != nil {
+			return err
+		}
 	}
+	return nil
+}
+
+func (s *Store) deleteJobChunk(ctx context.Context, ids []string) error {
 	placeholders := strings.Repeat("?,", len(ids)-1) + "?"
 	args := make([]any, len(ids))
 	for i, id := range ids {

@@ -881,3 +881,44 @@ func TestUnknownTargetAtProcessingTime(t *testing.T) {
 		t.Fatalf("state=%s code=%s", job.State, job.ErrorCode)
 	}
 }
+
+// A retention backlog larger than one batch is drained in one sweep, batch
+// by batch, with every result file removed before its row.
+func TestSweepPrunesBacklogInBatches(t *testing.T) {
+	prev := pruneBatch
+	pruneBatch = 3
+	t.Cleanup(func() { pruneBatch = prev })
+	cfg := baseConfig(t)
+	cfg.Storage.Retention = dur(0)
+	st := openStore(t)
+	ctx := context.Background()
+	var ids, files []string
+	for i := 0; i < 7; i++ {
+		id := createJob(t, st, "demo", `{}`, 3)
+		path := filepath.Join(t.TempDir(), id+".zip")
+		if err := os.WriteFile(path, []byte("PK"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		if err := st.MarkCompleted(ctx, id, 200, nil, path, "application/zip", ""); err != nil {
+			t.Fatal(err)
+		}
+		ids, files = append(ids, id), append(files, path)
+	}
+	time.Sleep(5 * time.Millisecond) // completed_at strictly before the cutoff
+	var logs syncBuffer
+	p := New(cfg, st, upstream.New(1<<20, nil), slog.New(slog.NewTextHandler(&logs, nil)), nil)
+	p.sweep(ctx)
+	for _, id := range ids {
+		if _, err := st.GetJob(ctx, id); err == nil {
+			t.Errorf("job %s survived a multi-batch prune", id)
+		}
+	}
+	for _, f := range files {
+		if _, err := os.Stat(f); !os.IsNotExist(err) {
+			t.Errorf("result file %s survived the prune", f)
+		}
+	}
+	if !strings.Contains(logs.String(), "jobs=7") || !strings.Contains(logs.String(), "result_files=7") {
+		t.Errorf("sweep summary must report totals across batches:\n%s", logs.String())
+	}
+}

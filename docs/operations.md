@@ -113,8 +113,10 @@ A background sweeper (every `cache.cleanup_interval`):
 - rescues jobs stranded in `resolving`/`forwarding` without a schedule (a
   failed bookkeeping write) once they are untouched for twice
   `worker.job_timeout`;
-- prunes terminal jobs older than `storage.retention`, deleting their result
-  files before their rows so a crash in between never orphans a file.
+- prunes terminal jobs older than `storage.retention` in batches of 1,000
+  until the backlog is drained, deleting each batch's result files before
+  its rows so a crash in between never orphans a file. A first sweep after a
+  long downtime therefore takes several passes instead of one huge delete.
 
 ## Roadmap notes (v2)
 
