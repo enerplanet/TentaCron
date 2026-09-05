@@ -74,3 +74,36 @@ func (s *Server) withRecovery(next http.Handler) http.Handler {
 		next.ServeHTTP(w, r)
 	})
 }
+
+// withCORS lets configured browser origins call the API directly: it answers
+// preflights and marks responses for exactly those origins. An origin that
+// is not configured gets no CORS headers at all, so the browser blocks the
+// call; with no origins configured the middleware is a no-op.
+func (s *Server) withCORS(next http.Handler) http.Handler {
+	allowed := map[string]bool{}
+	for _, origin := range s.cfg.Server.CORS.AllowedOrigins {
+		allowed[origin] = true
+	}
+	if len(allowed) == 0 {
+		return next
+	}
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		origin := r.Header.Get("Origin")
+		if origin == "" || !allowed[origin] {
+			next.ServeHTTP(w, r)
+			return
+		}
+		h := w.Header()
+		h.Set("Access-Control-Allow-Origin", origin)
+		h.Add("Vary", "Origin")
+		h.Set("Access-Control-Expose-Headers", "X-Request-ID, Allow, Content-Disposition, Content-Length, Content-Range, Accept-Ranges")
+		if r.Method == http.MethodOptions && r.Header.Get("Access-Control-Request-Method") != "" {
+			h.Set("Access-Control-Allow-Methods", "GET, HEAD, POST, OPTIONS")
+			h.Set("Access-Control-Allow-Headers", "Content-Type, X-API-Key, Idempotency-Key, X-Request-ID, Range")
+			h.Set("Access-Control-Max-Age", "600")
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
+}

@@ -60,6 +60,16 @@ type Server struct {
 	// LogLevel is the minimum level written to the structured log: debug,
 	// info (default), warn or error.
 	LogLevel string `yaml:"log_level"`
+	// CORS lists the browser origins allowed to call the API directly.
+	CORS CORS `yaml:"cors"`
+}
+
+// CORS configures cross-origin access for browser frontends. Origins match
+// exactly (scheme, host, port); there is no wildcard, because a key held in a
+// browser should be confined to the frontend it belongs to. Empty disables
+// CORS handling entirely.
+type CORS struct {
+	AllowedOrigins []string `yaml:"allowed_origins"`
 }
 
 // SlogLevel maps the configured log level onto slog; an unknown value (which

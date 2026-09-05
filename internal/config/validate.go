@@ -74,6 +74,20 @@ func (v *validator) server(s Server) {
 			v.fail("server.metrics_addr: %q is not a host:port listen address", s.MetricsAddr)
 		}
 	}
+	for i, origin := range s.CORS.AllowedOrigins {
+		if !validOrigin(origin) {
+			v.fail("server.cors.allowed_origins[%d]: %q must be an exact origin like https://app.example.org (no path, no wildcard)", i, origin)
+		}
+	}
+}
+
+// validOrigin accepts scheme://host[:port] and nothing else.
+func validOrigin(origin string) bool {
+	u, err := url.Parse(origin)
+	if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" || u.User != nil {
+		return false
+	}
+	return u.Path == "" && u.RawQuery == "" && u.Fragment == "" && !strings.Contains(u.Host, "*")
 }
 
 func (v *validator) storage(s Storage) {

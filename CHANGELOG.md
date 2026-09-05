@@ -10,6 +10,9 @@ under "Changed" with the keys or fields concerned.
 
 ### Added
 
+- `server.cors.allowed_origins` lets browser frontends on exactly those
+  origins call the API directly: preflights are answered and the request id,
+  download and range headers are exposed. Off by default; no wildcards.
 - An OpenAPI 3.1 description of the API, served by the running service at
   `GET /openapi.yaml`, rendered on the docs site and validated in CI; a test
   keeps it in lockstep with the registered routes.

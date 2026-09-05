@@ -36,3 +36,16 @@ func TestObservabilityDefaultsAndValidation(t *testing.T) {
 		}
 	}
 }
+
+func TestCORSOriginValidation(t *testing.T) {
+	cfg, err := Load(writeConfig(t, minimalYAML+"server:\n  cors:\n    allowed_origins: [\"https://app.example.org\", \"http://localhost:5173\"]\n"))
+	if err != nil || len(cfg.Server.CORS.AllowedOrigins) != 2 {
+		t.Fatalf("valid origins: %v (err %v)", cfg.Server.CORS.AllowedOrigins, err)
+	}
+	for _, origin := range []string{"*", "app.example.org", "https://app.example.org/", "https://app.example.org/path", "https://*.example.org", "ftp://x", "https://user@app.example.org"} {
+		_, err := Load(writeConfig(t, minimalYAML+"server:\n  cors:\n    allowed_origins: [\""+origin+"\"]\n"))
+		if err == nil || !strings.Contains(err.Error(), "server.cors.allowed_origins[0]") {
+			t.Errorf("origin %q must be rejected, got %v", origin, err)
+		}
+	}
+}

@@ -42,6 +42,13 @@ reads every request. The key's name identifies the client in logs
 answers `400 invalid_parameter`); an `X-Request-ID` longer than 128
 characters is replaced by a generated id.
 
+**Browsers.** A frontend may call the API directly from the origins listed
+under `server.cors.allowed_origins` (exact matches, no wildcards): preflights
+are answered, `X-Request-ID`, `Content-Disposition` and the range headers are
+exposed. Any other origin receives no CORS headers. A key embedded in a
+browser is visible to its users; a backend-for-frontend keeps it server-side
+where that matters.
+
 Every response carries an `X-Request-ID` header — echoed from the request
 when supplied, generated otherwise — which is also the `request_id` field of
 the corresponding log line.
