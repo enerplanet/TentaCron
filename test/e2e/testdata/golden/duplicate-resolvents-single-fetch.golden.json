@@ -84,6 +84,39 @@
     }
   },
   {
+    "content_type": "application/json",
+    "request": "GET /v1/requests/«job-1»/events",
+    "response": {
+      "items": [
+        {
+          "created_at": "«ts»",
+          "detail": "job accepted",
+          "to_state": "received"
+        },
+        {
+          "created_at": "«ts»",
+          "detail": "claimed by worker",
+          "from_state": "received",
+          "to_state": "resolving"
+        },
+        {
+          "created_at": "«ts»",
+          "detail": "resolved 3 resolvent(s), 0 from cache",
+          "from_state": "resolving",
+          "to_state": "forwarding"
+        },
+        {
+          "created_at": "«ts»",
+          "detail": "target responded with status 200",
+          "from_state": "forwarding",
+          "to_state": "completed"
+        }
+      ]
+    },
+    "status": 200,
+    "step": "audit trail through the api"
+  },
+  {
     "buem_building_calls": 0,
     "buem_calls": 0,
     "demo_calls": 1,

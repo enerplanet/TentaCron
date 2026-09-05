@@ -342,6 +342,43 @@ func (s *Server) serveResultFile(w http.ResponseWriter, job *store.Job) {
 	_, _ = io.Copy(w, f)
 }
 
+// eventTimeLayout keeps the store's millisecond precision: several
+// transitions of one job often fall into the same second.
+const eventTimeLayout = "2006-01-02T15:04:05.000Z07:00"
+
+type eventResponse struct {
+	FromState string `json:"from_state,omitempty"`
+	ToState   string `json:"to_state"`
+	Detail    string `json:"detail"`
+	CreatedAt string `json:"created_at"`
+}
+
+// handleEvents serves a job's audit trail in chronological order, under the
+// same read scoping as the job itself.
+func (s *Server) handleEvents(w http.ResponseWriter, r *http.Request) {
+	id, ok := s.authFromHeader(w, r)
+	if !ok {
+		return
+	}
+	job, ok := s.jobForCaller(w, r, id)
+	if !ok {
+		return
+	}
+	events, err := s.store.ListEvents(r.Context(), job.ID)
+	if err != nil {
+		s.internalError(w, "list events failed", err)
+		return
+	}
+	items := make([]eventResponse, 0, len(events))
+	for _, e := range events {
+		items = append(items, eventResponse{
+			FromState: e.FromState, ToState: e.ToState, Detail: e.Detail,
+			CreatedAt: e.CreatedAt.UTC().Format(eventTimeLayout),
+		})
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"items": items})
+}
+
 func (s *Server) handleHealthz(w http.ResponseWriter, _ *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]string{"status": "ok", "version": s.Build.Version})
 }

@@ -131,8 +131,9 @@ sqlite3 data/tentacron.db "select resolvent_type, count(*), min(expires_at)
 ```
 
 `jobs.payload` holds the request as accepted (client key stripped),
-`jobs.resolved_payload` what was forwarded. Or via the API:
-`GET /v1/requests?state=failed`.
+`jobs.resolved_payload` what was forwarded. The same audit trail is served
+by `GET /v1/requests/{id}/events`, and `GET /v1/requests?state=failed` lists
+recent failures, so most inspection needs no database access.
 
 ## Failure handling
 

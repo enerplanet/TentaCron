@@ -42,6 +42,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /v1/requests", s.handleList)
 	mux.HandleFunc("GET /v1/requests/{id}", s.handleGet)
 	mux.HandleFunc("GET /v1/requests/{id}/result", s.handleResult)
+	mux.HandleFunc("GET /v1/requests/{id}/events", s.handleEvents)
 	mux.HandleFunc("GET /healthz", s.handleHealthz)
 	mux.HandleFunc("GET /readyz", s.handleReadyz)
 	mux.HandleFunc("GET /version", s.handleVersion)

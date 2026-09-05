@@ -627,3 +627,40 @@ func TestVersionAndHealthzReportTheBuild(t *testing.T) {
 		t.Errorf("/healthz = %v", health)
 	}
 }
+
+// The audit trail is readable through the API, oldest first, under the same
+// scoping as the job.
+func TestEventsEndpoint(t *testing.T) {
+	e := newEnvWith(t, func(c *config.Config) {
+		c.Auth.APIKeys = append(c.Auth.APIKeys, config.APIKey{Name: "other", Key: "other-key", Role: config.RoleClient})
+	}, nil)
+	created := decodeBody[createResponse](t, e.do(t, "POST", "/v1/requests", validBody, nil))
+	ctx := context.Background()
+	if _, err := e.store.ClaimNext(ctx, func(string) time.Duration { return time.Minute }); err != nil {
+		t.Fatal(err)
+	}
+	if err := e.store.MarkFailed(ctx, created.ID, "target_error", "boom"); err != nil {
+		t.Fatal(err)
+	}
+	rec := e.do(t, "GET", "/v1/requests/"+created.ID+"/events", "", authHdr)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("events: %d %s", rec.Code, rec.Body.String())
+	}
+	items := decodeBody[map[string][]eventResponse](t, rec)["items"]
+	if len(items) != 3 || items[0].FromState != "" || items[0].ToState != "received" ||
+		items[1].ToState != "resolving" || items[2].ToState != "failed" || !strings.Contains(items[2].Detail, "boom") {
+		t.Errorf("events = %+v", items)
+	}
+	if !regexp.MustCompile(`^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$`).MatchString(items[0].CreatedAt) {
+		t.Errorf("created_at must be UTC with millisecond precision, got %q", items[0].CreatedAt)
+	}
+	if rec := e.do(t, "GET", "/v1/requests/"+created.ID+"/events", "", map[string]string{"X-API-Key": "other-key"}); rec.Code != http.StatusNotFound {
+		t.Errorf("another client's events: %d, want 404", rec.Code)
+	}
+	if rec := e.do(t, "GET", "/v1/requests/"+created.ID+"/events", "", nil); rec.Code != http.StatusUnauthorized {
+		t.Errorf("unauthenticated: %d, want 401", rec.Code)
+	}
+	if rec := e.do(t, "GET", "/v1/requests/0123456789abcdef0123456789abcdef/events", "", authHdr); rec.Code != http.StatusNotFound {
+		t.Errorf("unknown id: %d, want 404", rec.Code)
+	}
+}

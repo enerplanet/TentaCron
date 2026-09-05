@@ -131,6 +131,7 @@ docker run -d -p 8080:8080 \
 | `POST /v1/requests` | Submit `{target, payload}`; returns `202` + id. Supports an `Idempotency-Key` header. |
 | `GET /v1/requests/{id}` | State, attempts, result (inline JSON or `result.href`), error. |
 | `GET /v1/requests/{id}/result` | Streams a stored result (inline JSON or a result file such as a MEME bundle). |
+| `GET /v1/requests/{id}/events` | The request's audit trail: every state transition with its detail. |
 | `GET /v1/requests?state=failed&limit=50` | List the caller's recent requests, newest first (every client's for an `admin` key). |
 | `GET /healthz`, `GET /readyz`, `GET /version` | Liveness, readiness, build. |
 

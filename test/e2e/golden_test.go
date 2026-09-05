@@ -71,6 +71,7 @@ var resolutionScenarios = []scenario{
 			id := h.post("submit payload with duplicate resolvents", requestBody("demo", payload), nil)
 			h.await("final state", id)
 			h.forwarded("both duplicate slots substituted from one fetch", "demo")
+			h.get("audit trail through the api", "/v1/requests/"+id+"/events", map[string]string{"X-API-Key": clientKey})
 			h.counts()
 		},
 	},

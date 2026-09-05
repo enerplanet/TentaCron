@@ -134,6 +134,25 @@ content type (e.g. `application/zip`). `404 not_found` while the job is not
 completed, when it completed without a result body, or after the result was
 pruned by retention.
 
+## GET /v1/requests/{id}/events
+
+The request's audit trail, oldest first — every state transition with the
+detail the worker recorded (claims, resolution counts, target acceptance,
+retries with their backoff, the terminal outcome). Same scoping as the
+request itself.
+
+```json
+{ "items": [
+  { "to_state": "received", "detail": "job accepted", "created_at": "2026-09-03T10:15:04.120Z" },
+  { "from_state": "received", "to_state": "resolving", "detail": "claimed by worker", "created_at": "2026-09-03T10:15:04.131Z" },
+  { "from_state": "resolving", "to_state": "forwarding", "detail": "resolved 2 resolvent(s), 1 from cache", "created_at": "2026-09-03T10:15:05.802Z" }
+] }
+```
+
+Timestamps carry millisecond precision. Poll ticks are deliberately not
+recorded (they would flood the trail); their outcome is the final
+transition.
+
 ## GET /v1/requests
 
 List recent requests, newest first — a client's own requests, or every

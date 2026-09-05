@@ -10,6 +10,9 @@ under "Changed" with the keys or fields concerned.
 
 ### Added
 
+- `GET /v1/requests/{id}/events` serves a request's audit trail (every
+  state transition with its detail and a millisecond timestamp) under the
+  same read scoping as the request.
 - `X-API-Key` header authentication on `POST /v1/requests`, matching the
   read endpoints; a header wins over the body field. Keys carry a `role`:
   `client` (default) sees only the requests it submitted, `admin` sees
