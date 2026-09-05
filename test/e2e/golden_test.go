@@ -833,6 +833,23 @@ var apiContractScenarios = []scenario{
 		},
 	},
 	{
+		// A delayed run: not_before keeps the request in received until the
+		// time arrives, visible in the audit trail and echoed by GET for the
+		// job's whole life; the queue then runs it like any other request.
+		name: "delayed-request",
+		run: func(t *testing.T, h *harness) {
+			auth := map[string]string{"X-API-Key": clientKey}
+			soon := time.Now().Add(700 * time.Millisecond).UTC().Format(time.RFC3339)
+			id := h.post("submit with not_before shortly ahead", `{"target":"demo","payload":{"time-series":[]},"not_before":"`+soon+`"}`, auth)
+			h.get("still received while it waits", "/v1/requests/"+id, auth)
+			h.await("it runs once the time arrives", id)
+			h.get("not_before stays on the finished request", "/v1/requests/"+id, auth)
+			h.events("audit trail", id)
+			h.post("a not_before more than 30 days ahead is refused", `{"target":"demo","payload":{},"not_before":"`+time.Now().Add(31*24*time.Hour).UTC().Format(time.RFC3339)+`"}`, auth)
+			h.post("a malformed not_before is refused", `{"target":"demo","payload":{},"not_before":"tomorrow"}`, auth)
+		},
+	},
+	{
 		// ?wait= turns the status read into a long poll: one call returns
 		// the terminal state as soon as the worker gets there, instead of a
 		// client-side polling loop.

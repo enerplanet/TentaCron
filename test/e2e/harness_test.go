@@ -839,7 +839,7 @@ func scrubTimes(v any) any {
 		return v
 	}
 	scrub := func(obj map[string]any) {
-		for _, k := range []string{"created_at", "updated_at", "completed_at"} {
+		for _, k := range []string{"created_at", "updated_at", "completed_at", "not_before"} {
 			if _, present := obj[k]; present {
 				obj[k] = "«ts»"
 			}

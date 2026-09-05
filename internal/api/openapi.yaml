@@ -538,6 +538,10 @@ components:
               enum: [use, bypass, refresh]
               default: use
               description: "`bypass` neither reads nor writes the series cache; `refresh` fetches fresh and writes."
+        not_before:
+          type: string
+          format: date-time
+          description: Delays the run until this time (RFC 3339, at most 30 days ahead). The request is accepted at once and stays `received` until then; it can be cancelled meanwhile.
         api_key:
           type: string
           deprecated: true
@@ -571,6 +575,10 @@ components:
         target_job_id:
           type: string
           description: The asynchronous target's own job id, once accepted.
+        not_before:
+          type: string
+          format: date-time
+          description: Present for a delayed run — the earliest time it could be claimed.
         created_at: { type: string, format: date-time }
         updated_at: { type: string, format: date-time }
         completed_at: { type: string, format: date-time }

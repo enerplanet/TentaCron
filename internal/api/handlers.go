@@ -30,7 +30,12 @@ type createRequest struct {
 	Priority *int `json:"priority"`
 	// Options are per-request processing choices.
 	Options *requestOptions `json:"options"`
+	// NotBefore delays the run: RFC 3339, at most 30 days ahead.
+	NotBefore string `json:"not_before,omitempty"`
 }
+
+// maxNotBeforeAhead bounds how far a delayed run may be scheduled.
+const maxNotBeforeAhead = 30 * 24 * time.Hour
 
 type requestOptions struct {
 	// Cache is use (default), bypass or refresh.
@@ -126,8 +131,17 @@ func validateCreateRequest(req createRequest) (status int, code, msg string) {
 }
 
 // validateSubmission checks the fields of one submission — target, payload,
-// priority, options — shared by create and every batch item.
+// priority, options, not_before — shared by create and every batch item.
 func validateSubmission(req createRequest) (status int, code, msg string) {
+	if req.NotBefore != "" {
+		t, err := time.Parse(time.RFC3339, req.NotBefore)
+		switch {
+		case err != nil:
+			return http.StatusBadRequest, CodeInvalidParameter, "not_before must be an RFC 3339 timestamp"
+		case time.Until(t) > maxNotBeforeAhead:
+			return http.StatusBadRequest, CodeInvalidParameter, "not_before must be at most 30 days ahead"
+		}
+	}
 	switch {
 	case req.Target == "":
 		return http.StatusBadRequest, CodeMissingField, "target is required"
@@ -287,6 +301,10 @@ func (s *Server) storeSubmission(ctx context.Context, req createRequest, client,
 	if req.Priority != nil {
 		job.Priority = *req.Priority
 	}
+	if req.NotBefore != "" {
+		t, _ := time.Parse(time.RFC3339, req.NotBefore) // validated by validateSubmission
+		job.NotBefore = &t
+	}
 	created, stored, err = s.store.CreateJob(ctx, job)
 	if err != nil {
 		return nil, false, err
@@ -414,6 +432,7 @@ type jobResponse struct {
 	Priority    int         `json:"priority,omitempty"`
 	Options     *jobOptions `json:"options,omitempty"`
 	TargetJobID string      `json:"target_job_id,omitempty"`
+	NotBefore   *string     `json:"not_before,omitempty"`
 	CreatedAt   string      `json:"created_at"`
 	UpdatedAt   string      `json:"updated_at"`
 	CompletedAt *string     `json:"completed_at,omitempty"`
@@ -859,6 +878,10 @@ func toJobResponse(j *store.Job) jobResponse {
 	if j.CompletedAt != nil {
 		s := j.CompletedAt.UTC().Format(time.RFC3339)
 		resp.CompletedAt = &s
+	}
+	if j.NotBefore != nil {
+		s := j.NotBefore.UTC().Format(time.RFC3339)
+		resp.NotBefore = &s
 	}
 	if !j.Options.IsZero() {
 		resp.Options = &jobOptions{Cache: j.Options.Cache}

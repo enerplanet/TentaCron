@@ -1,0 +1,107 @@
+[
+  {
+    "request": "POST /v1/requests",
+    "response": {
+      "id": "«job-1»",
+      "links": {
+        "self": "/v1/requests/«job-1»"
+      },
+      "state": "received"
+    },
+    "status": 202,
+    "step": "submit with not_before shortly ahead"
+  },
+  {
+    "content_type": "application/json",
+    "request": "GET /v1/requests/«job-1»",
+    "response": {
+      "attempts": 0,
+      "created_at": "«ts»",
+      "error": null,
+      "id": "«job-1»",
+      "not_before": "«ts»",
+      "result": null,
+      "state": "received",
+      "target": "demo",
+      "updated_at": "«ts»"
+    },
+    "status": 200,
+    "step": "still received while it waits"
+  },
+  {
+    "request": "GET /v1/requests/{id}",
+    "response": {
+      "attempts": 1,
+      "completed_at": "«ts»",
+      "created_at": "«ts»",
+      "error": null,
+      "id": "«job-1»",
+      "not_before": "«ts»",
+      "result": {
+        "target_response": {
+          "ok": true
+        },
+        "target_status": 200
+      },
+      "state": "completed",
+      "target": "demo",
+      "updated_at": "«ts»"
+    },
+    "status": 200,
+    "step": "it runs once the time arrives"
+  },
+  {
+    "content_type": "application/json",
+    "request": "GET /v1/requests/«job-1»",
+    "response": {
+      "attempts": 1,
+      "completed_at": "«ts»",
+      "created_at": "«ts»",
+      "error": null,
+      "id": "«job-1»",
+      "not_before": "«ts»",
+      "result": {
+        "target_response": {
+          "ok": true
+        },
+        "target_status": 200
+      },
+      "state": "completed",
+      "target": "demo",
+      "updated_at": "«ts»"
+    },
+    "status": 200,
+    "step": "not_before stays on the finished request"
+  },
+  {
+    "audit_trail": [
+      "∅ → received: job accepted, delayed",
+      "received → resolving: claimed by worker",
+      "resolving → forwarding: resolved 0 resolvent(s), 0 from cache",
+      "forwarding → completed: target responded with status 200"
+    ],
+    "step": "audit trail"
+  },
+  {
+    "request": "POST /v1/requests",
+    "response": {
+      "error": {
+        "code": "invalid_parameter",
+        "message": "not_before must be at most 30 days ahead"
+      }
+    },
+    "status": 400,
+    "step": "a not_before more than 30 days ahead is refused"
+  },
+  {
+    "request": "POST /v1/requests",
+    "response": {
+      "error": {
+        "code": "invalid_parameter",
+        "message": "not_before must be an RFC 3339 timestamp"
+      }
+    },
+    "status": 400,
+    "step": "a malformed not_before is refused"
+  }
+]

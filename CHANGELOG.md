@@ -10,6 +10,9 @@ under "Changed" with the keys or fields concerned.
 
 ### Added
 
+- Delayed runs: `not_before` (RFC 3339, at most 30 days ahead) on a
+  submission or batch item keeps the request in `received` until then; GET
+  echoes it for the job's whole life and the audit trail marks the delay.
 - Resolvent chaining: a field inside a resolvent object may reference a
   sibling's resolved series (`{"$from": "<name>", "path": "<path>"}`). The
   plan orders resolvents into dependency levels, rejects unknown or

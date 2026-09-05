@@ -66,6 +66,7 @@ Submit a request for orchestration.
 | `payload` | object | The body to resolve and forward to the target. Must be a JSON object. |
 | `priority` | integer | Optional, `-10`..`10`, default `0`. Higher priorities are claimed first; each key may be capped by `max_priority` in its configuration. |
 | `options.cache` | string | Optional: `use` (default) reads and writes the series cache, `refresh` fetches every resolvent fresh and rewrites its cache entry, `bypass` fetches fresh and leaves the cache alone. |
+| `not_before` | string | Optional RFC 3339 time, at most 30 days ahead: the request is accepted at once but stays `received` until then (a delayed run). It can be cancelled meanwhile; a time in the past runs at once. |
 
 Inside the payload, a field of a resolvent object may reference a sibling
 resolvent's resolved series instead of holding a literal:
@@ -95,8 +96,9 @@ job as `invalid_payload` before any call. See
 - `400 missing_field` — no API key (neither header nor field), or `target`
   or `payload` absent (or `null`)
 - `400 invalid_parameter` — `Idempotency-Key` longer than 255 bytes, a
-  `priority` outside `-10`..`10` or above the key's `max_priority`, or an
-  unknown `options.cache`
+  `priority` outside `-10`..`10` or above the key's `max_priority`, an
+  unknown `options.cache`, or a `not_before` that is malformed or more than
+  30 days ahead
 - `401 unauthorized` — unknown API key
 - `409 idempotency_conflict` — `Idempotency-Key` already used with a
   different target or payload
@@ -213,7 +215,8 @@ state is terminal.
 - `priority` appears when it is not the default `0`; `options` when any
   option differs from its default (`{ "cache": "refresh" }`).
 - `target_job_id` appears once a poll-mode target accepted the job;
-  `completed_at` once the job is terminal (completed, failed or cancelled).
+  `completed_at` once the job is terminal (completed, failed or cancelled);
+  `not_before` for a delayed run, for the job's whole life.
 - `result` is `null` until the job is `completed`. JSON results up to
   256 KiB are embedded as `result.target_response`; larger or non-JSON
   results (e.g. a MEME zip bundle) are stored as files and referenced as

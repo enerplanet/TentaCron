@@ -64,6 +64,9 @@ type Job struct {
 	Attempts       int
 	MaxAttempts    int
 	NextAttemptAt  *time.Time
+	// NotBefore is the earliest time the job may be claimed (a delayed run);
+	// nil means at once.
+	NotBefore *time.Time
 	// Priority orders claims: higher first, -10..10, default 0.
 	Priority int
 	// Options are the processing choices the client made for this job.
@@ -134,7 +137,7 @@ func NewID() (string, error) {
 	return hex.EncodeToString(b), nil
 }
 
-const jobColumns = `rowid, id, client, idempotency_key, target, state, attempts, max_attempts, priority, options,
+const jobColumns = `rowid, id, client, idempotency_key, target, state, attempts, max_attempts, priority, options, not_before,
 	next_attempt_at, payload, resolved_payload, target_job_id, poll_deadline,
 	target_status, target_response, result_path, result_content_type,
 	error_code, error_message, created_at, updated_at, completed_at`
@@ -147,6 +150,7 @@ type jobRow struct {
 	job                                   Job
 	options                               string
 	idem, nextAt, targetJobID, pollDL     sql.NullString
+	notBefore                             sql.NullString
 	resultPath, resultCT, errCode, errMsg sql.NullString
 	createdAt, updatedAt, completedAt     sql.NullString
 	targetStatus                          sql.NullInt64
@@ -155,7 +159,7 @@ type jobRow struct {
 func scanJob(r rowScanner) (*Job, error) {
 	var row jobRow
 	j := &row.job
-	err := r.Scan(&j.Seq, &j.ID, &j.Client, &row.idem, &j.Target, &j.State, &j.Attempts, &j.MaxAttempts, &j.Priority, &row.options,
+	err := r.Scan(&j.Seq, &j.ID, &j.Client, &row.idem, &j.Target, &j.State, &j.Attempts, &j.MaxAttempts, &j.Priority, &row.options, &row.notBefore,
 		&row.nextAt, &j.Payload, &j.ResolvedPayload, &row.targetJobID, &row.pollDL,
 		&row.targetStatus, &j.TargetResponse, &row.resultPath, &row.resultCT,
 		&row.errCode, &row.errMsg, &row.createdAt, &row.updatedAt, &row.completedAt)
@@ -184,6 +188,13 @@ func (row *jobRow) toJob() (*Job, error) {
 	}
 	if err := row.parseTimes(j); err != nil {
 		return nil, err
+	}
+	if row.notBefore.Valid {
+		t, err := parseTS(row.notBefore.String)
+		if err != nil {
+			return nil, fmt.Errorf("job %s: not_before: %w", j.ID, err)
+		}
+		j.NotBefore = &t
 	}
 	return j, nil
 }
@@ -243,7 +254,11 @@ func (s *Store) createJobOnce(ctx context.Context, j *Job) (created bool, stored
 		}
 		return false, nil, fmt.Errorf("insert job: %w", err)
 	}
-	if err := appendEventTx(ctx, tx, j.ID, "", StateReceived, "job accepted", now); err != nil {
+	detail := "job accepted"
+	if j.NotBefore != nil {
+		detail = "job accepted, delayed"
+	}
+	if err := appendEventTx(ctx, tx, j.ID, "", StateReceived, detail, now); err != nil {
 		_ = tx.Rollback()
 		return false, nil, err
 	}
@@ -255,14 +270,19 @@ func (s *Store) createJobOnce(ctx context.Context, j *Job) (created bool, stored
 }
 
 func insertJob(ctx context.Context, tx *sql.Tx, j *Job, now time.Time) error {
-	var idem any
+	var idem, notBefore any
 	if j.IdempotencyKey != "" {
 		idem = j.IdempotencyKey
 	}
+	if j.NotBefore != nil {
+		// A delayed run: the claim query skips the job until then, exactly
+		// as it skips a retry waiting out its backoff.
+		notBefore = ts(*j.NotBefore)
+	}
 	_, err := tx.ExecContext(ctx, `INSERT INTO jobs
-		(id, client, idempotency_key, target, state, attempts, max_attempts, priority, options, payload, created_at, updated_at)
-		VALUES (?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?)`,
-		j.ID, j.Client, idem, j.Target, StateReceived, j.MaxAttempts, j.Priority, j.Options.encode(), j.Payload, ts(now), ts(now))
+		(id, client, idempotency_key, target, state, attempts, max_attempts, priority, options, payload, not_before, next_attempt_at, created_at, updated_at)
+		VALUES (?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		j.ID, j.Client, idem, j.Target, StateReceived, j.MaxAttempts, j.Priority, j.Options.encode(), j.Payload, notBefore, notBefore, ts(now), ts(now))
 	return err
 }
 

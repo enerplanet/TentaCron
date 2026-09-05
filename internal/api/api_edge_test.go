@@ -1151,3 +1151,50 @@ func validPayloadOf(body string) string {
 	_ = json.Unmarshal([]byte(body), &doc)
 	return string(doc["payload"])
 }
+
+// not_before is validated at accept, seeds the queue time so the job is not
+// claimed early, and is echoed by GET for the job's whole life.
+func TestNotBeforeDelaysTheRun(t *testing.T) {
+	e := newEnv(t)
+	future := time.Now().Add(time.Hour).UTC().Truncate(time.Second)
+	body := `{"target":"meme","payload":{},"not_before":"` + future.Format(time.RFC3339) + `"}`
+	rec := e.do(t, "POST", "/v1/requests", body, authHdr)
+	if rec.Code != http.StatusAccepted {
+		t.Fatalf("%d %s", rec.Code, rec.Body.String())
+	}
+	id := decodeBody[createResponse](t, rec).ID
+	job, err := e.store.GetJob(context.Background(), id)
+	if err != nil || job.NotBefore == nil || !job.NotBefore.Equal(future) || job.NextAttemptAt == nil || !job.NextAttemptAt.Equal(future) {
+		t.Fatalf("stored job = %+v (%v)", job, err)
+	}
+	if claimed, _ := e.store.ClaimNext(context.Background(), store.ClaimPolicy{}); claimed != nil {
+		t.Errorf("a delayed job must not be claimed before its time: %+v", claimed)
+	}
+	got := decodeBody[jobResponse](t, e.do(t, "GET", "/v1/requests/"+id, "", authHdr))
+	if got.NotBefore == nil || *got.NotBefore != future.Format(time.RFC3339) || got.State != store.StateReceived {
+		t.Errorf("GET = %+v", got)
+	}
+	for body, want := range map[string]string{
+		`{"target":"meme","payload":{},"not_before":"tomorrow"}`:                                                           "RFC 3339",
+		`{"target":"meme","payload":{},"not_before":"` + time.Now().Add(31*24*time.Hour).UTC().Format(time.RFC3339) + `"}`: "30 days",
+	} {
+		rec := e.do(t, "POST", "/v1/requests", body, authHdr)
+		if rec.Code != http.StatusBadRequest || errCode(t, rec) != CodeInvalidParameter || !strings.Contains(rec.Body.String(), want) {
+			t.Errorf("%s: %d %s", body, rec.Code, rec.Body.String())
+		}
+	}
+	// A time in the past is accepted and simply runs at once.
+	past := `{"target":"meme","payload":{"p":1},"not_before":"2020-01-01T00:00:00Z"}`
+	if rec := e.do(t, "POST", "/v1/requests", past, authHdr); rec.Code != http.StatusAccepted {
+		t.Errorf("past not_before: %d %s", rec.Code, rec.Body.String())
+	}
+	if claimed, _ := e.store.ClaimNext(context.Background(), store.ClaimPolicy{}); claimed == nil || claimed.NotBefore == nil {
+		t.Errorf("the past-dated job must be claimable now: %+v", claimed)
+	}
+	// Batch items take not_before too.
+	rec = e.do(t, "POST", "/v1/requests/batch", `{"requests":[{"target":"meme","payload":{},"not_before":"`+future.Format(time.RFC3339)+`"},{"target":"meme","payload":{},"not_before":"nope"}]}`, authHdr)
+	items := decodeBody[map[string][]batchResult](t, rec)["items"]
+	if rec.Code != http.StatusAccepted || items[0].Error != nil || items[1].Error == nil || items[1].Error.Code != CodeInvalidParameter {
+		t.Errorf("batch: %d %s", rec.Code, rec.Body.String())
+	}
+}
