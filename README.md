@@ -67,7 +67,7 @@ by the golden E2E suite; replace the example hosts with your deployments.
 ## Quickstart
 
 ```bash
-# 1. Build (Go >= 1.25)
+# 1. Build (Go >= 1.26)
 make build
 
 # 2. Configure — copy the reference config and export the referenced secrets

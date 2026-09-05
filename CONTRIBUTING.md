@@ -70,7 +70,7 @@ Examples: `fix/poll-deadline-race`, `feat/resolvent-ignis-match`,
 
 ### 3) Make your changes
 
-Keep changes focused and small where possible. Go >= 1.25 is required
+Keep changes focused and small where possible. Go >= 1.26 is required
 (`go.mod`); the containerized environment in [environment/](environment/)
 provides the toolchain if you prefer not to install it.
 

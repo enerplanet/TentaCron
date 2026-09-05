@@ -8,6 +8,16 @@ follow [SemVer](https://semver.org/) once the first release is tagged.
 
 Initial development of the tentacron orchestration and resolvent API.
 
+### Changed
+
+- Build: Go 1.26 is now required. `go.mod` pins `go 1.26.0` with
+  `toolchain go1.26.8`, so builds no longer depend on whatever Go the host
+  happens to have; Go 1.25 has left the upstream support window and stopped
+  receiving security fixes.
+- CI reads the Go version from `go.mod`, pins golangci-lint instead of
+  tracking `latest`, and runs `govulncheck` on every push; Dependabot keeps
+  Go modules, GitHub Actions and the container base image current.
+
 ### Fixed
 
 - Target URL templating: a `null` payload field no longer fills a `{field}`

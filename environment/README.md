@@ -5,7 +5,7 @@ A single image that carries everything needed to **build**, **test**, and
 
 | Layer | What |
 |---|---|
-| Go 1.25 toolchain | build the service, run `go test ./...` |
+| Go 1.26 toolchain | build the service, run `go test ./...` |
 | GNU make | the container runs the same Make targets as a local checkout |
 | sqlite3 CLI | inspect the job store and audit trail (see [operations](../docs/operations.md)) |
 

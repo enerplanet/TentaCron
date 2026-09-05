@@ -3,14 +3,14 @@
 # Build-and-test environment for the tentacron service.
 #
 # One image that carries everything needed end-to-end:
-#   * Go 1.25 toolchain -> build the service and run `go test ./...`
+#   * Go 1.26 toolchain -> build the service and run `go test ./...`
 #   * make              -> the container runs the same targets as a local checkout
 #   * sqlite3 CLI       -> inspect the job store/audit trail (docs/operations.md)
 #
 # The repo root is bind-mounted at /src by docker-compose, so source edits are
 # picked up without a rebuild — only the toolchain layer is baked in.
 
-FROM golang:1.25-bookworm
+FROM golang:1.26-bookworm
 ENV GOTOOLCHAIN=local
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
