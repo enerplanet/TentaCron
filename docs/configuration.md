@@ -21,7 +21,7 @@ for a complete annotated example covering every integration below.
 | `read_timeout` | `10s` | HTTP read/read-header timeout. |
 | `write_timeout` | `30s` | HTTP write timeout. |
 | `shutdown_grace` | `20s` | Drain window on SIGTERM/SIGINT. |
-| `max_body_bytes` | `10485760` | Caps inbound request bodies **and** upstream response bodies. |
+| `max_body_bytes` | `10485760` | Caps inbound request bodies. Upstream responses have their own limit under `upstream`. |
 | `metrics_addr` | – (off) | `host:port` of a second listener that serves Prometheus metrics on `/metrics` only. Keep it off the public network; see [Operations → Metrics](operations.md#metrics). |
 | `log_level` | `info` | Minimum level written to the structured log: `debug`, `info`, `warn` or `error`. |
 
@@ -50,6 +50,7 @@ client's idempotency keys and is stored on each request.
 | `path` | `./data/tentacron.db` | SQLite database file (parent directory is created). |
 | `results_dir` | `./data/results` | Large/binary target results. |
 | `retention` | `720h` | Completed/failed jobs (and their result files) are pruned after this. |
+| `max_result_bytes` | `1073741824` | Cap for a poll-mode result download (a MEME bundle). Results stream to `results_dir` and never sit in memory; a larger result fails the job with `target_error`. |
 
 ## worker
 
@@ -61,6 +62,12 @@ client's idempotency keys and is stored on each request.
 | `max_attempts` | `5` | Processing attempts before `max_attempts_exceeded`. |
 | `backoff_base` / `backoff_max` | `2s` / `60s` | Exponential backoff bounds (±20 % jitter). |
 | `job_timeout` | `5m` | Deadline per processing attempt (resolution + forwarding); hitting it requeues the job. Must cover every target's `timeout` plus the longest resolvent timeout (see the timeout budget note under targets); a target may override it. |
+
+## upstream
+
+| Key | Default | Description |
+|---|---|---|
+| `max_response_bytes` | `10485760` | Caps the JSON responses of resource, target and status-poll calls, which are read into memory. Larger responses fail the call permanently. Result downloads are governed by `storage.max_result_bytes` instead. |
 
 ## cache
 

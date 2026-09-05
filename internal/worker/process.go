@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"math/rand/v2"
 	"net/http"
 	"os"
@@ -477,24 +478,95 @@ func (p *Pool) processPoll(ctx, bg context.Context, job *store.Job) {
 }
 
 // fetchAndComplete retrieves the finished target job's result and completes
-// the job. A transient fetch error leaves the job parked for the next tick —
-// unless the poll deadline has passed, in which case the job fails with an
-// accurate target_error (the target job itself finished).
+// the job. The download streams to a spool file under
+// storage.max_result_bytes, so a bundle far larger than the JSON response
+// cap never sits in memory. A transient fetch error leaves the job parked
+// for the next tick — unless the poll deadline has passed, in which case the
+// job fails with an accurate target_error (the target job itself finished).
 func (p *Pool) fetchAndComplete(ctx, bg context.Context, job *store.Job, tcfg config.Target, rawStatus string, pastDeadline bool) {
-	ct, body, err := p.client.FetchResult(ctx, job.Target, tcfg, job.TargetJobID)
-	if err != nil {
-		if upstream.IsTransient(err) && !pastDeadline {
-			p.logger.Warn("result fetch failed, will retry next tick", "job_id", job.ID, "error", err)
+	stream, err := p.client.FetchResult(ctx, job.Target, tcfg, job.TargetJobID)
+	if err == nil {
+		var spool spooledResult
+		spool, err = p.spoolResult(job, stream)
+		_ = stream.Close()
+		if err == nil {
+			// FetchResult only returns on a 2xx response; record the
+			// canonical 200 (the status stored at accept time belonged to
+			// the forward call, not the result fetch).
+			p.completeSpooled(bg, job, spool, fmt.Sprintf("target job %s finished with status %q", job.TargetJobID, rawStatus))
 			return
 		}
-		p.failJob(bg, job, errTargetError, err.Error())
+	}
+	if upstream.IsTransient(err) && !pastDeadline {
+		p.logger.Warn("result fetch failed, will retry next tick", "job_id", job.ID, "error", err)
 		return
 	}
-	// FetchResult only returns on a 2xx response and does not surface the
-	// exact status, so record the canonical 200 (the status stored at accept
-	// time belonged to the forward call, not the result fetch).
-	p.complete(bg, job, http.StatusOK, ct, body, fmt.Sprintf(
-		"target job %s finished with status %q", job.TargetJobID, rawStatus))
+	p.failJob(bg, job, errTargetError, err.Error())
+}
+
+// spooledResult is a downloaded result parked in the results directory.
+type spooledResult struct {
+	path        string
+	size        int64
+	contentType string
+}
+
+// spoolResult streams the download into a uniquely named temp file, capped
+// at storage.max_result_bytes. Exceeding the cap is permanent (the result
+// will not shrink); any other failure is transient and retried next tick.
+func (p *Pool) spoolResult(job *store.Job, stream *upstream.ResultStream) (spooledResult, error) {
+	op := "result " + job.Target
+	if err := os.MkdirAll(p.cfg.Storage.ResultsDir, 0o750); err != nil {
+		return spooledResult{}, &upstream.Error{Op: op, Transient: true, Err: fmt.Errorf("create results dir: %w", err)}
+	}
+	tmp, err := os.CreateTemp(p.cfg.Storage.ResultsDir, job.ID+".*.tmp")
+	if err != nil {
+		return spooledResult{}, &upstream.Error{Op: op, Transient: true, Err: fmt.Errorf("create spool file: %w", err)}
+	}
+	limit := p.cfg.Storage.MaxResultBytes
+	n, err := io.Copy(tmp, io.LimitReader(stream.Body, limit+1))
+	if closeErr := tmp.Close(); err == nil {
+		err = closeErr
+	}
+	switch {
+	case err != nil:
+		_ = os.Remove(tmp.Name())
+		return spooledResult{}, &upstream.Error{Op: op, Transient: true, Err: fmt.Errorf("download result: %w", err)}
+	case n > limit:
+		_ = os.Remove(tmp.Name())
+		return spooledResult{}, &upstream.Error{Op: op, Transient: false,
+			Err: fmt.Errorf("result exceeds storage.max_result_bytes (%d bytes)", limit)}
+	}
+	return spooledResult{path: tmp.Name(), size: n, contentType: stream.ContentType}, nil
+}
+
+// completeSpooled finishes the job from the spool file. A result within the
+// upstream response cap takes the in-memory path (JSON detection, inline
+// storage below the inline limit); anything larger is renamed into place
+// as a file with the content type the target declared — no sniffing of
+// gigabytes.
+func (p *Pool) completeSpooled(bg context.Context, job *store.Job, spool spooledResult, detail string) {
+	if spool.size <= p.cfg.Upstream.MaxResponseBytes {
+		body, err := os.ReadFile(spool.path)
+		_ = os.Remove(spool.path)
+		if err != nil {
+			p.failJob(bg, job, errInternal, "read spooled result: "+err.Error())
+			return
+		}
+		p.complete(bg, job, http.StatusOK, spool.contentType, body, detail)
+		return
+	}
+	ct := spool.contentType
+	if ct == "" {
+		ct = "application/octet-stream"
+	}
+	path := filepath.Join(p.cfg.Storage.ResultsDir, job.ID+resultExt(ct))
+	if err := os.Rename(spool.path, path); err != nil {
+		_ = os.Remove(spool.path)
+		p.failJob(bg, job, errInternal, "store result file: "+err.Error())
+		return
+	}
+	p.markCompleted(bg, job, http.StatusOK, nil, path, ct, detail)
 }
 
 // complete stores the final result: small JSON inline, everything else as a

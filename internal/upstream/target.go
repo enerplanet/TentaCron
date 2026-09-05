@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"net/url"
 	"regexp"
@@ -209,34 +210,47 @@ func (c *Client) PollTarget(ctx context.Context, name string, tcfg config.Target
 	}, nil
 }
 
-// FetchResult retrieves the finished target job's result. It bypasses c.do
-// because the response's Content-Type header must be captured for storage
-// alongside the body.
-func (c *Client) FetchResult(ctx context.Context, name string, tcfg config.Target, targetJobID string) (contentType string, body []byte, err error) {
+// ResultStream is an open result download. The body is not capped by the
+// client — the worker streams it to disk under storage.max_result_bytes —
+// and Close releases the connection together with the call's deadline.
+type ResultStream struct {
+	Status      int
+	ContentType string
+	Body        io.ReadCloser
+	cancel      context.CancelFunc
+}
+
+// Close ends the download.
+func (r *ResultStream) Close() error {
+	r.cancel()
+	return r.Body.Close()
+}
+
+// FetchResult opens the finished target job's result for streaming. It
+// bypasses c.do because a result bundle may be far larger than the JSON
+// response cap and its Content-Type must be kept for storage. Non-2xx
+// statuses are classified like any other call; the target's timeout bounds
+// the whole download.
+func (c *Client) FetchResult(ctx context.Context, name string, tcfg config.Target, targetJobID string) (stream *ResultStream, err error) {
 	poll := tcfg.Response.Poll
 	resultURL := strings.ReplaceAll(poll.ResultURLTemplate, "{id}", url.PathEscape(targetJobID))
 	start, status := time.Now(), 0
 	defer func() { c.observe("result "+name, status, err, time.Since(start)) }()
 
 	callCtx, cancel := context.WithTimeout(ctx, tcfg.Timeout.Std())
-	defer cancel()
 	resp, err := c.send(callCtx, "result "+name, http.MethodGet, resultURL, nil, authHeaders(tcfg))
 	if err != nil {
-		return "", nil, err
+		cancel()
+		return nil, err
 	}
-	defer resp.Body.Close()
 	status = resp.StatusCode
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		_ = resp.Body.Close()
+		cancel()
 		transient := resp.StatusCode == http.StatusTooManyRequests || resp.StatusCode >= 500
-		return "", nil, &Error{Op: "result " + name, Status: resp.StatusCode, Transient: transient}
+		return nil, &Error{Op: "result " + name, Status: resp.StatusCode, Transient: transient}
 	}
-	body, err = c.readCapped(resp.Body)
-	if err != nil {
-		// A mid-download failure is retryable next tick; only the size cap
-		// is final (the body will not shrink).
-		return "", nil, &Error{Op: "result " + name, Transient: !errors.Is(err, errBodyTooLarge), Err: err}
-	}
-	return resp.Header.Get("Content-Type"), body, nil
+	return &ResultStream{Status: resp.StatusCode, ContentType: resp.Header.Get("Content-Type"), Body: resp.Body, cancel: cancel}, nil
 }
 
 // ExtractPath returns the sub-document at the dot-separated path of a JSON

@@ -27,8 +27,9 @@ func dur(d time.Duration) config.Duration { return config.Duration(d) }
 func baseConfig(t *testing.T) *config.Config {
 	t.Helper()
 	return &config.Config{
-		Server:  config.Server{MaxBodyBytes: 1 << 20},
-		Storage: config.Storage{ResultsDir: t.TempDir(), Retention: dur(720 * time.Hour)},
+		Server:   config.Server{MaxBodyBytes: 1 << 20},
+		Upstream: config.Upstream{MaxResponseBytes: 1 << 20},
+		Storage:  config.Storage{ResultsDir: t.TempDir(), Retention: dur(720 * time.Hour), MaxResultBytes: 64 << 20},
 		Worker: config.Worker{
 			Count:                2,
 			ResolventConcurrency: 4,
@@ -59,7 +60,7 @@ func startPool(t *testing.T, cfg *config.Config, st *store.Store) chan struct{} 
 	t.Helper()
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
 	nudge := make(chan struct{}, 1)
-	pool := New(cfg, st, upstream.New(cfg.Server.MaxBodyBytes, nil), logger, nudge)
+	pool := New(cfg, st, upstream.New(cfg.Upstream.MaxResponseBytes, nil), logger, nudge)
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan struct{})
 	go func() {
@@ -529,7 +530,7 @@ func TestShutdownParksInFlightJob(t *testing.T) {
 	id := createJob(t, st, "buem", `{"time-series":[{"type":"resolvent-pv1"}]}`, 5)
 
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
-	pool := New(cfg, st, upstream.New(cfg.Server.MaxBodyBytes, nil), logger, make(chan struct{}))
+	pool := New(cfg, st, upstream.New(cfg.Upstream.MaxResponseBytes, nil), logger, make(chan struct{}))
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan struct{})
 	go func() {
@@ -928,7 +929,7 @@ func TestSweepPrunesCacheAndOldJobs(t *testing.T) {
 	time.Sleep(5 * time.Millisecond) // let completed_at fall behind the cutoff
 
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
-	pool := New(cfg, st, upstream.New(cfg.Server.MaxBodyBytes, nil), logger, make(chan struct{}))
+	pool := New(cfg, st, upstream.New(cfg.Upstream.MaxResponseBytes, nil), logger, make(chan struct{}))
 	pool.sweep(ctx)
 
 	if _, ok, _ := st.GetSeries(ctx, "h-old"); ok {

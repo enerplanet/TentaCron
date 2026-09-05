@@ -144,7 +144,7 @@ func serveFromConfig(path string, logger *slog.Logger, level *slog.LevelVar) err
 
 	m := metrics.New(st)
 	nudge := make(chan struct{}, 1)
-	client := upstream.New(cfg.Server.MaxBodyBytes, cfg.UpstreamSecrets()).WithMetrics(m)
+	client := upstream.New(cfg.Upstream.MaxResponseBytes, cfg.UpstreamSecrets()).WithMetrics(m)
 	pool := worker.New(cfg, st, client, logger, nudge).WithMetrics(m)
 	apiServer := api.New(cfg, st, logger, nudge)
 	apiServer.Build = buildInfo()

@@ -97,7 +97,7 @@ var edgeScenarios = []scenario{
 		fakes: fakes{direct: func(int64) reply {
 			return reply{200, `{"data":"` + strings.Repeat("x", 300<<10) + `"}`, ""}
 		}},
-		mod: func(cfg *config.Config) { cfg.Server.MaxBodyBytes = 1 << 20 },
+		mod: func(cfg *config.Config) { cfg.Upstream.MaxResponseBytes = 1 << 20 },
 		run: func(t *testing.T, h *harness) {
 			id := h.post("submit", requestBody("demo", `{"time-series":[]}`), nil)
 			h.await("final state (result referenced via href, application/json)", id)

@@ -14,7 +14,8 @@ func Describe(c *Config) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "configuration ok: %d client key(s), %d target(s), %d resolvent type(s)\n",
 		len(c.Auth.APIKeys), len(c.Targets), len(c.Resolvents))
-	fmt.Fprintf(&b, "server  %s  body limit %d bytes\n", c.Server.Addr, c.Server.MaxBodyBytes)
+	fmt.Fprintf(&b, "server  %s  request body limit %d bytes\n", c.Server.Addr, c.Server.MaxBodyBytes)
+	fmt.Fprintf(&b, "limits  upstream response %d bytes, result download %d bytes\n", c.Upstream.MaxResponseBytes, c.Storage.MaxResultBytes)
 	fmt.Fprintf(&b, "worker  %d worker(s), %d resolvent fetch(es) per job, %d attempt(s), job timeout %s\n",
 		c.Worker.Count, c.Worker.ResolventConcurrency, c.Worker.MaxAttempts, c.Worker.JobTimeout.Std())
 	fmt.Fprintf(&b, "storage %s  results %s  retention %s\n", c.Storage.Path, c.Storage.ResultsDir, c.Storage.Retention.Std())

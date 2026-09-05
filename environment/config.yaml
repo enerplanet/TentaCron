@@ -21,6 +21,7 @@ storage:
   path: ./data/tentacron.db # /src/data on the bind mount (gitignored)
   results_dir: ./data/results
   retention: 720h
+  max_result_bytes: 1073741824
 
 worker:
   count: 4
@@ -30,6 +31,9 @@ worker:
   backoff_base: 2s
   backoff_max: 60s
   job_timeout: 15m # must cover a target's timeout plus the longest resolvent timeout
+
+upstream:
+  max_response_bytes: 10485760
 
 cache:
   default_ttl: 6h

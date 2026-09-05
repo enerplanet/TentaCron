@@ -18,6 +18,12 @@ distroless base, a non-root user, and `/data` as the only writable path.
   `TENTACRON_KEY_FRONTEND`, `TENTACRON_KEY_BATCH`, `MEME_API_KEY`,
   `BUEM_API_KEY`, `PV1_API_KEY`, `WIND_API_KEY`, `WEATHER_API_KEY` and
   `IGNIS_API_KEY`.
+- **Result sizes.** JSON answers from resources, targets and status polls
+  are read into memory under `upstream.max_response_bytes` (10 MiB). A
+  poll-mode result (a MEME bundle) streams straight into `results_dir`
+  under `storage.max_result_bytes` (1 GiB) and is served with range support,
+  so memory stays flat however large the bundle; the target's `timeout`
+  bounds the whole download.
 - **Persistent storage** for `storage.path` and `storage.results_dir`. In
   the image both belong under `/data` — the default relative paths
   (`./data/tentacron.db`, `./data/results`) resolve there — so mount a

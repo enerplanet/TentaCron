@@ -49,7 +49,7 @@ func discardLogger() *slog.Logger { return slog.New(slog.NewTextHandler(io.Disca
 func runPool(t *testing.T, cfg *config.Config, st *store.Store, logger *slog.Logger) (nudge chan struct{}, stop func()) {
 	t.Helper()
 	nudge = make(chan struct{}, 1)
-	pool := New(cfg, st, upstream.New(cfg.Server.MaxBodyBytes, nil), logger, nudge)
+	pool := New(cfg, st, upstream.New(cfg.Upstream.MaxResponseBytes, nil), logger, nudge)
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan struct{})
 	go func() {
@@ -1031,7 +1031,7 @@ func TestMetricsRecordOutcomesCacheAndUpstreamCalls(t *testing.T) {
 	cfg.Targets["demo"] = directTargetCfg(target.URL)
 	st := openStore(t)
 	m := metrics.New(st)
-	client := upstream.New(cfg.Server.MaxBodyBytes, nil).WithMetrics(m)
+	client := upstream.New(cfg.Upstream.MaxResponseBytes, nil).WithMetrics(m)
 	pool := New(cfg, st, client, discardLogger(), make(chan struct{}, 1)).WithMetrics(m)
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan struct{})
@@ -1065,6 +1065,78 @@ func TestMetricsRecordOutcomesCacheAndUpstreamCalls(t *testing.T) {
 	} {
 		if !strings.Contains(out, want) {
 			t.Errorf("scrape lacks %q", want)
+		}
+	}
+}
+
+// pollTargetSplit is pollTarget with distinct status and result routes, for
+// result bodies that are not JSON.
+func pollTargetSplit(base string) config.Target {
+	tcfg := pollTarget(base, 10*time.Millisecond, 5*time.Second)
+	tcfg.Response.Poll.URLTemplate = base + "/jobs/{id}/status"
+	return tcfg
+}
+
+// A poll-mode result far above the JSON response cap streams to a file
+// instead of failing; one above storage.max_result_bytes fails permanently,
+// and neither leaves a spool file behind.
+func TestLargeResultStreamsToFileUnderTheStorageCap(t *testing.T) {
+	big := bytes.Repeat([]byte("z"), 1<<20) // 1 MiB, 16x the response cap below
+	mux := http.NewServeMux()
+	mux.HandleFunc("POST /simulate", func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusAccepted)
+		_, _ = io.WriteString(w, `{"job_id":"m-big"}`)
+	})
+	mux.HandleFunc("GET /jobs/{id}/status", func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = io.WriteString(w, `{"status":"done"}`)
+	})
+	mux.HandleFunc("GET /jobs/{id}", func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/zip")
+		_, _ = w.Write(big)
+	})
+	srv := httptest.NewServer(mux)
+	t.Cleanup(srv.Close)
+
+	t.Run("streams to a file", func(t *testing.T) {
+		cfg := baseConfig(t)
+		cfg.Upstream.MaxResponseBytes = 64 << 10
+		cfg.Storage.MaxResultBytes = 4 << 20
+		cfg.Targets["meme"] = pollTargetSplit(srv.URL)
+		st := openStore(t)
+		id := createJob(t, st, "meme", `{}`, 3)
+		startPool(t, cfg, st)
+		job := waitForTerminal(t, st, id)
+		// The accept body stays in target_response, as for every file
+		// result; the API serves the file through href.
+		if job.State != store.StateCompleted || !strings.HasSuffix(job.ResultPath, ".zip") || job.ResultContentType != "application/zip" {
+			t.Fatalf("job = state %s path %q ct %q: %s", job.State, job.ResultPath, job.ResultContentType, job.ErrorMessage)
+		}
+		if info, err := os.Stat(job.ResultPath); err != nil || info.Size() != int64(len(big)) {
+			t.Errorf("result file: %v size %d", err, info.Size())
+		}
+		assertNoSpoolFiles(t, cfg.Storage.ResultsDir)
+	})
+	t.Run("exceeding the storage cap is permanent", func(t *testing.T) {
+		cfg := baseConfig(t)
+		cfg.Storage.MaxResultBytes = 512 << 10
+		cfg.Targets["meme"] = pollTargetSplit(srv.URL)
+		st := openStore(t)
+		id := createJob(t, st, "meme", `{}`, 3)
+		startPool(t, cfg, st)
+		job := waitForTerminal(t, st, id)
+		if job.State != store.StateFailed || job.ErrorCode != errTargetError || !strings.Contains(job.ErrorMessage, "max_result_bytes") {
+			t.Fatalf("job = %s/%s: %s", job.State, job.ErrorCode, job.ErrorMessage)
+		}
+		assertNoSpoolFiles(t, cfg.Storage.ResultsDir)
+	})
+}
+
+func assertNoSpoolFiles(t *testing.T, dir string) {
+	t.Helper()
+	entries, _ := os.ReadDir(dir)
+	for _, e := range entries {
+		if strings.HasSuffix(e.Name(), ".tmp") {
+			t.Errorf("spool file left behind: %s", e.Name())
 		}
 	}
 }

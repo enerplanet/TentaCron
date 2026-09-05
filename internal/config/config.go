@@ -40,6 +40,7 @@ type Config struct {
 	Storage    Storage              `yaml:"storage"`
 	Worker     Worker               `yaml:"worker"`
 	Cache      Cache                `yaml:"cache"`
+	Upstream   Upstream             `yaml:"upstream"`
 	Targets    map[string]Target    `yaml:"targets"`
 	Resolvents map[string]Resolvent `yaml:"resolvents"`
 }
@@ -50,7 +51,9 @@ type Server struct {
 	ReadTimeout   Duration `yaml:"read_timeout"`
 	WriteTimeout  Duration `yaml:"write_timeout"`
 	ShutdownGrace Duration `yaml:"shutdown_grace"`
-	MaxBodyBytes  int64    `yaml:"max_body_bytes"`
+	// MaxBodyBytes caps inbound request bodies (upstream responses have
+	// their own limit under upstream.max_response_bytes).
+	MaxBodyBytes int64 `yaml:"max_body_bytes"`
 	// MetricsAddr, when set, serves Prometheus metrics on a second listener
 	// that answers /metrics only, so they never share the public listener.
 	MetricsAddr string `yaml:"metrics_addr"`
@@ -107,6 +110,23 @@ type Storage struct {
 	Path       string   `yaml:"path"`
 	ResultsDir string   `yaml:"results_dir"`
 	Retention  Duration `yaml:"retention"`
+	// MaxResultBytes caps a poll-mode result download, which streams to the
+	// results directory and never sits in memory; a larger result fails the
+	// job permanently. Default 1 GiB.
+	MaxResultBytes int64 `yaml:"max_result_bytes"`
+}
+
+// Upstream holds settings for outbound calls.
+type Upstream struct {
+	// MaxResponseBytes caps the JSON responses of resource, target and
+	// status-poll calls, which are read into memory. Default 10 MiB.
+	MaxResponseBytes int64 `yaml:"max_response_bytes"`
+}
+
+func (u *Upstream) applyDefaults() {
+	if u.MaxResponseBytes == 0 {
+		u.MaxResponseBytes = 10 << 20
+	}
 }
 
 // Worker holds job-processing settings.
@@ -312,6 +332,7 @@ func (c *Config) applyDefaults() {
 	c.Storage.applyDefaults()
 	c.Worker.applyDefaults()
 	c.Cache.applyDefaults()
+	c.Upstream.applyDefaults()
 	for name, t := range c.Targets {
 		t.applyDefaults()
 		c.Targets[name] = t
@@ -345,6 +366,9 @@ func (s *Storage) applyDefaults() {
 		s.ResultsDir = "./data/results"
 	}
 	setDur(&s.Retention, 720*time.Hour)
+	if s.MaxResultBytes == 0 {
+		s.MaxResultBytes = 1 << 30
+	}
 }
 
 func (w *Worker) applyDefaults() {

@@ -285,13 +285,14 @@ func dur(d time.Duration) config.Duration { return config.Duration(d) }
 // goldenConfig is the fixed stack configuration every scenario starts from.
 func goldenConfig(t *testing.T, resourceURL, targetURL string) *config.Config {
 	return &config.Config{
-		Server: config.Server{MaxBodyBytes: 4096},
+		Server:   config.Server{MaxBodyBytes: 4096},
+		Upstream: config.Upstream{MaxResponseBytes: 4096},
 		Auth: config.Auth{APIKeys: []config.APIKey{
 			{Name: "golden", Key: clientKey, Role: config.RoleClient},
 			{Name: "second", Key: secondClientKey, Role: config.RoleClient},
 			{Name: "ops", Key: adminKey, Role: config.RoleAdmin},
 		}},
-		Storage: config.Storage{ResultsDir: t.TempDir(), Retention: dur(time.Hour)},
+		Storage: config.Storage{ResultsDir: t.TempDir(), Retention: dur(time.Hour), MaxResultBytes: 1 << 20},
 		Worker: config.Worker{
 			Count: 2, ResolventConcurrency: 4,
 			PollInterval: dur(10 * time.Millisecond), MaxAttempts: 3,
@@ -397,7 +398,7 @@ func (h *harness) startStack(cfg *config.Config) {
 	h.st = st
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
 	nudge := make(chan struct{}, 1)
-	pool := worker.New(cfg, st, upstream.New(cfg.Server.MaxBodyBytes, cfg.UpstreamSecrets()), logger, nudge)
+	pool := worker.New(cfg, st, upstream.New(cfg.Upstream.MaxResponseBytes, cfg.UpstreamSecrets()), logger, nudge)
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan struct{})
 	go func() {

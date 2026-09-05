@@ -430,9 +430,11 @@ func TestPollAndResultAuthByInjectionMode(t *testing.T) {
 		if _, err := c.PollTarget(context.Background(), "meme", tcfg, "j1"); err != nil {
 			t.Fatal(err)
 		}
-		if _, _, err := c.FetchResult(context.Background(), "meme", tcfg, "j1"); err != nil {
+		stream, err := c.FetchResult(context.Background(), "meme", tcfg, "j1")
+		if err != nil {
 			t.Fatal(err)
 		}
+		_ = stream.Close()
 		if len(seen) != 2 || seen[0] != tt.want || seen[1] != tt.want {
 			t.Errorf("%s injection: headers on poll/result = %q, want %q on both", tt.name, seen, tt.want)
 		}
@@ -460,20 +462,29 @@ func TestFetchResultClassificationAndContentType(t *testing.T) {
 		transient bool
 	}{{404, false}, {503, true}, {429, true}, {400, false}} {
 		status.Store(int64(tt.status))
-		_, _, err := c.FetchResult(context.Background(), "meme", tcfg, "j1")
-		if err == nil || IsTransient(err) != tt.transient {
+		stream, err := c.FetchResult(context.Background(), "meme", tcfg, "j1")
+		if err == nil || stream != nil || IsTransient(err) != tt.transient {
 			t.Errorf("status %d: err=%v transient=%v, want %v", tt.status, err, IsTransient(err), tt.transient)
 		}
 	}
 	status.Store(200)
 	ct.Store("application/zip")
-	gotCT, body, err := c.FetchResult(context.Background(), "meme", tcfg, "j1")
-	if err != nil || gotCT != "application/zip" || string(body) != "bytes" {
-		t.Errorf("ct=%q body=%q err=%v", gotCT, body, err)
+	stream, err := c.FetchResult(context.Background(), "meme", tcfg, "j1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	body, _ := io.ReadAll(stream.Body)
+	_ = stream.Close()
+	if stream.ContentType != "application/zip" || string(body) != "bytes" {
+		t.Errorf("ct=%q body=%q", stream.ContentType, body)
 	}
 	ct.Store("")
-	if gotCT, _, err := c.FetchResult(context.Background(), "meme", tcfg, "j1"); err != nil || gotCT != "" {
-		t.Errorf("missing content type must be reported empty, got %q (err %v)", gotCT, err)
+	stream, err = c.FetchResult(context.Background(), "meme", tcfg, "j1")
+	if err != nil || stream.ContentType != "" {
+		t.Errorf("missing content type must be reported empty, got %q (err %v)", stream.ContentType, err)
+	}
+	if stream != nil {
+		_ = stream.Close()
 	}
 }
 

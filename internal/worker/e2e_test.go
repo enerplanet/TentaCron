@@ -89,9 +89,10 @@ func fakeMemeTarget(t *testing.T) (*httptest.Server, func() []byte) {
 func e2eConfig(t *testing.T, resourceURL, targetURL string) *config.Config {
 	t.Helper()
 	return &config.Config{
-		Server:  config.Server{MaxBodyBytes: 1 << 20},
-		Auth:    config.Auth{APIKeys: []config.APIKey{{Name: "e2e", Key: clientKey}}},
-		Storage: config.Storage{ResultsDir: t.TempDir(), Retention: config.Duration(time.Hour)},
+		Server:   config.Server{MaxBodyBytes: 1 << 20},
+		Upstream: config.Upstream{MaxResponseBytes: 1 << 20},
+		Auth:     config.Auth{APIKeys: []config.APIKey{{Name: "e2e", Key: clientKey}}},
+		Storage:  config.Storage{ResultsDir: t.TempDir(), Retention: config.Duration(time.Hour), MaxResultBytes: 1 << 20},
 		Worker: config.Worker{
 			Count: 2, ResolventConcurrency: 4,
 			PollInterval: config.Duration(15 * time.Millisecond), MaxAttempts: 3,
@@ -126,7 +127,7 @@ func bootStack(t *testing.T, cfg *config.Config) *httptest.Server {
 	}
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
 	nudge := make(chan struct{}, 1)
-	pool := worker.New(cfg, st, upstream.New(cfg.Server.MaxBodyBytes, nil), logger, nudge)
+	pool := worker.New(cfg, st, upstream.New(cfg.Upstream.MaxResponseBytes, nil), logger, nudge)
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan struct{})
 	go func() {

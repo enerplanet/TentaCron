@@ -25,6 +25,7 @@ func (c *Config) Validate() error {
 	v.storage(c.Storage)
 	v.worker(c.Worker)
 	v.cache(c.Cache)
+	v.upstream(c.Upstream)
 	v.auth(c.Auth)
 	v.targets(c.Targets, c.Resolvents, c.Worker)
 	v.resolvents(c.Resolvents, c.Targets)
@@ -77,6 +78,11 @@ func (v *validator) server(s Server) {
 
 func (v *validator) storage(s Storage) {
 	v.positiveDur("storage.retention", s.Retention)
+	v.positiveInt("storage.max_result_bytes", s.MaxResultBytes)
+}
+
+func (v *validator) upstream(u Upstream) {
+	v.positiveInt("upstream.max_response_bytes", u.MaxResponseBytes)
 }
 
 func (v *validator) worker(w Worker) {

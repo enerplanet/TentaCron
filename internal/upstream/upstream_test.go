@@ -254,34 +254,47 @@ func TestErrorExcerptRedactsSecrets(t *testing.T) {
 	}
 }
 
-// A failure while downloading the result body is retryable on the next poll
-// tick; only the size cap is final.
-func TestFetchResultReadFailureIsTransient(t *testing.T) {
+// A connection dropped mid-body surfaces as a read error on the stream, for
+// the worker to classify as transient on the next poll tick.
+func TestFetchResultStreamSurfacesMidBodyFailures(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Length", "1000")
 		w.WriteHeader(http.StatusOK)
 		_, _ = io.WriteString(w, "short")
-		panic(http.ErrAbortHandler) // drop the connection mid-body
+		w.(http.Flusher).Flush()    // headers and the partial body reach the client first
+		panic(http.ErrAbortHandler) // then the connection drops mid-body
 	}))
 	defer srv.Close()
 
 	tcfg := pollTargetCfg(srv.URL)
-	_, _, err := testClient(1<<20).FetchResult(context.Background(), "meme", tcfg, "j1")
-	if err == nil || !IsTransient(err) {
-		t.Errorf("mid-body read failure must be transient, got %v", err)
+	stream, err := testClient(1<<20).FetchResult(context.Background(), "meme", tcfg, "j1")
+	if err != nil {
+		t.Fatalf("headers arrived, the stream must open: %v", err)
+	}
+	defer func() { _ = stream.Close() }()
+	if _, err := io.ReadAll(stream.Body); err == nil {
+		t.Error("a dropped connection must surface as a read error on the stream")
 	}
 }
 
-func TestFetchResultOversizedIsPermanent(t *testing.T) {
+// Result downloads are not bounded by the client's JSON response cap: the
+// worker streams them to disk under storage.max_result_bytes instead.
+func TestFetchResultStreamIgnoresTheResponseCap(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/zip")
 		_, _ = w.Write(make([]byte, 256))
 	}))
 	defer srv.Close()
 
 	tcfg := pollTargetCfg(srv.URL)
-	_, _, err := testClient(64).FetchResult(context.Background(), "meme", tcfg, "j1")
-	if err == nil || IsTransient(err) {
-		t.Errorf("oversized result must fail permanently, got %v", err)
+	stream, err := testClient(64).FetchResult(context.Background(), "meme", tcfg, "j1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = stream.Close() }()
+	body, err := io.ReadAll(stream.Body)
+	if err != nil || len(body) != 256 || stream.ContentType != "application/zip" || stream.Status != http.StatusOK {
+		t.Errorf("stream: len=%d ct=%q status=%d err=%v", len(body), stream.ContentType, stream.Status, err)
 	}
 }
 

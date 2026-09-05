@@ -10,6 +10,10 @@ under "Changed" with the keys or fields concerned.
 
 ### Added
 
+- Poll-mode results stream straight into the results directory under a new
+  `storage.max_result_bytes` cap (1 GiB) instead of being read into memory,
+  so a MEME bundle of any realistic size completes with flat memory use; a
+  larger result fails the job with `target_error`.
 - `GET /v1/requests` filters by `target`, `since`/`until` (RFC 3339 bounds
   on creation time) and, for admin keys, `client`, and pages through an
   opaque `cursor`: a full page returns `next_cursor`, the last page none.
@@ -55,6 +59,11 @@ under "Changed" with the keys or fields concerned.
 
 ### Changed
 
+- `server.max_body_bytes` caps inbound request bodies only. The JSON
+  responses of resource, target and status-poll calls are capped by the new
+  `upstream.max_response_bytes` (same 10 MiB default); a deployment that had
+  raised `max_body_bytes` to admit large upstream responses sets the new key
+  instead.
 - Reads are scoped to the submitting client: `GET /v1/requests/{id}` and
   `/result` answer `404` for another client's request (as for an unknown
   id) and `GET /v1/requests` lists only the caller's requests. Deployments
