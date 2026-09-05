@@ -130,6 +130,7 @@ nav:
       - ADR-0003 Async job API: decisions/0003-async-job-api.md
       - ADR-0004 Poll targets to completion: decisions/0004-poll-async-targets-to-completion.md
       - ADR-0005 Per-target timeseries path: decisions/0005-per-target-timeseries-path.md
+      - ADR-0006 Postgres decision gate: decisions/0006-postgres-decision-gate.md
       - Template: decisions/0000-template.md
   - Contributing:
       - Branch Naming: getting-started/branch-naming.md

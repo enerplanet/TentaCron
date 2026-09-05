@@ -10,6 +10,9 @@ under "Changed" with the keys or fields concerned.
 
 ### Added
 
+- ADR-0006 records when a Postgres store would be reconsidered (measured
+  throughput, availability or isolation gates) and the shape it would take,
+  so the single-instance decision of ADR-0002 is revisited on evidence.
 - Configuration reload on `SIGHUP`: keys, targets, resolvents, callbacks,
   cache TTLs and the log level take effect without a restart; an invalid
   file is rejected and the running configuration kept; startup-only

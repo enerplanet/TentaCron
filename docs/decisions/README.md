@@ -13,6 +13,7 @@ change it.
 | [0003](0003-async-job-api.md) | The client API is asynchronous: 202 plus polling | accepted |
 | [0004](0004-poll-async-targets-to-completion.md) | Tentacron polls asynchronous targets to completion | accepted |
 | [0005](0005-per-target-timeseries-path.md) | Resolvent location and marker policy are per target | accepted |
+| [0006](0006-postgres-decision-gate.md) | Postgres is a gated option, revisited on measured limits, not a roadmap item | accepted |
 
 ## Adding a record
 
