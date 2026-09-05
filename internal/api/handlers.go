@@ -119,9 +119,16 @@ func decodeSingleObject(w http.ResponseWriter, body io.Reader, dst any) bool {
 // validateCreateRequest checks the required fields; an empty code means the
 // request is well-formed.
 func validateCreateRequest(req createRequest) (status int, code, msg string) {
-	switch {
-	case req.APIKey == "":
+	if req.APIKey == "" {
 		return http.StatusBadRequest, CodeMissingField, "an API key is required: send the X-API-Key header (or the api_key field)"
+	}
+	return validateSubmission(req)
+}
+
+// validateSubmission checks the fields of one submission — target, payload,
+// priority, options — shared by create and every batch item.
+func validateSubmission(req createRequest) (status int, code, msg string) {
+	switch {
 	case req.Target == "":
 		return http.StatusBadRequest, CodeMissingField, "target is required"
 	case len(req.Payload) == 0 || string(req.Payload) == "null":
@@ -237,24 +244,7 @@ func (s *Server) handleResolvents(w http.ResponseWriter, r *http.Request) {
 // acceptJob persists the request as a new job — or replays the stored one
 // under its Idempotency-Key — and answers 202 with the job's current state.
 func (s *Server) acceptJob(w http.ResponseWriter, r *http.Request, req createRequest, client string) {
-	id, err := store.NewID()
-	if err != nil {
-		s.internalError(w, "id generation failed", err)
-		return
-	}
-	job := &store.Job{
-		ID:             id,
-		Client:         client,
-		IdempotencyKey: r.Header.Get("Idempotency-Key"),
-		Target:         req.Target,
-		MaxAttempts:    s.cfg.MaxAttemptsFor(req.Target),
-		Payload:        req.Payload, // client api_key lives outside payload and is never stored
-	}
-	if req.Priority != nil {
-		job.Priority = *req.Priority
-	}
-	job.Options = req.jobOptions()
-	created, stored, err := s.store.CreateJob(r.Context(), job)
+	stored, created, err := s.storeSubmission(r.Context(), req, client, r.Header.Get("Idempotency-Key"))
 	if errors.Is(err, store.ErrIdempotencyConflict) {
 		writeError(w, http.StatusConflict, CodeIdempotencyConflict,
 			"Idempotency-Key was already used with a different target or payload")
@@ -265,14 +255,139 @@ func (s *Server) acceptJob(w http.ResponseWriter, r *http.Request, req createReq
 		return
 	}
 	if created {
-		s.logger.Info("job accepted", "job_id", stored.ID, "target", stored.Target, "client", client)
 		s.wakeWorkers()
 	}
-	writeJSON(w, http.StatusAccepted, createResponse{
-		ID:    stored.ID,
-		State: stored.State,
-		Links: map[string]string{"self": "/v1/requests/" + stored.ID},
-	})
+	writeJSON(w, http.StatusAccepted, accepted(stored))
+}
+
+// storeSubmission turns one validated submission into a stored job, or
+// replays the job stored under its idempotency key. The client's API key
+// lives outside the payload and is never stored.
+func (s *Server) storeSubmission(ctx context.Context, req createRequest, client, idempotencyKey string) (stored *store.Job, created bool, err error) {
+	id, err := store.NewID()
+	if err != nil {
+		return nil, false, fmt.Errorf("id generation failed: %w", err)
+	}
+	job := &store.Job{
+		ID:             id,
+		Client:         client,
+		IdempotencyKey: idempotencyKey,
+		Target:         req.Target,
+		MaxAttempts:    s.cfg.MaxAttemptsFor(req.Target),
+		Payload:        req.Payload,
+		Options:        req.jobOptions(),
+	}
+	if req.Priority != nil {
+		job.Priority = *req.Priority
+	}
+	created, stored, err = s.store.CreateJob(ctx, job)
+	if err != nil {
+		return nil, false, err
+	}
+	if created {
+		s.logger.Info("job accepted", "job_id", stored.ID, "target", stored.Target, "client", client)
+	}
+	return stored, created, nil
+}
+
+func accepted(j *store.Job) createResponse {
+	return createResponse{ID: j.ID, State: j.State, Links: map[string]string{"self": "/v1/requests/" + j.ID}}
+}
+
+// maxBatchItems bounds one batch submission.
+const maxBatchItems = 100
+
+// batchItem is one submission inside a batch; the idempotency key travels in
+// the body because a header cannot be per item.
+type batchItem struct {
+	createRequest
+	IdempotencyKey string `json:"idempotency_key"`
+}
+
+type batchRequest struct {
+	APIKey   string      `json:"api_key"`
+	Requests []batchItem `json:"requests"`
+}
+
+// batchResult is one item's outcome: an accepted (or replayed) request, or
+// the error that item alone produced.
+type batchResult struct {
+	ID    string            `json:"id,omitempty"`
+	State string            `json:"state,omitempty"`
+	Links map[string]string `json:"links,omitempty"`
+	Error *errorDetail      `json:"error,omitempty"`
+}
+
+// handleBatch submits up to maxBatchItems requests in one call. Items are
+// validated and stored independently: the answer lists a result per item in
+// order, 202 when at least one was accepted, 400 when none was.
+func (s *Server) handleBatch(w http.ResponseWriter, r *http.Request) {
+	var req batchRequest
+	if !requireJSON(w, r) {
+		return
+	}
+	r.Body = http.MaxBytesReader(w, r.Body, s.cfg.Server.MaxBodyBytes)
+	if !decodeSingleObject(w, r.Body, &req) {
+		return
+	}
+	if header := r.Header.Get("X-API-Key"); header != "" {
+		req.APIKey = header
+	}
+	id, ok := s.authenticate(req.APIKey)
+	if !ok {
+		writeError(w, http.StatusUnauthorized, CodeUnauthorized, "invalid API key")
+		return
+	}
+	noteClient(r, id.name)
+	if len(req.Requests) == 0 || len(req.Requests) > maxBatchItems {
+		writeError(w, http.StatusBadRequest, CodeInvalidParameter,
+			fmt.Sprintf("requests must hold between 1 and %d items", maxBatchItems))
+		return
+	}
+	results := make([]batchResult, 0, len(req.Requests))
+	acceptedCount := 0
+	for _, item := range req.Requests {
+		res := s.submitBatchItem(r.Context(), item, id)
+		if res.Error == nil {
+			acceptedCount++
+		}
+		results = append(results, res)
+	}
+	if acceptedCount > 0 {
+		s.wakeWorkers()
+	}
+	status := http.StatusAccepted
+	if acceptedCount == 0 {
+		status = http.StatusBadRequest
+	}
+	writeJSON(w, status, map[string]any{"items": results})
+}
+
+// submitBatchItem validates and stores one item, mapping every failure onto
+// the same code the single endpoint would answer with.
+func (s *Server) submitBatchItem(ctx context.Context, item batchItem, id identity) batchResult {
+	if _, code, msg := validateSubmission(item.createRequest); code != "" {
+		return batchResult{Error: &errorDetail{Code: code, Message: msg}}
+	}
+	if _, ok := s.cfg.Targets[item.Target]; !ok {
+		return batchResult{Error: &errorDetail{Code: CodeUnknownTarget, Message: "target " + strconv.Quote(item.Target) + " is not configured"}}
+	}
+	if limit := s.cfg.MaxPriorityFor(id.name); item.Priority != nil && *item.Priority > limit {
+		return batchResult{Error: &errorDetail{Code: CodeInvalidParameter, Message: fmt.Sprintf("priority %d exceeds this key's maximum of %d", *item.Priority, limit)}}
+	}
+	if len(item.IdempotencyKey) > maxIdempotencyKeyLen {
+		return batchResult{Error: &errorDetail{Code: CodeInvalidParameter, Message: "idempotency_key must be at most 255 bytes"}}
+	}
+	stored, _, err := s.storeSubmission(ctx, item.createRequest, id.name, item.IdempotencyKey)
+	switch {
+	case errors.Is(err, store.ErrIdempotencyConflict):
+		return batchResult{Error: &errorDetail{Code: CodeIdempotencyConflict, Message: "idempotency_key was already used with a different target or payload"}}
+	case err != nil:
+		s.logger.Error("create job failed", "error", err)
+		return batchResult{Error: &errorDetail{Code: CodeInternal, Message: "internal server error"}}
+	}
+	a := accepted(stored)
+	return batchResult{ID: a.ID, State: a.State, Links: a.Links}
 }
 
 // wakeWorkers nudges the pool without blocking: a full channel means a

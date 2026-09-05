@@ -765,6 +765,33 @@ var apiContractScenarios = []scenario{
 		},
 	},
 	{
+		// A batch stores each item on its own and answers per item: accepted
+		// requests with their ids, rejected ones with the single endpoint's
+		// error codes, an idempotent replay with the earlier id.
+		name: "batch-mixed",
+		run: func(t *testing.T, h *harness) {
+			auth := map[string]string{"X-API-Key": clientKey}
+			earlier := h.post("an earlier single submission with an idempotency key",
+				requestBody("demo", `{"time-series":[]}`), map[string]string{"Idempotency-Key": "batch-golden-1"})
+			h.await("it completes", earlier)
+			accepted := h.postBatch("batch of five: two fine, unknown target, bad payload, a replay of the earlier one", `{"requests":[
+				{"target":"demo","payload":{"who":"one","time-series":[]}},
+				{"target":"demo","payload":{"who":"two","time-series":[]},"priority":2},
+				{"target":"hydra","payload":{}},
+				{"target":"demo","payload":[1]},
+				{"target":"demo","payload":{"time-series":[]},"idempotency_key":"batch-golden-1"}
+			]}`, auth)
+			if len(accepted) != 3 {
+				t.Fatalf("accepted ids = %v, want two new jobs and the replay", accepted)
+			}
+			h.await("the first new job completes", accepted[0])
+			h.await("the second new job completes", accepted[1])
+			h.postBatch("a batch where nothing is acceptable answers 400 with the items", `{"requests":[{"target":"hydra","payload":{}}]}`, auth)
+			h.postBatch("an empty batch is refused", `{"requests":[]}`, auth)
+			h.get("the accepted items are ordinary requests", "/v1/requests?limit=10", auth)
+		},
+	},
+	{
 		// ?wait= turns the status read into a long poll: one call returns
 		// the terminal state as soon as the worker gets there, instead of a
 		// client-side polling loop.

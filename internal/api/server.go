@@ -67,6 +67,7 @@ func (s *Server) routes() []route {
 	return []route{
 		{http.MethodPost, "/v1/requests", s.handleCreate},
 		{http.MethodPost, "/v1/requests/validate", s.handleValidate},
+		{http.MethodPost, "/v1/requests/batch", s.handleBatch},
 		{http.MethodGet, "/v1/requests", s.handleList},
 		{http.MethodGet, "/v1/targets", s.handleTargets},
 		{http.MethodGet, "/v1/resolvents", s.handleResolvents},

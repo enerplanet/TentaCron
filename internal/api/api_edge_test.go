@@ -1072,3 +1072,82 @@ func TestLongPollWait(t *testing.T) {
 		t.Errorf("maxWait without a write timeout = %v, want 1m", got)
 	}
 }
+
+// A batch stores each item independently and reports one result per item
+// in order, with the codes the single endpoint would answer.
+func TestBatchSubmission(t *testing.T) {
+	zero := 0
+	e := newEnvWith(t, func(c *config.Config) {
+		c.Auth.APIKeys = append(c.Auth.APIKeys, config.APIKey{Name: "capped", Key: "capped-key", Role: config.RoleClient, MaxPriority: &zero})
+	}, nil)
+	first := decodeBody[createResponse](t, e.do(t, "POST", "/v1/requests", validBody, map[string]string{"X-API-Key": "valid-key", "Idempotency-Key": "k-1"}))
+	body := `{"requests":[
+		{"target":"meme","payload":{"a":1}},
+		{"target":"hydra","payload":{}},
+		{"target":"meme","payload":[1]},
+		{"target":"meme","payload":{},"priority":99},
+		{"target":"meme","payload":{},"idempotency_key":"k-1"},
+		{"target":"meme","payload":` + validPayloadOf(validBody) + `,"idempotency_key":"k-1"},
+		{"target":"meme","payload":{},"options":{"cache":"refresh"},"priority":3}
+	]}`
+	rec := e.do(t, "POST", "/v1/requests/batch", body, authHdr)
+	if rec.Code != http.StatusAccepted {
+		t.Fatalf("batch: %d %s", rec.Code, rec.Body.String())
+	}
+	items := decodeBody[map[string][]batchResult](t, rec)["items"]
+	if len(items) != 7 {
+		t.Fatalf("%d results, want 7", len(items))
+	}
+	wantCodes := []string{"", CodeUnknownTarget, CodeInvalidJSON, CodeInvalidParameter, CodeIdempotencyConflict, "", ""}
+	for i, want := range wantCodes {
+		got := ""
+		if items[i].Error != nil {
+			got = items[i].Error.Code
+		}
+		if got != want {
+			t.Errorf("item %d: code %q, want %q (%+v)", i, got, want, items[i])
+		}
+	}
+	if items[0].State != store.StateReceived || items[0].Links["self"] != "/v1/requests/"+items[0].ID {
+		t.Errorf("accepted item = %+v", items[0])
+	}
+	if items[5].ID != first.ID {
+		t.Errorf("an idempotent replay must return the earlier request: %s vs %s", items[5].ID, first.ID)
+	}
+	job, _ := e.store.GetJob(context.Background(), items[6].ID)
+	if job.Priority != 3 || job.Options.Cache != store.CacheRefresh {
+		t.Errorf("options and priority must be stored per item: %+v", job)
+	}
+	jobs, _ := e.store.ListJobs(context.Background(), store.ListFilter{Limit: 100})
+	if len(jobs) != 3 {
+		t.Errorf("stored jobs = %d, want the earlier one plus two new", len(jobs))
+	}
+
+	if rec := e.do(t, "POST", "/v1/requests/batch", `{"requests":[{"target":"hydra","payload":{}}]}`, authHdr); rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), `"items"`) {
+		t.Errorf("all-rejected batch: %d %s, want 400 with the items", rec.Code, rec.Body.String())
+	}
+	if rec := e.do(t, "POST", "/v1/requests/batch", `{"requests":[]}`, authHdr); rec.Code != http.StatusBadRequest || errCode(t, rec) != CodeInvalidParameter {
+		t.Errorf("empty batch: %d %s", rec.Code, rec.Body.String())
+	}
+	many := strings.Repeat(`{"target":"meme","payload":{}},`, 101)
+	if rec := e.do(t, "POST", "/v1/requests/batch", `{"requests":[`+many[:len(many)-1]+`]}`, authHdr); rec.Code != http.StatusBadRequest || errCode(t, rec) != CodeInvalidParameter {
+		t.Errorf("oversized batch: %d %s", rec.Code, rec.Body.String())
+	}
+	if rec := e.do(t, "POST", "/v1/requests/batch", `{"requests":[{"target":"meme","payload":{}}]}`, nil); rec.Code != http.StatusUnauthorized {
+		t.Errorf("no key: %d", rec.Code)
+	}
+	if rec := e.do(t, "POST", "/v1/requests/batch", `{"api_key":"valid-key","requests":[{"target":"meme","payload":{}}]}`, nil); rec.Code != http.StatusAccepted {
+		t.Errorf("body key fallback: %d", rec.Code)
+	}
+	if rec := e.do(t, "POST", "/v1/requests/batch", `{"requests":[{"target":"meme","payload":{},"priority":1}]}`, map[string]string{"X-API-Key": "capped-key"}); rec.Code != http.StatusBadRequest {
+		t.Errorf("priority cap applies per item: %d %s", rec.Code, rec.Body.String())
+	}
+}
+
+// validPayloadOf extracts the payload of the shared validBody so a batch
+// item can replay the single request's idempotency key exactly.
+func validPayloadOf(body string) string {
+	var doc map[string]json.RawMessage
+	_ = json.Unmarshal([]byte(body), &doc)
+	return string(doc["payload"])
+}

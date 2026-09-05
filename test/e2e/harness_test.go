@@ -515,6 +515,45 @@ func (h *harness) post(label, body string, hdr map[string]string) string {
 	return accepted.ID
 }
 
+// postBatch sends a batch body and records the response, registering every
+// accepted id for «job-N» normalisation; it returns the accepted ids in
+// item order so a scenario can await them.
+func (h *harness) postBatch(label, body string, hdr map[string]string) []string {
+	h.t.Helper()
+	req, _ := http.NewRequest(http.MethodPost, h.api.URL+"/v1/requests/batch", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	for k, v := range hdr {
+		req.Header.Set(k, v)
+	}
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		h.t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	respBody, _ := io.ReadAll(resp.Body)
+	var doc struct {
+		Items []struct {
+			ID string `json:"id"`
+		} `json:"items"`
+	}
+	_ = json.Unmarshal(respBody, &doc)
+	var accepted []string
+	for _, it := range doc.Items {
+		if it.ID == "" {
+			continue
+		}
+		accepted = append(accepted, it.ID)
+		if !slices.Contains(h.ids, it.ID) {
+			h.ids = append(h.ids, it.ID)
+		}
+	}
+	h.record(map[string]any{
+		"step": label, "request": "POST /v1/requests/batch",
+		"status": resp.StatusCode, "response": decodeAny(respBody),
+	})
+	return accepted
+}
+
 // validate sends a create-shaped body to the dry-run endpoint and records
 // the response.
 func (h *harness) validate(label, body string, hdr map[string]string) {

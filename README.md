@@ -130,6 +130,7 @@ docker run -d -p 8080:8080 \
 | Endpoint | Description |
 |---|---|
 | `POST /v1/requests` | Submit `{target, payload}`; returns `202` + id. Supports an `Idempotency-Key` header. |
+| `POST /v1/requests/batch` | Submit up to 100 requests at once; one result per item. |
 | `POST /v1/requests/validate` | Dry run: which resolvents the payload contains (paths, cache state) and what would fail, without submitting. |
 | `GET /v1/targets`, `GET /v1/resolvents` | Discovery: configured targets and resolvent types, no URLs or credentials. |
 | `GET /v1/requests/{id}` | State, attempts, result (inline JSON or `result.href`), error. `?wait=25s` long-polls until terminal. |

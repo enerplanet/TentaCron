@@ -127,6 +127,27 @@ the payload is inspected exactly as the worker would start it.
 - The answer is `200` whenever the request itself is well-formed; a
   frontend checks `ok`, not the status.
 
+## POST /v1/requests/batch
+
+Submit up to 100 requests in one call. Each item has the fields of a single
+submission (`target`, `payload`, `priority`, `options`) plus an optional
+`idempotency_key`, scoped to the client like the header on the single
+endpoint. Items are validated and stored independently; the answer lists
+one result per item, in order:
+
+```json
+{ "items": [
+  { "id": "…", "state": "received", "links": { "self": "/v1/requests/…" } },
+  { "error": { "code": "unknown_target", "message": "target \"hydra\" is not configured" } }
+] }
+```
+
+`202` when at least one item was accepted (or replayed), `400` with the
+same `items` when none was; an empty list or more than 100 items answer
+`400 invalid_parameter` without items. Item errors use the single
+endpoint's codes (`invalid_json`, `missing_field`, `unknown_target`,
+`invalid_parameter`, `idempotency_conflict`).
+
 ## GET /v1/targets and GET /v1/resolvents
 
 Discovery for frontends: what this deployment can do, without reading its

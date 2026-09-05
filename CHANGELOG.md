@@ -10,6 +10,9 @@ under "Changed" with the keys or fields concerned.
 
 ### Added
 
+- `POST /v1/requests/batch` submits up to 100 requests in one call, each
+  validated and stored independently, with a per-item idempotency key and
+  one result per item in the answer.
 - `GET /v1/requests/{id}?wait=25s` long-polls: the call returns the moment
   the request reaches a terminal state (workers and cancellations wake it
   through an in-process notifier) or when the wait elapses, clamped below
