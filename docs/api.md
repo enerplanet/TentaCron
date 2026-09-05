@@ -130,7 +130,11 @@ excepted).
 
 Serves the stored result once the request is `completed`: an inline JSON
 result as `application/json`, a result file streamed with its recorded
-content type (e.g. `application/zip`). `404 not_found` while the job is not
+content type (e.g. `application/zip`). Responses carry `Content-Length`;
+file results also carry `Content-Disposition: attachment; filename=<id>.zip`
+and `Accept-Ranges: bytes`, honour `Range` (`206 Partial Content`) and
+`If-Modified-Since`, and answer `HEAD` with the headers alone — so a large
+MEME bundle can be sized and resumed. `404 not_found` while the job is not
 completed, when it completed without a result body, or after the result was
 pruned by retention.
 

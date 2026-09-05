@@ -10,6 +10,10 @@ under "Changed" with the keys or fields concerned.
 
 ### Added
 
+- Result downloads carry `Content-Length`; file results add
+  `Content-Disposition` with a filename and `Accept-Ranges`, honour `Range`
+  (`206`) and conditional requests, and answer `HEAD`, so large bundles can
+  be sized and resumed.
 - `GET /v1/requests/{id}/events` serves a request's audit trail (every
   state transition with its detail and a millisecond timestamp) under the
   same read scoping as the request.

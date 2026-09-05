@@ -664,3 +664,45 @@ func TestEventsEndpoint(t *testing.T) {
 		t.Errorf("unknown id: %d, want 404", rec.Code)
 	}
 }
+
+// File results are served with a length, a download filename, range and
+// HEAD support so a client can resume or size a large bundle; inline JSON
+// results carry their length too.
+func TestResultDownloadHeadersRangesAndHead(t *testing.T) {
+	e := newEnv(t)
+	ctx := context.Background()
+	id := createJobDirect(t, e)
+	path := filepath.Join(t.TempDir(), id+".zip")
+	if err := os.WriteFile(path, []byte("0123456789"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := e.store.MarkCompleted(ctx, id, 200, nil, path, "application/zip", "done"); err != nil {
+		t.Fatal(err)
+	}
+	rec := e.do(t, "GET", "/v1/requests/"+id+"/result", "", authHdr)
+	if rec.Code != http.StatusOK || rec.Body.String() != "0123456789" {
+		t.Fatalf("full download: %d %q", rec.Code, rec.Body.String())
+	}
+	h := rec.Header()
+	if h.Get("Content-Length") != "10" || h.Get("Accept-Ranges") != "bytes" || h.Get("Content-Type") != "application/zip" ||
+		h.Get("Content-Disposition") != `attachment; filename=`+id+`.zip` {
+		t.Errorf("headers = %v", h)
+	}
+	rec = e.do(t, "GET", "/v1/requests/"+id+"/result", "", map[string]string{"X-API-Key": "valid-key", "Range": "bytes=2-5"})
+	if rec.Code != http.StatusPartialContent || rec.Body.String() != "2345" || rec.Header().Get("Content-Range") != "bytes 2-5/10" {
+		t.Errorf("range: %d %q %q", rec.Code, rec.Body.String(), rec.Header().Get("Content-Range"))
+	}
+	rec = e.do(t, "HEAD", "/v1/requests/"+id+"/result", "", authHdr)
+	if rec.Code != http.StatusOK || rec.Header().Get("Content-Length") != "10" || rec.Body.Len() != 0 {
+		t.Errorf("HEAD: %d len=%s body=%d", rec.Code, rec.Header().Get("Content-Length"), rec.Body.Len())
+	}
+
+	inline := createJobDirect(t, e)
+	if err := e.store.MarkCompleted(ctx, inline, 200, []byte(`{"ok":true}`), "", "", "done"); err != nil {
+		t.Fatal(err)
+	}
+	rec = e.do(t, "GET", "/v1/requests/"+inline+"/result", "", authHdr)
+	if rec.Code != http.StatusOK || rec.Header().Get("Content-Length") != "11" || rec.Body.String() != `{"ok":true}` {
+		t.Errorf("inline: %d len=%s %q", rec.Code, rec.Header().Get("Content-Length"), rec.Body.String())
+	}
+}

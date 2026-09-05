@@ -8,6 +8,7 @@ import (
 	"mime"
 	"net/http"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -309,9 +310,10 @@ func (s *Server) handleResult(w http.ResponseWriter, r *http.Request) {
 	}
 	switch {
 	case job.ResultPath != "":
-		s.serveResultFile(w, job)
+		s.serveResultFile(w, r, job)
 	case len(job.TargetResponse) > 0 && json.Valid(job.TargetResponse):
 		w.Header().Set("Content-Type", "application/json")
+		w.Header().Set("Content-Length", strconv.Itoa(len(job.TargetResponse)))
 		_, _ = w.Write(job.TargetResponse) // #nosec G705 -- served as application/json, never rendered as HTML
 	default:
 		writeError(w, http.StatusNotFound, CodeNotFound, "job completed without a stored result body")
@@ -319,9 +321,11 @@ func (s *Server) handleResult(w http.ResponseWriter, r *http.Request) {
 }
 
 // serveResultFile streams a file-backed result with its recorded content
-// type. The retention sweeper removes files just before their rows; a
-// request landing in that window gets a 404, not a 500.
-func (s *Server) serveResultFile(w http.ResponseWriter, job *store.Job) {
+// type. ServeContent supplies Content-Length, Accept-Ranges, Range (206)
+// and conditional requests, so a client can resume a large bundle; HEAD
+// gets the headers alone. The retention sweeper removes files just before
+// their rows; a request landing in that window gets a 404, not a 500.
+func (s *Server) serveResultFile(w http.ResponseWriter, r *http.Request, job *store.Job) {
 	f, err := os.Open(job.ResultPath) // #nosec G304 G703 -- path is written by the worker, never taken from request input
 	if errors.Is(err, fs.ErrNotExist) {
 		s.logger.Warn("result file already pruned", "job_id", job.ID, "path", job.ResultPath)
@@ -334,12 +338,20 @@ func (s *Server) serveResultFile(w http.ResponseWriter, job *store.Job) {
 		return
 	}
 	defer f.Close()
+	info, err := f.Stat()
+	if err != nil {
+		s.logger.Error("result file unreadable", "job_id", job.ID, "path", job.ResultPath, "error", err)
+		writeError(w, http.StatusInternalServerError, CodeInternal, "stored result is unavailable")
+		return
+	}
 	ct := job.ResultContentType
 	if ct == "" {
 		ct = "application/octet-stream"
 	}
+	// A pre-set Content-Type keeps ServeContent from sniffing the file.
 	w.Header().Set("Content-Type", ct)
-	_, _ = io.Copy(w, f)
+	w.Header().Set("Content-Disposition", mime.FormatMediaType("attachment", map[string]string{"filename": filepath.Base(job.ResultPath)}))
+	http.ServeContent(w, r, info.Name(), info.ModTime(), f)
 }
 
 // eventTimeLayout keeps the store's millisecond precision: several
