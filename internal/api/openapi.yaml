@@ -80,7 +80,7 @@ paths:
               schema:
                 $ref: "#/components/schemas/Error"
         "422":
-          description: The target is not configured.
+          description: The target is not configured (`unknown_target`), or the `callback_url` is not https on an allow-listed host (`callback_not_allowed`).
           content:
             application/json:
               schema:
@@ -595,6 +595,28 @@ paths:
           content:
             application/yaml: {}
 
+webhooks:
+  requestTerminal:
+    post:
+      summary: Completion callback
+      description: |
+        Sent once to the request's `callback_url` when the request reaches
+        `completed`, `failed` or `cancelled`. The body is exactly the document
+        `GET /v1/requests/{id}` answers (without `callback`). Headers:
+        `X-Tentacron-Event` (`request.completed` | `request.failed` |
+        `request.cancelled`), `X-Tentacron-Request-Id`, `X-Tentacron-Attempt`
+        and `X-Tentacron-Signature: sha256=<hex HMAC-SHA256 of the body with
+        callbacks.signing_secret>`. Any 2xx acknowledges; a 4xx other than 408
+        and 429, or a redirect, ends delivery; anything else is retried with
+        the worker backoff up to `callbacks.max_attempts`.
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/Job"
+      responses:
+        "200":
+          description: Acknowledged.
 components:
   securitySchemes:
     ApiKeyAuth:
@@ -682,6 +704,10 @@ components:
           type: string
           format: date-time
           description: Delays the run until this time (RFC 3339, at most 30 days ahead). The request is accepted at once and stays `received` until then; it can be cancelled meanwhile.
+        callback_url:
+          type: string
+          format: uri
+          description: Receives the job document once the request is terminal (see the `requestTerminal` webhook). Must be https with a host listed in `callbacks.allowed_hosts`; otherwise `422 callback_not_allowed`.
         api_key:
           type: string
           deprecated: true
@@ -719,6 +745,18 @@ components:
           type: string
           format: date-time
           description: Present for a delayed run — the earliest time it could be claimed.
+        callback:
+          type: object
+          description: Present when the request named a `callback_url` (on `GET /v1/requests/{id}` only).
+          required: [url, state, attempts]
+          properties:
+            url: { type: string }
+            state:
+              type: string
+              enum: [pending, delivered, failed]
+            attempts: { type: integer }
+            last_status: { type: integer }
+            last_error: { type: string }
         created_at: { type: string, format: date-time }
         updated_at: { type: string, format: date-time }
         completed_at: { type: string, format: date-time }

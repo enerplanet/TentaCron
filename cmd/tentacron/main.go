@@ -18,10 +18,12 @@ import (
 	"runtime"
 	"runtime/debug"
 	"strings"
+	"sync"
 	"syscall"
 	_ "time/tzdata" // schedules name IANA zones; the distroless image has no zoneinfo
 
 	"github.com/enerplanet/tentacron/internal/api"
+	"github.com/enerplanet/tentacron/internal/callback"
 	"github.com/enerplanet/tentacron/internal/config"
 	"github.com/enerplanet/tentacron/internal/metrics"
 	"github.com/enerplanet/tentacron/internal/notify"
@@ -183,14 +185,18 @@ func serveFromConfig(path string, logger *slog.Logger, level *slog.LevelVar) err
 	nudge := make(chan struct{}, 1)
 	client := upstream.New(cfg.Upstream.MaxResponseBytes, cfg.UpstreamSecrets()).WithMetrics(m)
 	pool := worker.New(cfg, st, client, logger, nudge).WithMetrics(m).WithNotifier(hub)
+	deliverer := callback.New(cfg, st, logger).WithMetrics(m).WithNotifier(hub)
 	apiServer := api.New(cfg, st, logger, nudge).WithUpstream(client).WithNotifier(hub)
 	apiServer.Build = buildInfo()
 	servers := []*http.Server{newHTTPServer(cfg, apiServer.Handler())}
 	if ms := newMetricsServer(cfg, m); ms != nil {
 		servers = append(servers, ms)
 	}
-	return serve(cfg, logger, servers, pool)
+	return serve(cfg, logger, servers, pool, deliverer)
 }
+
+// runner is a background loop that stops when its context ends.
+type runner interface{ Run(context.Context) }
 
 // buildInfo combines the -ldflags version with the VCS stamp Go embeds when
 // the binary is built inside the repository.
@@ -239,7 +245,7 @@ func newHTTPServer(cfg *config.Config, handler http.Handler) *http.Server {
 // serve runs the worker pool and the HTTP servers until a shutdown signal or
 // a fatal server error, then stops them in the documented order: HTTP
 // drains first, workers are cancelled afterwards.
-func serve(cfg *config.Config, logger *slog.Logger, servers []*http.Server, pool *worker.Pool) error {
+func serve(cfg *config.Config, logger *slog.Logger, servers []*http.Server, loops ...runner) error {
 	rootCtx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 	// workerCtx is deliberately not derived from rootCtx: on shutdown the
@@ -251,7 +257,15 @@ func serve(cfg *config.Config, logger *slog.Logger, servers []*http.Server, pool
 	poolDone := make(chan struct{})
 	go func() {
 		defer close(poolDone)
-		pool.Run(workerCtx)
+		var wg sync.WaitGroup
+		for _, l := range loops {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				l.Run(workerCtx)
+			}()
+		}
+		wg.Wait()
 	}()
 	serverErr := make(chan error, len(servers))
 	for _, srv := range servers {

@@ -33,6 +33,7 @@
   {
     "buem_building_calls": 0,
     "buem_calls": 0,
+    "callback_calls": 0,
     "demo_calls": 0,
     "ignis_calculate_calls": 0,
     "meme_accept_calls": 1,

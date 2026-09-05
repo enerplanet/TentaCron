@@ -67,6 +67,7 @@ Submit a request for orchestration.
 | `priority` | integer | Optional, `-10`..`10`, default `0`. Higher priorities are claimed first; each key may be capped by `max_priority` in its configuration. |
 | `options.cache` | string | Optional: `use` (default) reads and writes the series cache, `refresh` fetches every resolvent fresh and rewrites its cache entry, `bypass` fetches fresh and leaves the cache alone. |
 | `not_before` | string | Optional RFC 3339 time, at most 30 days ahead: the request is accepted at once but stays `received` until then (a delayed run). It can be cancelled meanwhile; a time in the past runs at once. |
+| `callback_url` | string | Optional https URL that receives the job document once the request is terminal — see [Callbacks](#callbacks). The host must be listed in `callbacks.allowed_hosts`, otherwise `422 callback_not_allowed`. |
 
 Inside the payload, a field of a resolvent object may reference a sibling
 resolvent's resolved series instead of holding a literal:
@@ -105,6 +106,9 @@ job as `invalid_payload` before any call. See
 - `413 payload_too_large` — body exceeds `server.max_body_bytes`
 - `415 unsupported_media_type` — `Content-Type: application/json` is required
 - `422 unknown_target` — target not configured
+- `422 callback_not_allowed` — `callback_url` is not https, carries
+  credentials, or names a host outside `callbacks.allowed_hosts` (or
+  callbacks are not enabled)
 
 Validation happens in that order: an unknown target is only reported once
 the key has been accepted.
@@ -217,6 +221,10 @@ state is terminal.
 - `target_job_id` appears once a poll-mode target accepted the job;
   `completed_at` once the job is terminal (completed, failed or cancelled);
   `not_before` for a delayed run, for the job's whole life.
+- `callback` appears when the request named a `callback_url`:
+  `{ "url", "state": pending|delivered|failed, "attempts", "last_status",
+  "last_error" }` — pending until the request is terminal and the delivery
+  succeeded.
 - `result` is `null` until the job is `completed`. JSON results up to
   256 KiB are embedded as `result.target_response`; larger or non-JSON
   results (e.g. a MEME zip bundle) are stored as files and referenced as
@@ -351,6 +359,43 @@ expression is evaluated in `timezone`, so `30 6 * * *` with
   "created_at": "2026-09-01T12:00:00Z", "updated_at": "2026-09-05T04:30:00Z",
   "links": { "self": "/v1/schedules/3c4d…", "runs": "/v1/schedules/3c4d…/runs" }
 }
+```
+
+## Callbacks
+
+A request may name a `callback_url`. Once it is terminal, tentacron POSTs
+the job document — exactly what `GET /v1/requests/{id}` answers, without
+the `callback` field — to that URL, once per request:
+
+| Header | Value |
+|---|---|
+| `Content-Type` | `application/json` |
+| `X-Tentacron-Event` | `request.completed`, `request.failed` or `request.cancelled` |
+| `X-Tentacron-Request-Id` | the request id |
+| `X-Tentacron-Attempt` | `1`, `2`, … |
+| `X-Tentacron-Signature` | `sha256=<hex HMAC-SHA256 over the raw body, keyed with callbacks.signing_secret>` |
+
+Any `2xx` acknowledges the delivery. A `4xx` other than `408`/`429`, or a
+redirect (never followed), ends delivery as `failed`; any other outcome is
+retried with the worker backoff up to `callbacks.max_attempts`. One
+attempt is bounded by `callbacks.timeout` and reads at most 1 KiB of the
+answer. Request data never supplies an outbound URL anywhere else; the
+callback is the one deliberate exception, which is why the URL must be
+https and its host must match `callbacks.allowed_hosts` exactly
+(`host:port` when the URL carries a port).
+
+Verify the signature before trusting a delivery — over the raw bytes, with
+a constant-time compare:
+
+```python
+import hmac, hashlib
+def verify(secret: bytes, body: bytes, header: str) -> bool:
+    expected = "sha256=" + hmac.new(secret, body, hashlib.sha256).hexdigest()
+    return hmac.compare_digest(expected, header)
+```
+
+```sh
+printf 'sha256=%s' "$(openssl dgst -sha256 -hmac "$SECRET" -binary < body.json | xxd -p -c 256)"
 ```
 
 ## Health and build

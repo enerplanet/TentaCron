@@ -17,6 +17,7 @@ const (
 	CodeNotFound             = "not_found"
 	CodeMethodNotAllowed     = "method_not_allowed"
 	CodeNotCancellable       = "not_cancellable"
+	CodeCallbackNotAllowed   = "callback_not_allowed"
 	CodeInvalidParameter     = "invalid_parameter"
 	CodeInternal             = "internal"
 )

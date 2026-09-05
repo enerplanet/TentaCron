@@ -1,0 +1,182 @@
+[
+  {
+    "request": "POST /v1/requests",
+    "response": {
+      "id": "«job-1»",
+      "links": {
+        "self": "/v1/requests/«job-1»"
+      },
+      "state": "received"
+    },
+    "status": 202,
+    "step": "submit with a callback_url"
+  },
+  {
+    "deliveries": [
+      {
+        "attempt": "1",
+        "body": {
+          "attempts": 1,
+          "completed_at": "«ts»",
+          "created_at": "«ts»",
+          "error": null,
+          "id": "«job-1»",
+          "result": {
+            "target_response": {
+              "ok": true
+            },
+            "target_status": 200
+          },
+          "state": "completed",
+          "target": "demo",
+          "updated_at": "«ts»"
+        },
+        "content_type": "application/json",
+        "event": "request.completed",
+        "path": "/hook",
+        "request_id": "«job-1»",
+        "signature_valid": true
+      }
+    ],
+    "step": "the receiver got the signed job document"
+  },
+  {
+    "content_type": "application/json",
+    "request": "GET /v1/requests/«job-1»",
+    "response": {
+      "attempts": 1,
+      "callback": {
+        "attempts": 1,
+        "last_status": 200,
+        "state": "delivered",
+        "url": "https://«addr»/hook"
+      },
+      "completed_at": "«ts»",
+      "created_at": "«ts»",
+      "error": null,
+      "id": "«job-1»",
+      "result": {
+        "target_response": {
+          "ok": true
+        },
+        "target_status": 200
+      },
+      "state": "completed",
+      "target": "demo",
+      "updated_at": "«ts»"
+    },
+    "status": 200,
+    "step": "GET reports the delivery"
+  },
+  {
+    "request": "POST /v1/requests",
+    "response": {
+      "error": {
+        "code": "callback_not_allowed",
+        "message": "callback_url must use https"
+      }
+    },
+    "status": 422,
+    "step": "an http callback is refused"
+  },
+  {
+    "request": "POST /v1/requests",
+    "response": {
+      "error": {
+        "code": "callback_not_allowed",
+        "message": "callback_url host \"evil.example\" is not allow-listed"
+      }
+    },
+    "status": 422,
+    "step": "a host outside the allow-list is refused"
+  },
+  {
+    "request": "POST /v1/requests/batch",
+    "response": {
+      "items": [
+        {
+          "error": {
+            "code": "callback_not_allowed",
+            "message": "callback_url host \"evil.example\" is not allow-listed"
+          }
+        },
+        {
+          "id": "«job-2»",
+          "links": {
+            "self": "/v1/requests/«job-2»"
+          },
+          "state": "received"
+        }
+      ]
+    },
+    "status": 202,
+    "step": "batch items carry callbacks too"
+  },
+  {
+    "deliveries": [
+      {
+        "attempt": "1",
+        "body": {
+          "attempts": 1,
+          "completed_at": "«ts»",
+          "created_at": "«ts»",
+          "error": null,
+          "id": "«job-1»",
+          "result": {
+            "target_response": {
+              "ok": true
+            },
+            "target_status": 200
+          },
+          "state": "completed",
+          "target": "demo",
+          "updated_at": "«ts»"
+        },
+        "content_type": "application/json",
+        "event": "request.completed",
+        "path": "/hook",
+        "request_id": "«job-1»",
+        "signature_valid": true
+      },
+      {
+        "attempt": "1",
+        "body": {
+          "attempts": 1,
+          "completed_at": "«ts»",
+          "created_at": "«ts»",
+          "error": null,
+          "id": "«job-2»",
+          "result": {
+            "target_response": {
+              "ok": true
+            },
+            "target_status": 200
+          },
+          "state": "completed",
+          "target": "demo",
+          "updated_at": "«ts»"
+        },
+        "content_type": "application/json",
+        "event": "request.completed",
+        "path": "/hook/batch",
+        "request_id": "«job-2»",
+        "signature_valid": true
+      }
+    ],
+    "step": "the accepted batch item's callback arrives"
+  },
+  {
+    "buem_building_calls": 0,
+    "buem_calls": 0,
+    "callback_calls": 2,
+    "demo_calls": 2,
+    "ignis_calculate_calls": 0,
+    "meme_accept_calls": 0,
+    "meme_cancel_calls": 0,
+    "meme_result_calls": "not asserted (timing-dependent)",
+    "meme_status_calls": "not asserted (timing-dependent)",
+    "resource_calls": 0,
+    "step": "upstream call counts",
+    "unexpected_upstream_requests": []
+  }
+]

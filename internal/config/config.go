@@ -41,6 +41,7 @@ type Config struct {
 	Worker     Worker               `yaml:"worker"`
 	Cache      Cache                `yaml:"cache"`
 	Upstream   Upstream             `yaml:"upstream"`
+	Callbacks  Callbacks            `yaml:"callbacks"`
 	Targets    map[string]Target    `yaml:"targets"`
 	Resolvents map[string]Resolvent `yaml:"resolvents"`
 }
@@ -165,6 +166,30 @@ type Worker struct {
 	// SchedulerInterval is how often due schedules are materialised into
 	// jobs; a run is never earlier than its due time and at most this late.
 	SchedulerInterval Duration `yaml:"scheduler_interval"`
+}
+
+// Callbacks governs completion callbacks: the one place request data may
+// name an outbound URL, which is why the hosts are allow-listed here.
+type Callbacks struct {
+	// AllowedHosts lists the exact host (or host:port) values a callback_url
+	// may carry; empty disables callbacks.
+	AllowedHosts []string `yaml:"allowed_hosts"`
+	// SigningSecret keys the HMAC-SHA256 signature of every delivery.
+	SigningSecret string `yaml:"signing_secret"`
+	// MaxAttempts bounds delivery attempts; retries use the worker backoff.
+	MaxAttempts int `yaml:"max_attempts"`
+	// Timeout bounds one delivery attempt.
+	Timeout Duration `yaml:"timeout"`
+}
+
+// Enabled reports whether any callback_url can be accepted.
+func (c Callbacks) Enabled() bool { return len(c.AllowedHosts) > 0 }
+
+func (c *Callbacks) applyDefaults() {
+	if c.MaxAttempts == 0 {
+		c.MaxAttempts = 5
+	}
+	setDur(&c.Timeout, 5*time.Second)
 }
 
 // Cache holds resolved-series cache settings.
@@ -401,6 +426,7 @@ func (c *Config) applyDefaults() {
 	c.Worker.applyDefaults()
 	c.Cache.applyDefaults()
 	c.Upstream.applyDefaults()
+	c.Callbacks.applyDefaults()
 	for name, t := range c.Targets {
 		t.applyDefaults()
 		c.Targets[name] = t
@@ -563,6 +589,9 @@ func setDur(d *Duration, def time.Duration) {
 // shorter credential can never split a longer one during redaction.
 func (c *Config) UpstreamSecrets() []string {
 	var secrets []string
+	if c.Callbacks.SigningSecret != "" {
+		secrets = append(secrets, c.Callbacks.SigningSecret)
+	}
 	for _, t := range c.Targets {
 		if t.APIKey != "" {
 			secrets = append(secrets, t.APIKey)

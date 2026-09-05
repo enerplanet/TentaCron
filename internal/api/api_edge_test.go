@@ -1200,3 +1200,51 @@ func TestNotBeforeDelaysTheRun(t *testing.T) {
 		t.Errorf("batch: %d %s", rec.Code, rec.Body.String())
 	}
 }
+
+// callback_url is accepted only for https URLs on allow-listed hosts; GET
+// reports the delivery as pending until the deliverer has run.
+func TestCallbackURLAllowListAndStatus(t *testing.T) {
+	e := newEnvWith(t, func(c *config.Config) {
+		c.Callbacks = config.Callbacks{AllowedHosts: []string{"hooks.example.com"}, SigningSecret: "s", MaxAttempts: 3}
+	}, nil)
+	for body, want := range map[string]string{
+		`{"target":"meme","payload":{},"callback_url":"http://hooks.example.com/x"}`:  "https",
+		`{"target":"meme","payload":{},"callback_url":"https://other.example.com/x"}`: "not allow-listed",
+		`{"target":"meme","payload":{},"callback_url":"nonsense"}`:                    "https",
+	} {
+		rec := e.do(t, "POST", "/v1/requests", body, authHdr)
+		if rec.Code != http.StatusUnprocessableEntity || errCode(t, rec) != CodeCallbackNotAllowed || !strings.Contains(rec.Body.String(), want) {
+			t.Errorf("%s: %d %s", body, rec.Code, rec.Body.String())
+		}
+	}
+	rec := e.do(t, "POST", "/v1/requests", `{"target":"meme","payload":{},"callback_url":"https://hooks.example.com/x"}`, authHdr)
+	if rec.Code != http.StatusAccepted {
+		t.Fatalf("accept: %d %s", rec.Code, rec.Body.String())
+	}
+	id := decodeBody[createResponse](t, rec).ID
+	got := decodeBody[jobResponse](t, e.do(t, "GET", "/v1/requests/"+id, "", authHdr))
+	if got.Callback == nil || got.Callback.State != store.DeliveryPending || got.Callback.URL != "https://hooks.example.com/x" || got.Callback.Attempts != 0 {
+		t.Errorf("callback before terminal = %+v", got.Callback)
+	}
+	if err := e.store.MarkFailed(context.Background(), id, "target_error", "x"); err != nil {
+		t.Fatal(err)
+	}
+	status := 503
+	next := time.Now().Add(time.Hour)
+	if err := e.store.RecordAttempt(context.Background(), id, 0, &status, "HTTP 503", false, &next); err != nil {
+		t.Fatal(err)
+	}
+	got = decodeBody[jobResponse](t, e.do(t, "GET", "/v1/requests/"+id, "", authHdr))
+	if got.Callback.State != store.DeliveryPending || got.Callback.Attempts != 1 || got.Callback.LastStatus == nil || *got.Callback.LastStatus != 503 || got.Callback.LastError != "HTTP 503" {
+		t.Errorf("callback after a failed attempt = %+v", got.Callback)
+	}
+	plain := decodeBody[jobResponse](t, e.do(t, "GET", "/v1/requests/"+decodeBody[createResponse](t, e.do(t, "POST", "/v1/requests", validBody, authHdr)).ID, "", authHdr))
+	if plain.Callback != nil {
+		t.Error("a request without callback_url must not report a callback")
+	}
+	// Callbacks disabled: every callback_url is refused.
+	off := newEnv(t)
+	if rec := off.do(t, "POST", "/v1/requests", `{"target":"meme","payload":{},"callback_url":"https://hooks.example.com/x"}`, authHdr); rec.Code != http.StatusUnprocessableEntity || !strings.Contains(rec.Body.String(), "not enabled") {
+		t.Errorf("disabled: %d %s", rec.Code, rec.Body.String())
+	}
+}

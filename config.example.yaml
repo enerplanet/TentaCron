@@ -49,6 +49,16 @@ cache:
   default_ttl: 6h # resolved-series reuse window
   cleanup_interval: 15m
 
+# Completion callbacks: the one place a request may name an outbound URL, so
+# the hosts are allow-listed here (https only, exact host or host:port).
+# Leave allowed_hosts empty to disable callbacks.
+callbacks:
+  allowed_hosts: []
+  # signing_secret is required once allowed_hosts is set; reference an
+  # environment variable with the usual interpolation, never a literal.
+  max_attempts: 5
+  timeout: 5s
+
 targets:
   meme:
     url: "https://meme.example.com/simulate?target=all"

@@ -26,6 +26,7 @@ func (c *Config) Validate() error {
 	v.worker(c.Worker)
 	v.cache(c.Cache)
 	v.upstream(c.Upstream)
+	v.callbacks(c.Callbacks)
 	v.auth(c.Auth)
 	v.targets(c.Targets, c.Resolvents, c.Worker)
 	v.resolvents(c.Resolvents, c.Targets)
@@ -379,4 +380,19 @@ func validMethod(m string) bool {
 		return true
 	}
 	return false
+}
+
+// callbacks checks the completion-callback section: hosts are bare
+// host[:port] values, and enabling callbacks requires a signing secret.
+func (v *validator) callbacks(c Callbacks) {
+	for i, h := range c.AllowedHosts {
+		if h == "" || strings.ContainsAny(h, "/@ ") || strings.Contains(h, "://") {
+			v.fail("callbacks.allowed_hosts[%d]: %q must be a bare host or host:port", i, h)
+		}
+	}
+	if c.Enabled() && c.SigningSecret == "" {
+		v.fail("callbacks.signing_secret is required when allowed_hosts is set")
+	}
+	v.positiveInt("callbacks.max_attempts", int64(c.MaxAttempts))
+	v.positiveDur("callbacks.timeout", c.Timeout)
 }

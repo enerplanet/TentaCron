@@ -6,14 +6,29 @@ package notify
 
 import "sync"
 
-// Hub fans out per-job terminal notifications to waiting requests.
+// Hub fans out per-job terminal notifications to waiting requests, and
+// raises one shared flag for anything that wants to know "some job ended"
+// (the callback deliverer).
 type Hub struct {
-	mu      sync.Mutex
-	waiters map[string][]chan struct{}
+	mu        sync.Mutex
+	waiters   map[string][]chan struct{}
+	terminals chan struct{}
 }
 
 // New builds an empty hub.
-func New() *Hub { return &Hub{waiters: map[string][]chan struct{}{}} }
+func New() *Hub {
+	return &Hub{waiters: map[string][]chan struct{}{}, terminals: make(chan struct{}, 1)}
+}
+
+// Terminals receives a value after any job reaches a terminal state; several
+// transitions between two reads collapse into one value. Nil on a nil hub,
+// which never fires.
+func (h *Hub) Terminals() <-chan struct{} {
+	if h == nil {
+		return nil
+	}
+	return h.terminals
+}
 
 // Wait returns a channel that is closed on the next Notify for id. Register
 // before reading the job's state, so a transition between the read and the
@@ -42,6 +57,10 @@ func (h *Hub) Notify(id string) {
 	h.mu.Unlock()
 	for _, ch := range chans {
 		close(ch)
+	}
+	select {
+	case h.terminals <- struct{}{}:
+	default: // a wake-up is already pending
 	}
 }
 

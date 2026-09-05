@@ -67,6 +67,8 @@ type Job struct {
 	// NotBefore is the earliest time the job may be claimed (a delayed run);
 	// nil means at once.
 	NotBefore *time.Time
+	// CallbackURL, when set, receives the job document once it is terminal.
+	CallbackURL string
 	// Priority orders claims: higher first, -10..10, default 0.
 	Priority int
 	// Options are the processing choices the client made for this job.
@@ -137,7 +139,7 @@ func NewID() (string, error) {
 	return hex.EncodeToString(b), nil
 }
 
-const jobColumns = `rowid, id, client, idempotency_key, target, state, attempts, max_attempts, priority, options, not_before,
+const jobColumns = `rowid, id, client, idempotency_key, target, state, attempts, max_attempts, priority, options, not_before, callback_url,
 	next_attempt_at, payload, resolved_payload, target_job_id, poll_deadline,
 	target_status, target_response, result_path, result_content_type,
 	error_code, error_message, created_at, updated_at, completed_at`
@@ -150,7 +152,7 @@ type jobRow struct {
 	job                                   Job
 	options                               string
 	idem, nextAt, targetJobID, pollDL     sql.NullString
-	notBefore                             sql.NullString
+	notBefore, callbackURL                sql.NullString
 	resultPath, resultCT, errCode, errMsg sql.NullString
 	createdAt, updatedAt, completedAt     sql.NullString
 	targetStatus                          sql.NullInt64
@@ -159,7 +161,7 @@ type jobRow struct {
 func scanJob(r rowScanner) (*Job, error) {
 	var row jobRow
 	j := &row.job
-	err := r.Scan(&j.Seq, &j.ID, &j.Client, &row.idem, &j.Target, &j.State, &j.Attempts, &j.MaxAttempts, &j.Priority, &row.options, &row.notBefore,
+	err := r.Scan(&j.Seq, &j.ID, &j.Client, &row.idem, &j.Target, &j.State, &j.Attempts, &j.MaxAttempts, &j.Priority, &row.options, &row.notBefore, &row.callbackURL,
 		&row.nextAt, &j.Payload, &j.ResolvedPayload, &row.targetJobID, &row.pollDL,
 		&row.targetStatus, &j.TargetResponse, &row.resultPath, &row.resultCT,
 		&row.errCode, &row.errMsg, &row.createdAt, &row.updatedAt, &row.completedAt)
@@ -173,6 +175,7 @@ func scanJob(r rowScanner) (*Job, error) {
 func (row *jobRow) toJob() (*Job, error) {
 	j := &row.job
 	j.IdempotencyKey = row.idem.String
+	j.CallbackURL = row.callbackURL.String
 	j.TargetJobID = row.targetJobID.String
 	j.ResultPath = row.resultPath.String
 	j.ResultContentType = row.resultCT.String
@@ -270,9 +273,12 @@ func (s *Store) createJobOnce(ctx context.Context, j *Job) (created bool, stored
 }
 
 func insertJob(ctx context.Context, tx *sql.Tx, j *Job, now time.Time) error {
-	var idem, notBefore any
+	var idem, notBefore, callback any
 	if j.IdempotencyKey != "" {
 		idem = j.IdempotencyKey
+	}
+	if j.CallbackURL != "" {
+		callback = j.CallbackURL
 	}
 	if j.NotBefore != nil {
 		// A delayed run: the claim query skips the job until then, exactly
@@ -280,9 +286,9 @@ func insertJob(ctx context.Context, tx *sql.Tx, j *Job, now time.Time) error {
 		notBefore = ts(*j.NotBefore)
 	}
 	_, err := tx.ExecContext(ctx, `INSERT INTO jobs
-		(id, client, idempotency_key, target, state, attempts, max_attempts, priority, options, payload, not_before, next_attempt_at, created_at, updated_at)
-		VALUES (?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		j.ID, j.Client, idem, j.Target, StateReceived, j.MaxAttempts, j.Priority, j.Options.encode(), j.Payload, notBefore, notBefore, ts(now), ts(now))
+		(id, client, idempotency_key, target, state, attempts, max_attempts, priority, options, payload, not_before, callback_url, next_attempt_at, created_at, updated_at)
+		VALUES (?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		j.ID, j.Client, idem, j.Target, StateReceived, j.MaxAttempts, j.Priority, j.Options.encode(), j.Payload, notBefore, callback, notBefore, ts(now), ts(now))
 	return err
 }
 
@@ -848,6 +854,11 @@ func (s *Store) transitionGuarded(ctx context.Context, id string, guard func(cur
 	}
 	if err = appendEventTx(ctx, tx, id, current, toState, detail, now); err != nil {
 		return err
+	}
+	if IsTerminal(toState) {
+		if err = enqueueCallbackTx(ctx, tx, id, toState, now); err != nil {
+			return err
+		}
 	}
 	return tx.Commit()
 }

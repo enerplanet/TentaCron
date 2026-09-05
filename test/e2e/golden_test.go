@@ -834,6 +834,49 @@ var apiContractScenarios = []scenario{
 		},
 	},
 	{
+		// A completion callback: the terminal job document is POSTed to the
+		// allow-listed https receiver, signed with the configured secret;
+		// GET reports the delivery. A 5xx is retried, a 4xx is final.
+		name: "callback-delivered",
+		run: func(t *testing.T, h *harness) {
+			auth := map[string]string{"X-API-Key": clientKey}
+			hook := h.callbacks.URL + "/hook"
+			// The deliverer fires the moment the job ends, so the terminal
+			// state is observed through the delivery rather than a racy GET.
+			id := h.post("submit with a callback_url", `{"target":"demo","payload":{"time-series":[]},"callback_url":"`+hook+`"}`, auth)
+			h.awaitDeliveries("the receiver got the signed job document", 1)
+			h.awaitCallbackState("GET reports the delivery", id, "delivered")
+			h.post("an http callback is refused", `{"target":"demo","payload":{},"callback_url":"http://`+strings.TrimPrefix(hook, "https://")+`"}`, auth)
+			h.post("a host outside the allow-list is refused", `{"target":"demo","payload":{},"callback_url":"https://evil.example/hook"}`, auth)
+			h.postBatch("batch items carry callbacks too", `{"requests":[{"target":"demo","payload":{},"callback_url":"https://evil.example/hook"},{"target":"demo","payload":{"time-series":[]},"callback_url":"`+hook+`/batch"}]}`, auth)
+			h.awaitDeliveries("the accepted batch item's callback arrives", 2)
+			h.counts()
+		},
+	},
+	{
+		name: "callback-retried-then-given-up",
+		fakes: fakes{callback: func(call int64) reply {
+			switch call {
+			case 1:
+				return reply{503, `{"busy":true}`, ""}
+			case 2:
+				return reply{200, `{}`, ""}
+			default:
+				return reply{410, `{"gone":true}`, ""}
+			}
+		}},
+		run: func(t *testing.T, h *harness) {
+			auth := map[string]string{"X-API-Key": clientKey}
+			hook := h.callbacks.URL + "/hook"
+			id := h.post("submit with a callback_url", `{"target":"demo","payload":{"time-series":[]},"callback_url":"`+hook+`"}`, auth)
+			h.awaitDeliveries("503 then 200: two attempts", 2)
+			h.awaitCallbackState("delivered on the second attempt", id, "delivered")
+			gone := h.post("a second request whose receiver answers 410", `{"target":"demo","payload":{"time-series":[]},"callback_url":"`+hook+`"}`, auth)
+			h.awaitCallbackState("a 4xx is final: one attempt, state failed", gone, "failed")
+			h.counts()
+		},
+	},
+	{
 		// A recurring run: the schedule is created with its first due time,
 		// materialises into an ordinary request (cache refresh by default,
 		// the schedule's priority) at every due time, records its last run,

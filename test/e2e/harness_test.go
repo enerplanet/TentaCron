@@ -14,6 +14,7 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
+	"github.com/enerplanet/tentacron/internal/callback"
 	"io"
 	"log/slog"
 	"maps"
@@ -77,6 +78,7 @@ type fakes struct {
 	gateway     func(call int64) reply              // POST <target>/api/v1/buem/buildings (the real buem contract)
 	building    func(call int64) reply              // POST <target>/api/v1/buem/building (single building; backs resolvent-buem)
 	calculate   func(call int64) reply              // POST <target>/api/v1/calculate/{code} (ignis; the proxy-target exemplar)
+	callback    func(call int64) reply              // POST <callbacks>/hook (the client's completion-callback receiver)
 	directDelay func(call int64) time.Duration      // latency before the demo target answers a given call (deadline and scheduling scenarios)
 }
 
@@ -126,6 +128,9 @@ func (f fakes) withTargetDefaults() fakes {
 	if f.status == nil {
 		f.status = func(int64) reply { return reply{200, `{"id":"m-golden-1","state":"succeeded"}`, ""} }
 	}
+	if f.callback == nil {
+		f.callback = func(int64) reply { return reply{200, `{"received":true}`, ""} }
+	}
 	if f.result == nil {
 		f.result = func(int64) reply { return reply{200, `{"id":"m-golden-1","state":"succeeded","objective":1234.5}`, ""} }
 	}
@@ -161,6 +166,9 @@ type harness struct {
 	api *httptest.Server
 
 	resourceCalls, demoCalls, acceptCalls, statusCalls, resultCalls, cancelCalls, gatewayCalls, buildingCalls, calculateCalls atomic.Int64
+	callbackCalls                                                                                                             atomic.Int64
+	callbacks                                                                                                                 *httptest.Server // the client's TLS callback receiver
+	deliveries                                                                                                                []map[string]any // what the receiver saw, in order
 
 	mu               sync.Mutex
 	lastForwarded    map[string][]byte   // keyed by target name
@@ -202,7 +210,8 @@ func newHarness(t *testing.T, f fakes, mod func(*config.Config)) *harness {
 	}
 	resource := h.startResourceFake(f)
 	target := h.startTargetFake(f)
-	cfg := goldenConfig(t, resource.URL, target.URL)
+	h.callbacks = h.startCallbackReceiver(f)
+	cfg := goldenConfig(t, resource.URL, target.URL, h.callbacks.URL)
 	if mod != nil {
 		mod(cfg)
 	}
@@ -236,6 +245,72 @@ func (h *harness) startResourceFake(f fakes) *httptest.Server {
 	}))
 	h.t.Cleanup(srv.Close)
 	return srv
+}
+
+// goldenCallbackSecret signs deliveries; the receiver verifies with it.
+const goldenCallbackSecret = "golden-callback-secret"
+
+// startCallbackReceiver is the client's completion-callback endpoint: TLS
+// (callbacks must be https), recording each delivery's headers and body and
+// verifying the signature, answering the scripted reply.
+func (h *harness) startCallbackReceiver(f fakes) *httptest.Server {
+	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		h.mu.Lock()
+		h.deliveries = append(h.deliveries, map[string]any{
+			"path":            r.URL.Path,
+			"event":           r.Header.Get(callback.HeaderEvent),
+			"attempt":         r.Header.Get(callback.HeaderAttempt),
+			"request_id":      r.Header.Get(callback.HeaderRequestID),
+			"signature_valid": callback.Verify(goldenCallbackSecret, body, r.Header.Get(callback.HeaderSignature)),
+			"content_type":    r.Header.Get("Content-Type"),
+			"body":            scrubTimes(decodeAny(body)),
+		})
+		h.mu.Unlock()
+		writeReply(w, f.callback(h.callbackCalls.Add(1)))
+	}))
+	h.t.Cleanup(srv.Close)
+	return srv
+}
+
+// awaitDeliveries waits until the receiver saw n deliveries, then records
+// them.
+func (h *harness) awaitDeliveries(label string, n int) {
+	h.t.Helper()
+	deadline := time.Now().Add(15 * time.Second)
+	for h.callbackCalls.Load() < int64(n) && time.Now().Before(deadline) {
+		time.Sleep(10 * time.Millisecond)
+	}
+	if h.callbackCalls.Load() < int64(n) {
+		h.t.Fatalf("receiver saw %d deliveries, want %d", h.callbackCalls.Load(), n)
+	}
+	h.mu.Lock()
+	seen := append([]map[string]any(nil), h.deliveries...)
+	h.mu.Unlock()
+	h.record(map[string]any{"step": label, "deliveries": seen})
+}
+
+// awaitCallbackState polls the request until its callback reports state.
+func (h *harness) awaitCallbackState(label, id, state string) {
+	h.t.Helper()
+	path := "/v1/requests/" + id
+	hdr := map[string]string{"X-API-Key": adminKey}
+	deadline := time.Now().Add(15 * time.Second)
+	for time.Now().Before(deadline) {
+		_, body := h.getOnce(path, hdr)
+		var doc struct {
+			Callback struct {
+				State string `json:"state"`
+			} `json:"callback"`
+		}
+		_ = json.Unmarshal(body, &doc)
+		if doc.Callback.State == state {
+			h.get(label, path, hdr)
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	h.t.Fatalf("callback of %s never reached %s", id, state)
 }
 
 // startTargetFake serves every target endpoint on one mux. The catch-all is
@@ -313,8 +388,11 @@ func (h *harness) targetCallOrder(label, endpoint string) {
 func dur(d time.Duration) config.Duration { return config.Duration(d) }
 
 // goldenConfig is the fixed stack configuration every scenario starts from.
-func goldenConfig(t *testing.T, resourceURL, targetURL string) *config.Config {
+func goldenConfig(t *testing.T, resourceURL, targetURL, callbackURL string) *config.Config {
 	return &config.Config{
+		// Completion callbacks may only go to the receiver the harness runs.
+		Callbacks: config.Callbacks{AllowedHosts: []string{strings.TrimPrefix(callbackURL, "https://")},
+			SigningSecret: goldenCallbackSecret, MaxAttempts: 3, Timeout: dur(2 * time.Second)},
 		Server:   config.Server{MaxBodyBytes: 4096},
 		Upstream: config.Upstream{MaxResponseBytes: 4096},
 		Auth: config.Auth{APIKeys: []config.APIKey{
@@ -447,11 +525,16 @@ func (h *harness) startStack(cfg *config.Config) {
 	nudge := make(chan struct{}, 1)
 	hub := notify.New()
 	pool := worker.New(cfg, st, upstream.New(cfg.Upstream.MaxResponseBytes, cfg.UpstreamSecrets()), logger, nudge).WithNotifier(hub)
+	deliverer := callback.New(cfg, st, logger).WithHTTPClient(h.callbacks.Client()).WithNotifier(hub)
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
-		pool.Run(ctx)
+		var wg sync.WaitGroup
+		wg.Add(2)
+		go func() { defer wg.Done(); pool.Run(ctx) }()
+		go func() { defer wg.Done(); deliverer.Run(ctx) }()
+		wg.Wait()
 	}()
 	h.api = httptest.NewServer(api.New(cfg, st, logger, nudge).
 		WithUpstream(upstream.New(cfg.Upstream.MaxResponseBytes, cfg.UpstreamSecrets())).WithNotifier(hub).Handler())
@@ -894,6 +977,7 @@ func (h *harness) countsStep(withPolls bool) map[string]any {
 		"buem_calls":                   h.gatewayCalls.Load(),
 		"buem_building_calls":          h.buildingCalls.Load(),
 		"ignis_calculate_calls":        h.calculateCalls.Load(),
+		"callback_calls":               h.callbackCalls.Load(),
 		"unexpected_upstream_requests": unexpected,
 	}
 	if withPolls {

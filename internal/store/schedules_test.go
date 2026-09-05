@@ -84,3 +84,74 @@ func TestListJobsByIdempotencyPrefix(t *testing.T) {
 		t.Errorf("run key = %s", RunKey("s", due))
 	}
 }
+
+// A terminal transition of a job with a callback enqueues exactly one
+// delivery in the same transaction; attempts are recorded with a
+// compare-and-set; deleting the job removes the delivery.
+func TestTerminalTransitionEnqueuesCallback(t *testing.T) {
+	s := openTest(t)
+	ctx := context.Background()
+	for _, id := range []string{"cb", "plain"} {
+		job := &Job{ID: id, Client: "c", Target: "t", MaxAttempts: 1, Payload: []byte(`{}`)}
+		if id == "cb" {
+			job.CallbackURL = "https://hooks.example.com/x"
+		}
+		if _, _, err := s.CreateJob(ctx, job); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := s.GetDelivery(ctx, "cb"); !errors.Is(err, ErrNotFound) {
+		t.Errorf("no delivery before the job is terminal: %v", err)
+	}
+	if err := s.MarkCancelled(ctx, "cb", "by test"); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.MarkCompleted(ctx, "plain", 200, nil, "", "", ""); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.GetDelivery(ctx, "plain"); !errors.Is(err, ErrNotFound) {
+		t.Errorf("a job without callback_url gets no delivery: %v", err)
+	}
+	d, err := s.GetDelivery(ctx, "cb")
+	if err != nil || d.Event != "request.cancelled" || d.URL != "https://hooks.example.com/x" || d.State() != DeliveryPending || d.NextAttemptAt == nil {
+		t.Fatalf("delivery = %+v (%v)", d, err)
+	}
+	if due, _ := s.DueDeliveries(ctx, time.Now(), 10); len(due) != 1 || due[0].JobID != "cb" {
+		t.Errorf("due = %v", due)
+	}
+	status := 500
+	later := time.Now().Add(time.Hour)
+	if err := s.RecordAttempt(ctx, "cb", 0, &status, "HTTP 500", false, &later); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.RecordAttempt(ctx, "cb", 0, &status, "stale", false, nil); !errors.Is(err, ErrNotFound) {
+		t.Errorf("a stale attempt count must not overwrite: %v", err)
+	}
+	if due, _ := s.DueDeliveries(ctx, time.Now(), 10); len(due) != 0 {
+		t.Errorf("not due until the backoff passed: %v", due)
+	}
+	ok := 200
+	if err := s.RecordAttempt(ctx, "cb", 1, &ok, "", true, nil); err != nil {
+		t.Fatal(err)
+	}
+	d, _ = s.GetDelivery(ctx, "cb")
+	if d.State() != DeliveryDelivered || d.Attempts != 2 || *d.LastStatus != 200 || d.LastError != "" {
+		t.Errorf("delivered = %+v", d)
+	}
+	if err := s.DeleteJobs(ctx, []string{"cb"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.GetDelivery(ctx, "cb"); !errors.Is(err, ErrNotFound) {
+		t.Errorf("delivery must be deleted with its job: %v", err)
+	}
+	// Giving up leaves a failed delivery.
+	if _, _, err := s.CreateJob(ctx, &Job{ID: "gone", Client: "c", Target: "t", MaxAttempts: 1, Payload: []byte(`{}`), CallbackURL: "https://hooks.example.com/y"}); err != nil {
+		t.Fatal(err)
+	}
+	_ = s.MarkFailed(ctx, "gone", "target_error", "x")
+	st := 410
+	_ = s.RecordAttempt(ctx, "gone", 0, &st, "HTTP 410", false, nil)
+	if d, _ := s.GetDelivery(ctx, "gone"); d.State() != DeliveryFailed || d.Event != "request.failed" {
+		t.Errorf("given up = %+v", d)
+	}
+}

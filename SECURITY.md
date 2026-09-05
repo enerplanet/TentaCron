@@ -42,6 +42,8 @@ upstream response makes an issue worse, that part is in scope.
 - All outbound URLs come from configuration. Request data can only select
   configured entries; values that reach a URL are path-escaped and
   target-supplied job ids are validated against a strict character set.
+  The one exception is a request's `callback_url`, which is accepted only
+  for https and a host listed in `callbacks.allowed_hosts`.
 - Outbound calls never follow redirects, and request and response bodies
   are size-capped.
 - `govulncheck` runs in CI on every push and Dependabot keeps the module

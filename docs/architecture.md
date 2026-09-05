@@ -19,6 +19,7 @@ flowchart LR
     W -->|"poll job {id}"| T
     W -->|series cache| DB
     S[Scheduler] -->|"due schedule → job"| DB
+    D[Callback deliverer] -->|"signed job document"| CB[Client callback URL]
 ```
 
 ## Request lifecycle
@@ -190,6 +191,18 @@ delays. Runs default to `cache: refresh` so a daily rerun sees today's
 inputs; the run job carries the schedule's priority and client, and is read,
 listed and cancelled like any request.
 
+## Completion callbacks
+
+A request may name a `callback_url`. The terminal transition (completed,
+failed or cancelled) inserts a delivery row in its own transaction; a
+deliverer loop POSTs the job document with an HMAC-SHA256 signature,
+retrying on transport errors and 5xx with the worker backoff, giving up on
+other 4xx, redirects or an exhausted attempt budget. The API reports the
+delivery under `callback` on the request. Callback URLs are the one place
+request data names an outbound destination, so they are fenced: https only,
+host allow-listed in configuration, redirects never followed, the receiver's
+answer read only up to 1 KiB.
+
 ## Restart safety
 
 - On startup, jobs stuck in `resolving`/`forwarding` are requeued. Processing
@@ -211,7 +224,9 @@ listed and cancelled like any request.
 - Target/resource credentials live only in the YAML config (via environment
   variables) and are injected into outbound requests at send time.
 - All outbound URLs come from configuration — request data can only select
-  dictionary entries, never supply a URL. Values that do reach a URL are
+  dictionary entries, never supply a URL. The one exception, a request's
+  `callback_url`, is accepted only for https and a host listed in
+  `callbacks.allowed_hosts`. Values that do reach a URL are
   path-escaped: target-supplied job ids are additionally validated against a
   strict charset before they are substituted into poll/result URL templates,
   and `{field}` placeholders accept only string or number values.

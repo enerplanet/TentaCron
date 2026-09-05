@@ -6,6 +6,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/enerplanet/tentacron/internal/callback"
+	"github.com/enerplanet/tentacron/internal/jobview"
 	"io"
 	"io/fs"
 	"mime"
@@ -32,6 +34,9 @@ type createRequest struct {
 	Options *requestOptions `json:"options"`
 	// NotBefore delays the run: RFC 3339, at most 30 days ahead.
 	NotBefore string `json:"not_before,omitempty"`
+	// CallbackURL receives the job document once the request is terminal;
+	// https, host allow-listed in callbacks.allowed_hosts.
+	CallbackURL string `json:"callback_url,omitempty"`
 }
 
 // maxNotBeforeAhead bounds how far a delayed run may be scheduled.
@@ -198,6 +203,12 @@ func (s *Server) acceptedCreate(w http.ResponseWriter, r *http.Request) (createR
 			fmt.Sprintf("priority %d exceeds this key's maximum of %d", *req.Priority, limit))
 		return req, id, false
 	}
+	if req.CallbackURL != "" {
+		if err := callback.Check(s.cfg.Callbacks, req.CallbackURL); err != nil {
+			writeError(w, http.StatusUnprocessableEntity, CodeCallbackNotAllowed, err.Error())
+			return req, id, false
+		}
+	}
 	return req, id, true
 }
 
@@ -297,6 +308,7 @@ func (s *Server) storeSubmission(ctx context.Context, req createRequest, client,
 		MaxAttempts:    s.cfg.MaxAttemptsFor(req.Target),
 		Payload:        req.Payload,
 		Options:        req.jobOptions(),
+		CallbackURL:    req.CallbackURL,
 	}
 	if req.Priority != nil {
 		job.Priority = *req.Priority
@@ -403,6 +415,11 @@ func (s *Server) submitBatchItem(ctx context.Context, item batchItem, id identit
 	if len(item.IdempotencyKey) > maxIdempotencyKeyLen {
 		return batchResult{Error: &errorDetail{Code: CodeInvalidParameter, Message: "idempotency_key must be at most 255 bytes"}}
 	}
+	if item.CallbackURL != "" {
+		if err := callback.Check(s.cfg.Callbacks, item.CallbackURL); err != nil {
+			return batchResult{Error: &errorDetail{Code: CodeCallbackNotAllowed, Message: err.Error()}}
+		}
+	}
 	stored, _, err := s.storeSubmission(ctx, item.createRequest, id.name, item.IdempotencyKey)
 	switch {
 	case errors.Is(err, store.ErrIdempotencyConflict):
@@ -424,37 +441,11 @@ func (s *Server) wakeWorkers() {
 	}
 }
 
-type jobResponse struct {
-	ID          string      `json:"id"`
-	Target      string      `json:"target"`
-	State       string      `json:"state"`
-	Attempts    int         `json:"attempts"`
-	Priority    int         `json:"priority,omitempty"`
-	Options     *jobOptions `json:"options,omitempty"`
-	TargetJobID string      `json:"target_job_id,omitempty"`
-	NotBefore   *string     `json:"not_before,omitempty"`
-	CreatedAt   string      `json:"created_at"`
-	UpdatedAt   string      `json:"updated_at"`
-	CompletedAt *string     `json:"completed_at,omitempty"`
-	Result      *resultInfo `json:"result"`
-	Error       *errorInfo  `json:"error"`
-}
-
-type jobOptions struct {
-	Cache string `json:"cache,omitempty"`
-}
-
-type resultInfo struct {
-	TargetStatus   int             `json:"target_status"`
-	TargetResponse json.RawMessage `json:"target_response,omitempty"`
-	Href           string          `json:"href,omitempty"`
-	ContentType    string          `json:"content_type,omitempty"`
-}
-
-type errorInfo struct {
-	Code    string `json:"code"`
-	Message string `json:"message"`
-}
+// The job document is shared with completion callbacks (see jobview).
+type (
+	jobResponse = jobview.Job
+	jobOptions  = jobview.Options
+)
 
 // jobFromPath loads the job addressed by the {id} path segment, writing the
 // 404/500 response itself when it cannot.
@@ -511,7 +502,27 @@ func (s *Server) handleGet(w http.ResponseWriter, r *http.Request) {
 	if wait > 0 && !store.IsTerminal(job.State) {
 		job = s.awaitTerminal(r.Context(), job, wait)
 	}
-	writeJSON(w, http.StatusOK, toJobResponse(job))
+	resp := toJobResponse(job)
+	resp.Callback = s.callbackInfo(r, job)
+	writeJSON(w, http.StatusOK, resp)
+}
+
+// callbackInfo describes a request's completion callback: pending until the
+// request is terminal and delivered, then delivered or failed.
+func (s *Server) callbackInfo(r *http.Request, job *store.Job) *jobview.CallbackInfo {
+	if job.CallbackURL == "" {
+		return nil
+	}
+	info := &jobview.CallbackInfo{URL: job.CallbackURL, State: store.DeliveryPending}
+	del, err := s.store.GetDelivery(r.Context(), job.ID)
+	if err != nil {
+		if !errors.Is(err, store.ErrNotFound) {
+			s.logger.Error("get callback delivery failed", "job_id", job.ID, "error", err)
+		}
+		return info
+	}
+	info.State, info.Attempts, info.LastStatus, info.LastError = del.State(), del.Attempts, del.LastStatus, del.LastError
+	return info
 }
 
 // maxWait bounds a long poll safely below the server's write timeout, which
@@ -870,60 +881,4 @@ func (s *Server) handleReadyz(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]string{"status": "ready"})
 }
 
-func toJobResponse(j *store.Job) jobResponse {
-	resp := jobResponse{
-		ID:          j.ID,
-		Target:      j.Target,
-		State:       j.State,
-		Attempts:    j.Attempts,
-		Priority:    j.Priority,
-		TargetJobID: j.TargetJobID,
-		CreatedAt:   j.CreatedAt.UTC().Format(time.RFC3339),
-		UpdatedAt:   j.UpdatedAt.UTC().Format(time.RFC3339),
-	}
-	if j.CompletedAt != nil {
-		s := j.CompletedAt.UTC().Format(time.RFC3339)
-		resp.CompletedAt = &s
-	}
-	if j.NotBefore != nil {
-		s := j.NotBefore.UTC().Format(time.RFC3339)
-		resp.NotBefore = &s
-	}
-	if !j.Options.IsZero() {
-		resp.Options = &jobOptions{Cache: j.Options.Cache}
-	}
-	if j.State == store.StateCompleted {
-		resp.Result = resultInfoFor(j)
-	}
-	if j.State == store.StateFailed {
-		resp.Error = &errorInfo{Code: j.ErrorCode, Message: j.ErrorMessage}
-	}
-	return resp
-}
-
-// resultInfoFor describes a completed job's result: a file-backed result is
-// referenced by href, inline JSON is embedded.
-func resultInfoFor(j *store.Job) *resultInfo {
-	if j.TargetStatus == nil {
-		return nil
-	}
-	res := &resultInfo{TargetStatus: *j.TargetStatus}
-	switch {
-	case j.ResultPath != "":
-		res.Href = "/v1/requests/" + j.ID + "/result"
-		res.ContentType = j.ResultContentType
-	case len(j.TargetResponse) > 0:
-		res.TargetResponse = rawOrQuoted(j.TargetResponse)
-	}
-	return res
-}
-
-// rawOrQuoted embeds upstream bytes as-is when they are valid JSON and as a
-// JSON string otherwise, so our own response never becomes malformed.
-func rawOrQuoted(b []byte) json.RawMessage {
-	if json.Valid(b) {
-		return b
-	}
-	quoted, _ := json.Marshal(string(b))
-	return quoted
-}
+func toJobResponse(j *store.Job) jobResponse { return jobview.From(j) }

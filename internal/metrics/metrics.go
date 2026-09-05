@@ -32,6 +32,7 @@ type Metrics struct {
 	upstreamTotal    *prometheus.CounterVec
 	cacheLookups     *prometheus.CounterVec
 	scheduleRuns     *prometheus.CounterVec
+	callbacks        *prometheus.CounterVec
 	scrapeErrors     prometheus.Counter
 }
 
@@ -59,11 +60,14 @@ func New(states StateCounter) *Metrics {
 		scheduleRuns: prometheus.NewCounterVec(prometheus.CounterOpts{
 			Name: "tentacron_schedule_runs_total", Help: "Runs materialised from schedules, by target.",
 		}, []string{"target"}),
+		callbacks: prometheus.NewCounterVec(prometheus.CounterOpts{
+			Name: "tentacron_callback_deliveries_total", Help: "Completion-callback attempts by outcome (delivered, retry, failed).",
+		}, []string{"outcome"}),
 		scrapeErrors: prometheus.NewCounter(prometheus.CounterOpts{
 			Name: "tentacron_metrics_scrape_errors_total", Help: "Scrapes on which the queue depth could not be read from the store.",
 		}),
 	}
-	m.registry.MustRegister(m.jobsTotal, m.failuresTotal, m.upstreamDuration, m.upstreamTotal, m.cacheLookups, m.scheduleRuns, m.scrapeErrors,
+	m.registry.MustRegister(m.jobsTotal, m.failuresTotal, m.upstreamDuration, m.upstreamTotal, m.cacheLookups, m.scheduleRuns, m.callbacks, m.scrapeErrors,
 		collectors.NewGoCollector(), collectors.NewProcessCollector(collectors.ProcessCollectorOpts{}))
 	if states != nil {
 		m.registry.MustRegister(&stateCollector{states: states, errors: m.scrapeErrors})
@@ -94,6 +98,14 @@ func (m *Metrics) ScheduleRun(target string) {
 		return
 	}
 	m.scheduleRuns.WithLabelValues(target).Inc()
+}
+
+// CallbackDelivery records one delivery attempt's outcome.
+func (m *Metrics) CallbackDelivery(outcome string) {
+	if m == nil {
+		return
+	}
+	m.callbacks.WithLabelValues(outcome).Inc()
 }
 
 // CacheLookup records a series-cache hit or miss.

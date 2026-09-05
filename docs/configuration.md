@@ -98,6 +98,20 @@ A request may set `options.cache` to `refresh` (fetch fresh, rewrite the
 entries — the right mode for a daily rerun that must see today's data) or
 `bypass` (fetch fresh, touch nothing).
 
+## callbacks
+
+| Key | Default | Description |
+|---|---|---|
+| `allowed_hosts` | `[]` | Exact `host` or `host:port` values a request's `callback_url` may carry. Empty disables callbacks (every `callback_url` answers `422 callback_not_allowed`). |
+| `signing_secret` | — | Keys the `X-Tentacron-Signature` HMAC-SHA256 of every delivery. Required when `allowed_hosts` is set; use `${CALLBACK_SIGNING_SECRET}`. |
+| `max_attempts` | `5` | Delivery attempts before a callback is marked `failed`; retries use `worker.backoff_base`/`backoff_max`. |
+| `timeout` | `5s` | Bound of one delivery attempt. |
+
+Callbacks are the one place request data names an outbound URL, so the
+host list is the trust boundary: https only, exact host match, no
+redirects followed. See the API reference's Callbacks section for the
+delivery contract and a verification snippet.
+
 ## targets
 
 One entry per downstream workflow; the request's `target` field selects it.

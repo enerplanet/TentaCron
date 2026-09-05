@@ -196,6 +196,18 @@ other, and `GET /v1/schedules/{id}/runs` shows what is left. Deleting a
 schedule stops future runs and leaves existing ones. Runs are counted by
 `tentacron_schedule_runs_total{target}`.
 
+## Callbacks
+
+The callback deliverer runs inside the worker process, wakes whenever a
+request ends and, for retries, every `worker.poll_interval`. Each delivery
+row is created in the terminal transition's own transaction, so a callback
+is never lost or sent twice; a crash between the POST and recording its
+outcome repeats that one attempt, which is why receivers should treat
+`X-Tentacron-Request-Id` as an idempotency key. Delivery rows are deleted
+with their request under `storage.retention`. Outcomes are counted by
+`tentacron_callback_deliveries_total{outcome=delivered|retry|failed}` and
+logged per attempt (`callback delivered`, `callback attempt failed`).
+
 ## Backups and storage growth
 
 The SQLite file is the whole state: back it up like any other database.

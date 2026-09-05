@@ -10,6 +10,13 @@ under "Changed" with the keys or fields concerned.
 
 ### Added
 
+- Completion callbacks: `callback_url` on a submission or batch item
+  receives the job document once the request is terminal, signed with
+  HMAC-SHA256 (`X-Tentacron-Signature`) and retried with the worker
+  backoff. Only https URLs on hosts listed in the new `callbacks` config
+  section are accepted (`422 callback_not_allowed`); `GET /v1/requests/{id}`
+  reports the delivery under `callback`. New metric
+  `tentacron_callback_deliveries_total`.
 - Recurring runs: `POST /v1/schedules` (with `GET`, `DELETE` and
   `GET /v1/schedules/{id}/runs`) takes a target, payload, cron expression
   (five fields or `@daily`-style descriptors) and IANA time zone. A
