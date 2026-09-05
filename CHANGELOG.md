@@ -47,6 +47,14 @@ under "Changed" with the keys or fields concerned.
 
 ### Fixed
 
+- A shutdown signal arriving in the instant after a worker's claim committed
+  left that job orphaned in `resolving` (unclaimable until restart recovery)
+  instead of parking it: the claimed job is now read back with a context
+  that survives cancellation and always handed to the worker. This was the
+  intermittent CI failure of the shutdown-parking test.
+- Result files are written through uniquely named temp files, so two
+  overlapping poll ticks completing the same job can never interleave
+  writes into one shared `.tmp` path.
 - A `timeseries_path` that addresses a single resolvent object (rather than
   a container of them) now resolves that object and replaces its slot; it
   used to scan the object's own fields and resolve nothing.

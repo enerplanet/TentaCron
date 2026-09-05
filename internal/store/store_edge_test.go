@@ -687,3 +687,49 @@ func TestRepeatedTerminalTransitionsKeepFirstOutcome(t *testing.T) {
 		t.Errorf("first failure was overwritten: %s/%s", got.ErrorCode, got.ErrorMessage)
 	}
 }
+
+// A claim that committed must always be handed to the caller, even when the
+// context is cancelled in the instant between the commit and the read-back
+// (a shutdown signal): otherwise the job sits in resolving with no worker,
+// unclaimable until restart recovery. The cancellation races the claim many
+// times; every job that ended up resolving must have been returned.
+func TestClaimNextNeverOrphansAClaimedJob(t *testing.T) {
+	s := openTest(t)
+	orphaned, returned := 0, 0
+	for i := 0; i < 150; i++ {
+		j := newJob(t, "meme")
+		mustCreate(t, s, j)
+		ctx, cancel := context.WithCancel(context.Background())
+		go func() {
+			time.Sleep(time.Duration(i%5) * 50 * time.Microsecond)
+			cancel()
+		}()
+		claimed, err := s.ClaimNext(ctx, noPoll)
+		cancel()
+		got, getErr := s.GetJob(context.Background(), j.ID)
+		if getErr != nil {
+			t.Fatal(getErr)
+		}
+		switch {
+		case got.State == StateResolving && (claimed == nil || err != nil):
+			orphaned++
+		case claimed != nil:
+			returned++
+			if claimed.State != StateResolving || claimed.ID != j.ID {
+				t.Fatalf("returned job %s in state %s, want the claimed %s in resolving", claimed.ID, claimed.State, j.ID)
+			}
+		}
+		// Reset for the next iteration so the queue holds one candidate.
+		if got.State == StateResolving {
+			if err := s.Requeue(context.Background(), j.ID, time.Now(), "reset"); err != nil {
+				t.Fatal(err)
+			}
+		}
+		if err := s.MarkFailed(context.Background(), j.ID, "x", "done with it"); err != nil && !errors.Is(err, ErrTerminalState) {
+			t.Fatal(err)
+		}
+	}
+	if orphaned > 0 {
+		t.Fatalf("%d claims committed but were not handed to the caller (%d returned)", orphaned, returned)
+	}
+}

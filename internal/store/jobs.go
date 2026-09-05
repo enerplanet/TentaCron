@@ -297,7 +297,11 @@ func (s *Store) ClaimNext(ctx context.Context, pollNext func(target string) time
 			return nil, err
 		}
 		if claimed {
-			return s.GetJob(ctx, c.id)
+			// The claim is committed: the job is now this worker's to
+			// process or park. Read it with a context that survives a
+			// shutdown arriving right now, or the job would be orphaned
+			// in resolving until restart recovery instead of being parked.
+			return s.GetJob(context.WithoutCancel(ctx), c.id)
 		}
 	}
 	return nil, nil

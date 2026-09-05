@@ -537,7 +537,10 @@ func TestShutdownParksInFlightJob(t *testing.T) {
 		pool.Run(ctx)
 	}()
 
-	// Wait until the job is actually being processed, then shut down.
+	// Wait until the worker has claimed the job, then shut down. Cancelling
+	// right after the claim commits is the tightest window: the claimed job
+	// must still be handed to the worker and parked, never left in
+	// resolving (a job stuck there was the CI flake this pins).
 	deadline := time.Now().Add(2 * time.Second)
 	for time.Now().Before(deadline) {
 		job, _ := st.GetJob(context.Background(), id)
