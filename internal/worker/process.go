@@ -21,18 +21,6 @@ import (
 	"github.com/enerplanet/tentacron/internal/upstream"
 )
 
-// Job failure codes (stored on the job, surfaced via the API).
-const (
-	errUnknownTarget   = plan.CodeUnknownTarget
-	errInvalidResource = "invalid_resource_response"
-	errResourceError   = "resource_error"
-	errTargetError     = "target_error"
-	errTargetJobFailed = "target_job_failed"
-	errTargetTimeout   = "target_timeout"
-	errMaxAttempts     = "max_attempts_exceeded"
-	errInternal        = "internal"
-)
-
 // errBadResourceBody marks a resource API response whose body is not a JSON
 // object; processNew maps it to the invalid_resource_response job code
 // instead of the HTTP-level resource_error.
@@ -49,7 +37,7 @@ func (p *run) process(ctx context.Context, job *store.Job) {
 	defer func() {
 		if r := recover(); r != nil {
 			p.logger.Error("panic while processing job", "job_id", job.ID, "panic", r)
-			p.failJob(bg, job, errInternal, fmt.Sprintf("panic: %v", r))
+			p.failJob(bg, job, store.JobCodeInternal, fmt.Sprintf("panic: %v", r))
 		}
 	}()
 
@@ -81,7 +69,7 @@ type failure struct {
 func (p *run) processNew(ctx, bg context.Context, job *store.Job) {
 	tcfg, ok := p.cfg.Targets[job.Target]
 	if !ok {
-		p.failJob(bg, job, errUnknownTarget, fmt.Sprintf("target %q is no longer configured", job.Target))
+		p.failJob(bg, job, store.JobCodeUnknownTarget, fmt.Sprintf("target %q is no longer configured", job.Target))
 		return
 	}
 	if tcfg.Proxy {
@@ -135,11 +123,11 @@ func attachResolvent(tcfg config.Target) bool {
 func (p *run) failResolution(bg context.Context, job *store.Job, err error) {
 	switch {
 	case errors.Is(err, errBadResourceBody):
-		p.failJob(bg, job, errInvalidResource, err.Error())
+		p.failJob(bg, job, store.JobCodeInvalidResourceResponse, err.Error())
 	case errors.Is(err, resolver.ErrReference):
 		p.failJob(bg, job, plan.CodeInvalidPayload, err.Error())
 	default:
-		p.retryOrFail(bg, job, errResourceError, err)
+		p.retryOrFail(bg, job, store.JobCodeResourceError, err)
 	}
 }
 
@@ -179,7 +167,7 @@ func (p *run) substitute(jobID string, root map[string]any, found []*resolver.Fo
 	for _, f := range found {
 		warnings, err := f.Substitute(seriesByHash[f.Hash], attach)
 		if err != nil {
-			return nil, &failure{errInvalidResource, err}
+			return nil, &failure{store.JobCodeInvalidResourceResponse, err}
 		}
 		for _, w := range warnings {
 			p.logger.Warn("resolvent substitution warning", "job_id", jobID, "warning", w)
@@ -187,7 +175,7 @@ func (p *run) substitute(jobID string, root map[string]any, found []*resolver.Fo
 	}
 	resolved, err := resolver.Marshal(root)
 	if err != nil {
-		return nil, &failure{errInternal, fmt.Errorf("re-encode resolved payload: %w", err)}
+		return nil, &failure{store.JobCodeInternal, fmt.Errorf("re-encode resolved payload: %w", err)}
 	}
 	return resolved, nil
 }
@@ -425,12 +413,12 @@ func (p *run) forward(ctx, bg context.Context, job *store.Job, tcfg config.Targe
 		if errors.Is(err, context.DeadlineExceeded) && !tcfg.RetriesOnTimeout() {
 			// The target may still be working on this request; a retry
 			// would submit the same work again. Fail instead of requeueing.
-			p.failJob(bg, job, errTargetTimeout, fmt.Sprintf(
+			p.failJob(bg, job, store.JobCodeTargetTimeout, fmt.Sprintf(
 				"target %s did not answer before the deadline (call timeout %s); not retried because retry_on_timeout is false",
 				job.Target, tcfg.Timeout.Std()))
 			return
 		}
-		p.retryOrFail(bg, job, errTargetError, err)
+		p.retryOrFail(bg, job, store.JobCodeTargetError, err)
 		return
 	}
 	if tcfg.Response.Mode == config.ModePoll {
@@ -446,7 +434,7 @@ func (p *run) forward(ctx, bg context.Context, job *store.Job, tcfg config.Targe
 func (p *run) parkForPolling(bg context.Context, job *store.Job, poll *config.Poll, res *upstream.ForwardResult) {
 	targetJobID, err := upstream.ExtractJobID(res.Body, poll)
 	if err != nil {
-		p.failJob(bg, job, errTargetError, err.Error())
+		p.failJob(bg, job, store.JobCodeTargetError, err.Error())
 		return
 	}
 	now := time.Now()
@@ -466,7 +454,7 @@ func (p *run) parkForPolling(bg context.Context, job *store.Job, poll *config.Po
 func (p *run) processPoll(ctx, bg context.Context, job *store.Job) {
 	tcfg, ok := p.cfg.Targets[job.Target]
 	if !ok || tcfg.Response.Mode != config.ModePoll || tcfg.Response.Poll == nil {
-		p.failJob(bg, job, errUnknownTarget, fmt.Sprintf("target %q is no longer configured for polling", job.Target))
+		p.failJob(bg, job, store.JobCodeUnknownTarget, fmt.Sprintf("target %q is no longer configured for polling", job.Target))
 		return
 	}
 
@@ -478,23 +466,23 @@ func (p *run) processPoll(ctx, bg context.Context, job *store.Job) {
 			// The next poll tick is already scheduled; just note the miss.
 			p.logger.Warn("poll attempt failed", "job_id", job.ID, "error", err)
 		case upstream.IsTransient(err):
-			p.failJob(bg, job, errTargetTimeout, fmt.Sprintf(
+			p.failJob(bg, job, store.JobCodeTargetTimeout, fmt.Sprintf(
 				"target job %s did not finish before the poll deadline (status endpoint unreachable: %v)",
 				job.TargetJobID, err))
 		default:
-			p.failJob(bg, job, errTargetError, err.Error())
+			p.failJob(bg, job, store.JobCodeTargetError, err.Error())
 		}
 		return
 	}
 
 	switch {
 	case st.Failed:
-		p.failJob(bg, job, errTargetJobFailed, fmt.Sprintf(
+		p.failJob(bg, job, store.JobCodeTargetJobFailed, fmt.Sprintf(
 			"target job %s reported status %q", job.TargetJobID, st.Raw))
 	case st.Done:
 		p.fetchAndComplete(ctx, bg, job, tcfg, st.Raw, pastDeadline)
 	case pastDeadline:
-		p.failJob(bg, job, errTargetTimeout, fmt.Sprintf(
+		p.failJob(bg, job, store.JobCodeTargetTimeout, fmt.Sprintf(
 			"target job %s did not finish before the poll deadline", job.TargetJobID))
 	default:
 		p.logger.Debug("target job still running", "job_id", job.ID, "status", st.Raw)
@@ -525,7 +513,7 @@ func (p *run) fetchAndComplete(ctx, bg context.Context, job *store.Job, tcfg con
 		p.logger.Warn("result fetch failed, will retry next tick", "job_id", job.ID, "error", err)
 		return
 	}
-	p.failJob(bg, job, errTargetError, err.Error())
+	p.failJob(bg, job, store.JobCodeTargetError, err.Error())
 }
 
 // spooledResult is a downloaded result parked in the results directory.
@@ -574,7 +562,7 @@ func (p *run) completeSpooled(bg context.Context, job *store.Job, spool spooledR
 		body, err := os.ReadFile(spool.path)
 		_ = os.Remove(spool.path)
 		if err != nil {
-			p.failJob(bg, job, errInternal, "read spooled result: "+err.Error())
+			p.failJob(bg, job, store.JobCodeInternal, "read spooled result: "+err.Error())
 			return
 		}
 		p.complete(bg, job, http.StatusOK, spool.contentType, body, detail)
@@ -587,7 +575,7 @@ func (p *run) completeSpooled(bg context.Context, job *store.Job, spool spooledR
 	path := filepath.Join(p.cfg.Storage.ResultsDir, job.ID+resultExt(ct))
 	if err := os.Rename(spool.path, path); err != nil {
 		_ = os.Remove(spool.path)
-		p.failJob(bg, job, errInternal, "store result file: "+err.Error())
+		p.failJob(bg, job, store.JobCodeInternal, "store result file: "+err.Error())
 		return
 	}
 	p.markCompleted(bg, job, http.StatusOK, nil, path, ct, detail)
@@ -611,7 +599,7 @@ func (p *run) complete(bg context.Context, job *store.Job, status int, contentTy
 
 	path, err := p.writeResultFile(job.ID, contentType, body)
 	if err != nil {
-		p.failJob(bg, job, errInternal, err.Error())
+		p.failJob(bg, job, store.JobCodeInternal, err.Error())
 		return
 	}
 	p.markCompleted(bg, job, status, nil, path, contentType, detail)
@@ -687,7 +675,7 @@ func (p *run) retryOrFail(bg context.Context, job *store.Job, permanentCode stri
 		return
 	}
 	if job.Attempts >= job.MaxAttempts {
-		p.failJob(bg, job, errMaxAttempts, fmt.Sprintf(
+		p.failJob(bg, job, store.JobCodeMaxAttemptsExceeded, fmt.Sprintf(
 			"gave up after %d attempts, last error: %v", job.Attempts, err))
 		return
 	}

@@ -436,7 +436,11 @@ description fails the build. Every request and response carries an
 example: the request examples are the shipped files under `examples/`
 (which a test validates against the `CreateRequest` schema), the response
 examples are taken from the golden transcripts, and the lint checks every
-example against its schema. Why the document is hand-written OpenAPI 3.1
+example against its schema. The three error-code enums, the API error,
+the job error and the dry-run problem, are kept equal to the code's
+constants in both directions by a test, and another test refuses a code
+written as a literal in a handler, so a code cannot exist without being
+described. Why the document is hand-written OpenAPI 3.1
 rather than generated, or the siblings' 3.0.3, is recorded in
 [ADR-0007](decisions/0007-openapi-contract.md).
 CI lints it with [Redocly](https://redocly.com/docs/cli/) under the

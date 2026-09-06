@@ -535,8 +535,8 @@ func (s *Store) claimOne(ctx context.Context, c claimCand, now time.Time, policy
 			// chance to give up in-process; enforce the ceiling here. The
 			// code string matches the worker's max_attempts_exceeded.
 			err := s.transition(ctx, c.id, StateReceived, StateFailed,
-				"max_attempts_exceeded: attempts exhausted, last attempt interrupted", func(q *updateBuilder) {
-					q.set("error_code = ?", "max_attempts_exceeded")
+				JobCodeMaxAttemptsExceeded+": attempts exhausted, last attempt interrupted", func(q *updateBuilder) {
+					q.set("error_code = ?", JobCodeMaxAttemptsExceeded)
 					q.set("error_message = ?", fmt.Sprintf("gave up after %d attempts; the last attempt was interrupted", c.attempts))
 					q.set("next_attempt_at = NULL")
 					q.set("completed_at = ?", ts(now))

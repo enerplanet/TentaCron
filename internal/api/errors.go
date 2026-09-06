@@ -22,6 +22,17 @@ const (
 	CodeInternal             = "internal"
 )
 
+// ErrorCodes lists every code the API's error envelope can carry, in
+// declaration order. A test keeps the OpenAPI description's enum equal to
+// it plus the dry-run problem codes the schedule endpoint answers with.
+func ErrorCodes() []string {
+	return []string{
+		CodeInvalidJSON, CodeMissingField, CodeUnauthorized, CodeUnknownTarget, CodeIdempotencyConflict,
+		CodePayloadTooLarge, CodeUnsupportedMediaType, CodeNotFound, CodeMethodNotAllowed,
+		CodeNotCancellable, CodeCallbackNotAllowed, CodeInvalidParameter, CodeInternal,
+	}
+}
+
 type errorBody struct {
 	Error errorDetail `json:"error"`
 }

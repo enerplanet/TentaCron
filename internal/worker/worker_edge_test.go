@@ -136,7 +136,7 @@ func TestProxyTargetMissingURLFieldFailsPermanently(t *testing.T) {
 	id := createJob(t, st, "ignis", `{"A_ref":1}`, 3)
 	startPool(t, cfg, st)
 	job := waitForTerminal(t, st, id)
-	if job.State != store.StateFailed || job.ErrorCode != errTargetError || job.Attempts != 1 {
+	if job.State != store.StateFailed || job.ErrorCode != store.JobCodeTargetError || job.Attempts != 1 {
 		t.Fatalf("state=%s code=%s attempts=%d, want failed/target_error on the first attempt", job.State, job.ErrorCode, job.Attempts)
 	}
 	if !strings.Contains(job.ErrorMessage, "placeholder") || calls.Load() != 0 {
@@ -164,7 +164,7 @@ func TestTargetBackedResolventAuthoringErrors(t *testing.T) {
 		id := createJob(t, st, "outer", `{"time-series":[{"type":"resolvent-buem","payload":"oops"}]}`, 3)
 		startPool(t, cfg, st)
 		job := waitForTerminal(t, st, id)
-		if job.State != store.StateFailed || job.ErrorCode != errResourceError || job.Attempts != 1 {
+		if job.State != store.StateFailed || job.ErrorCode != store.JobCodeResourceError || job.Attempts != 1 {
 			t.Fatalf("state=%s code=%s attempts=%d", job.State, job.ErrorCode, job.Attempts)
 		}
 		if !strings.Contains(job.ErrorMessage, "must hold the payload object") || calls.Load() != 0 {
@@ -176,7 +176,7 @@ func TestTargetBackedResolventAuthoringErrors(t *testing.T) {
 		id := createJob(t, st, "outer", `{"time-series":[{"type":"resolvent-buem","payload":{}}]}`, 3)
 		startPool(t, cfg, st)
 		job := waitForTerminal(t, st, id)
-		if job.State != store.StateFailed || job.ErrorCode != errResourceError {
+		if job.State != store.StateFailed || job.ErrorCode != store.JobCodeResourceError {
 			t.Fatalf("state=%s code=%s", job.State, job.ErrorCode)
 		}
 		if !strings.Contains(job.ErrorMessage, "no longer configured") || calls.Load() != 0 {
@@ -200,13 +200,13 @@ func TestTargetBackedResolventNestedTargetErrors(t *testing.T) {
 	}
 	t.Run("4xx is permanent", func(t *testing.T) {
 		job := run(t, 400, 3)
-		if job.State != store.StateFailed || job.ErrorCode != errResourceError || job.Attempts != 1 {
+		if job.State != store.StateFailed || job.ErrorCode != store.JobCodeResourceError || job.Attempts != 1 {
 			t.Errorf("state=%s code=%s attempts=%d", job.State, job.ErrorCode, job.Attempts)
 		}
 	})
 	t.Run("5xx retries until exhausted", func(t *testing.T) {
 		job := run(t, 503, 2)
-		if job.State != store.StateFailed || job.ErrorCode != errMaxAttempts || job.Attempts != 2 {
+		if job.State != store.StateFailed || job.ErrorCode != store.JobCodeMaxAttemptsExceeded || job.Attempts != 2 {
 			t.Errorf("state=%s code=%s attempts=%d", job.State, job.ErrorCode, job.Attempts)
 		}
 	})
@@ -273,7 +273,7 @@ func TestResponsePathMissingFailsAsInvalidResource(t *testing.T) {
 	id := createJob(t, st, "demo", `{"time-series":[{"type":"resolvent-pv1"}]}`, 3)
 	startPool(t, cfg, st)
 	job := waitForTerminal(t, st, id)
-	if job.State != store.StateFailed || job.ErrorCode != errInvalidResource || job.Attempts != 1 {
+	if job.State != store.StateFailed || job.ErrorCode != store.JobCodeInvalidResourceResponse || job.Attempts != 1 {
 		t.Fatalf("state=%s code=%s attempts=%d", job.State, job.ErrorCode, job.Attempts)
 	}
 	if !strings.Contains(job.ErrorMessage, `"a.b"`) {
@@ -327,7 +327,7 @@ func TestJobTimeoutRequeuesThenExhausts(t *testing.T) {
 	id := createJob(t, st, "demo", `{"time-series":[{"type":"resolvent-pv1"}]}`, 2)
 	startPool(t, cfg, st)
 	job := waitForTerminal(t, st, id)
-	if job.State != store.StateFailed || job.ErrorCode != errMaxAttempts || job.Attempts != 2 {
+	if job.State != store.StateFailed || job.ErrorCode != store.JobCodeMaxAttemptsExceeded || job.Attempts != 2 {
 		t.Fatalf("state=%s code=%s attempts=%d", job.State, job.ErrorCode, job.Attempts)
 	}
 	if !strings.Contains(job.ErrorMessage, "deadline exceeded") {
@@ -372,7 +372,7 @@ func TestTargetTimeoutNotRetriedWhenConfigured(t *testing.T) {
 	id := createJob(t, st, "demo", `{}`, 3)
 	startPool(t, cfg, st)
 	job := waitForTerminal(t, st, id)
-	if job.State != store.StateFailed || job.ErrorCode != errTargetTimeout || job.Attempts != 1 {
+	if job.State != store.StateFailed || job.ErrorCode != store.JobCodeTargetTimeout || job.Attempts != 1 {
 		t.Fatalf("state=%s code=%s attempts=%d, want failed/target_timeout after one attempt", job.State, job.ErrorCode, job.Attempts)
 	}
 	if !strings.Contains(job.ErrorMessage, "retry_on_timeout is false") || !strings.Contains(job.ErrorMessage, "40ms") {
@@ -409,7 +409,7 @@ func TestPerTargetJobTimeoutOverridesWorkerDefault(t *testing.T) {
 	id := createJob(t, st, "demo", `{"time-series":[{"type":"resolvent-pv1"}]}`, 2)
 	startPool(t, cfg, st)
 	job := waitForTerminal(t, st, id)
-	if job.State != store.StateFailed || job.ErrorCode != errMaxAttempts || job.Attempts != 2 {
+	if job.State != store.StateFailed || job.ErrorCode != store.JobCodeMaxAttemptsExceeded || job.Attempts != 2 {
 		t.Fatalf("state=%s code=%s attempts=%d, want two attempts cut by the 40ms target job_timeout", job.State, job.ErrorCode, job.Attempts)
 	}
 	if !strings.Contains(job.ErrorMessage, "deadline exceeded") {
@@ -473,7 +473,7 @@ func TestRetryOrFailCapsOverflowedBackoff(t *testing.T) {
 	job.Attempts = 70
 	p := New(config.Static(cfg), st, upstream.New(1<<20, nil), discardLogger(), nil)
 	before := time.Now()
-	(&run{Pool: p, cfg: cfg}).retryOrFail(ctx, job, errResourceError, &upstream.Error{Op: "resource x", Transient: true})
+	(&run{Pool: p, cfg: cfg}).retryOrFail(ctx, job, store.JobCodeResourceError, &upstream.Error{Op: "resource x", Transient: true})
 	got, _ := st.GetJob(ctx, id)
 	if got.State != store.StateReceived || got.NextAttemptAt == nil {
 		t.Fatalf("job not requeued: state=%s next=%v", got.State, got.NextAttemptAt)
@@ -529,7 +529,7 @@ func TestResultFileWriteFailureFailsInternal(t *testing.T) {
 	id := createJob(t, st, "demo", `{}`, 3)
 	startPool(t, cfg, st)
 	job := waitForTerminal(t, st, id)
-	if job.State != store.StateFailed || job.ErrorCode != errInternal || !strings.Contains(job.ErrorMessage, "results dir") {
+	if job.State != store.StateFailed || job.ErrorCode != store.JobCodeInternal || !strings.Contains(job.ErrorMessage, "results dir") {
 		t.Fatalf("state=%s code=%s message=%s", job.State, job.ErrorCode, job.ErrorMessage)
 	}
 }
@@ -544,7 +544,7 @@ func TestLateFailureNeverOverwritesCompletion(t *testing.T) {
 	job, _ := st.GetJob(ctx, id)
 	p := New(config.Static(cfg), st, upstream.New(1<<20, nil), discardLogger(), nil)
 	(&run{Pool: p, cfg: cfg}).complete(ctx, job, 200, "", []byte(`{"first":true}`), "first")
-	(&run{Pool: p, cfg: cfg}).failJob(ctx, job, errTargetError, "late failure")
+	(&run{Pool: p, cfg: cfg}).failJob(ctx, job, store.JobCodeTargetError, "late failure")
 	got, _ := st.GetJob(ctx, id)
 	if got.State != store.StateCompleted || got.ErrorCode != "" || string(got.TargetResponse) != `{"first":true}` {
 		t.Errorf("late failure overwrote the completion: %+v", got)
@@ -643,7 +643,7 @@ func TestPollTargetNoLongerConfigured(t *testing.T) {
 			parkAwaiting(t, st, id)
 			startPool(t, cfg, st)
 			job := waitForTerminal(t, st, id)
-			if job.State != store.StateFailed || job.ErrorCode != errUnknownTarget ||
+			if job.State != store.StateFailed || job.ErrorCode != store.JobCodeUnknownTarget ||
 				!strings.Contains(job.ErrorMessage, "no longer configured for polling") {
 				t.Errorf("state=%s code=%s message=%s", job.State, job.ErrorCode, job.ErrorMessage)
 			}
@@ -670,7 +670,7 @@ func TestStatusEndpointUnreachablePastDeadline(t *testing.T) {
 	id := createJob(t, st, "meme", `{}`, 3)
 	startPool(t, cfg, st)
 	job := waitForTerminal(t, st, id)
-	if job.State != store.StateFailed || job.ErrorCode != errTargetTimeout ||
+	if job.State != store.StateFailed || job.ErrorCode != store.JobCodeTargetTimeout ||
 		!strings.Contains(job.ErrorMessage, "status endpoint unreachable") {
 		t.Errorf("state=%s code=%s message=%s", job.State, job.ErrorCode, job.ErrorMessage)
 	}
@@ -698,7 +698,7 @@ func TestResultFetchFailurePastDeadlineIsTargetError(t *testing.T) {
 	id := createJob(t, st, "meme", `{}`, 3)
 	startPool(t, cfg, st)
 	job := waitForTerminal(t, st, id)
-	if job.State != store.StateFailed || job.ErrorCode != errTargetError || !strings.Contains(job.ErrorMessage, "result meme") {
+	if job.State != store.StateFailed || job.ErrorCode != store.JobCodeTargetError || !strings.Contains(job.ErrorMessage, "result meme") {
 		t.Errorf("state=%s code=%s message=%s (a finished target job with an unfetchable result is a target_error, not a timeout)",
 			job.State, job.ErrorCode, job.ErrorMessage)
 	}
@@ -921,7 +921,7 @@ func TestFirstFailureStopsFeedingRemainingResolvents(t *testing.T) {
 		{"type":"resolvent-pv1","site":4},{"type":"resolvent-pv1","site":5}]}`, 3)
 	startPool(t, cfg, st)
 	job := waitForTerminal(t, st, id)
-	if job.State != store.StateFailed || job.ErrorCode != errResourceError || job.Attempts != 1 {
+	if job.State != store.StateFailed || job.ErrorCode != store.JobCodeResourceError || job.Attempts != 1 {
 		t.Fatalf("state=%s code=%s attempts=%d", job.State, job.ErrorCode, job.Attempts)
 	}
 	if !strings.Contains(job.ErrorMessage, "HTTP 400") || strings.Contains(job.ErrorMessage, "skipped") {
@@ -976,7 +976,7 @@ func TestUnknownTargetAtProcessingTime(t *testing.T) {
 	id := createJob(t, st, "gone", `{}`, 3)
 	startPool(t, cfg, st)
 	job := waitForTerminal(t, st, id)
-	if job.State != store.StateFailed || job.ErrorCode != errUnknownTarget {
+	if job.State != store.StateFailed || job.ErrorCode != store.JobCodeUnknownTarget {
 		t.Fatalf("state=%s code=%s", job.State, job.ErrorCode)
 	}
 }
@@ -1126,7 +1126,7 @@ func TestLargeResultStreamsToFileUnderTheStorageCap(t *testing.T) {
 		id := createJob(t, st, "meme", `{}`, 3)
 		startPool(t, cfg, st)
 		job := waitForTerminal(t, st, id)
-		if job.State != store.StateFailed || job.ErrorCode != errTargetError || !strings.Contains(job.ErrorMessage, "max_result_bytes") {
+		if job.State != store.StateFailed || job.ErrorCode != store.JobCodeTargetError || !strings.Contains(job.ErrorMessage, "max_result_bytes") {
 			t.Fatalf("job = %s/%s: %s", job.State, job.ErrorCode, job.ErrorMessage)
 		}
 		assertNoSpoolFiles(t, cfg.Storage.ResultsDir)

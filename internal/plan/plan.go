@@ -11,16 +11,23 @@ import (
 
 	"github.com/enerplanet/tentacron/internal/config"
 	"github.com/enerplanet/tentacron/internal/resolver"
+	"github.com/enerplanet/tentacron/internal/store"
 	"github.com/enerplanet/tentacron/internal/upstream"
 )
 
-// Job failure codes a plan can predict. They match the worker's.
+// Job failure codes a plan can predict; the store declares them.
 const (
-	CodeUnknownTarget    = "unknown_target"
-	CodeInvalidPayload   = "invalid_payload"
-	CodeUnknownResolvent = "unknown_resolvent"
-	CodeTargetError      = "target_error"
+	CodeUnknownTarget    = store.JobCodeUnknownTarget
+	CodeInvalidPayload   = store.JobCodeInvalidPayload
+	CodeUnknownResolvent = store.JobCodeUnknownResolvent
+	CodeTargetError      = store.JobCodeTargetError
 )
+
+// ProblemCodes lists the codes a dry run can report as problems. An unknown
+// target never reaches the dry run: the API refuses it before inspecting.
+func ProblemCodes() []string {
+	return []string{CodeInvalidPayload, CodeUnknownResolvent, CodeTargetError}
+}
 
 // Problem is one reason the job would fail before any upstream call.
 type Problem struct {

@@ -368,7 +368,7 @@ func TestTargetPermanentErrorNoRetry(t *testing.T) {
 	startPool(t, cfg, st)
 
 	job := waitForTerminal(t, st, id)
-	if job.State != store.StateFailed || job.ErrorCode != errTargetError {
+	if job.State != store.StateFailed || job.ErrorCode != store.JobCodeTargetError {
 		t.Fatalf("state=%s code=%s, want failed/target_error", job.State, job.ErrorCode)
 	}
 	if job.Attempts != 1 {
@@ -388,7 +388,7 @@ func TestMaxAttemptsExhausted(t *testing.T) {
 	startPool(t, cfg, st)
 
 	job := waitForTerminal(t, st, id)
-	if job.State != store.StateFailed || job.ErrorCode != errMaxAttempts {
+	if job.State != store.StateFailed || job.ErrorCode != store.JobCodeMaxAttemptsExceeded {
 		t.Fatalf("state=%s code=%s, want failed/max_attempts_exceeded", job.State, job.ErrorCode)
 	}
 	if job.Attempts != 2 {
@@ -425,7 +425,7 @@ func TestPollDeadlineExceeded(t *testing.T) {
 	startPool(t, cfg, st)
 
 	job := waitForTerminal(t, st, id)
-	if job.State != store.StateFailed || job.ErrorCode != errTargetTimeout {
+	if job.State != store.StateFailed || job.ErrorCode != store.JobCodeTargetTimeout {
 		t.Fatalf("state=%s code=%s, want failed/target_timeout", job.State, job.ErrorCode)
 	}
 }
@@ -459,7 +459,7 @@ func TestTargetJobFailedStatus(t *testing.T) {
 	startPool(t, cfg, st)
 
 	job := waitForTerminal(t, st, id)
-	if job.State != store.StateFailed || job.ErrorCode != errTargetJobFailed {
+	if job.State != store.StateFailed || job.ErrorCode != store.JobCodeTargetJobFailed {
 		t.Fatalf("state=%s code=%s, want failed/target_job_failed", job.State, job.ErrorCode)
 	}
 	if !strings.Contains(job.ErrorMessage, "m-bad") {
@@ -840,7 +840,7 @@ func TestNullResourceBodyFailsCleanly(t *testing.T) {
 	startPool(t, cfg, st)
 
 	job := waitForTerminal(t, st, id)
-	if job.State != store.StateFailed || job.ErrorCode != errInvalidResource {
+	if job.State != store.StateFailed || job.ErrorCode != store.JobCodeInvalidResourceResponse {
 		t.Fatalf("state=%s code=%s, want failed/invalid_resource_response", job.State, job.ErrorCode)
 	}
 }
@@ -862,7 +862,7 @@ func TestArrayResourceBodyUsesInvalidResourceCode(t *testing.T) {
 	startPool(t, cfg, st)
 
 	job := waitForTerminal(t, st, id)
-	if job.State != store.StateFailed || job.ErrorCode != errInvalidResource {
+	if job.State != store.StateFailed || job.ErrorCode != store.JobCodeInvalidResourceResponse {
 		t.Fatalf("state=%s code=%s, want failed/invalid_resource_response", job.State, job.ErrorCode)
 	}
 	if job.Attempts != 1 {
