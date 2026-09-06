@@ -118,7 +118,9 @@ func (s *Server) Handler() http.Handler {
 	for _, rt := range s.routes() {
 		mux.HandleFunc(rt.method+" "+rt.pattern, rt.handler)
 	}
-	return s.withRecovery(s.withRequestLog(s.withCORS(jsonFallback(mux))))
+	// Logging wraps recovery, so a panicking request still gets its line —
+	// with the 500 the recovery answered.
+	return s.withRequestLog(s.withRecovery(s.withCORS(jsonFallback(mux))))
 }
 
 // jsonFallback keeps the mux's own distinction between an unknown route

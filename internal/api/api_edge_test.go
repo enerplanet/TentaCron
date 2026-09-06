@@ -291,7 +291,8 @@ func TestHeaderLengthCaps(t *testing.T) {
 
 func TestRequestLogCarriesTheClientName(t *testing.T) {
 	var buf bytes.Buffer
-	e := newEnvWith(t, nil, slog.New(slog.NewJSONHandler(&buf, nil)))
+	// Debug level so the probe's line (logged at debug) is captured too.
+	e := newEnvWith(t, nil, slog.New(slog.NewJSONHandler(&buf, &slog.HandlerOptions{Level: slog.LevelDebug})))
 	e.do(t, "POST", "/v1/requests", `{"target":"meme","payload":{}}`, authHdr)
 	e.do(t, "GET", "/v1/requests", "", authHdr)
 	e.do(t, "GET", "/healthz", "", nil)
@@ -569,7 +570,8 @@ func TestConcurrentCreatesAreIsolated(t *testing.T) {
 
 func TestRequestLogLineCarriesRequestID(t *testing.T) {
 	var buf bytes.Buffer
-	e := newEnvWith(t, nil, slog.New(slog.NewJSONHandler(&buf, nil)))
+	// Probes log at debug; capture at that level to see the line.
+	e := newEnvWith(t, nil, slog.New(slog.NewJSONHandler(&buf, &slog.HandlerOptions{Level: slog.LevelDebug})))
 	e.do(t, "GET", "/healthz", "", map[string]string{"X-Request-ID": "req-log-1"})
 	line := buf.String()
 	for _, want := range []string{`"request_id":"req-log-1"`, `"path":"/healthz"`, `"status":200`, `"method":"GET"`} {
@@ -838,8 +840,8 @@ func TestCORSForConfiguredOriginsOnly(t *testing.T) {
 		t.Errorf("cancel preflight: %d %v", rec.Code, rec.Header())
 	}
 	rec = e.do(t, "GET", "/v1/requests", "", map[string]string{"X-API-Key": "valid-key", "Origin": "https://evil.example.org"})
-	if rec.Code != http.StatusOK || rec.Header().Get("Access-Control-Allow-Origin") != "" {
-		t.Errorf("foreign origin must get no CORS headers: %d %v", rec.Code, rec.Header())
+	if rec.Code != http.StatusOK || rec.Header().Get("Access-Control-Allow-Origin") != "" || rec.Header().Get("Vary") != "Origin" {
+		t.Errorf("foreign origin must get no CORS headers but must vary on Origin: %d %v", rec.Code, rec.Header())
 	}
 	rec = e.do(t, "OPTIONS", "/v1/requests", "", map[string]string{"Origin": "https://evil.example.org", "Access-Control-Request-Method": "POST"})
 	if rec.Code != http.StatusMethodNotAllowed || rec.Header().Get("Access-Control-Allow-Origin") != "" {
@@ -1275,4 +1277,48 @@ func TestLongPollAnswersWhenTheServerDrains(t *testing.T) {
 		t.Fatal("the long-poll did not answer when the drain began")
 	}
 	e.server.BeginDrain() // idempotent
+}
+
+// Probes log at debug, everything else at info, so an orchestrator's
+// health checks do not drown the request log.
+func TestProbesLogAtDebugAndRequestsAtInfo(t *testing.T) {
+	var buf bytes.Buffer
+	logger := slog.New(slog.NewJSONHandler(&buf, &slog.HandlerOptions{Level: slog.LevelDebug}))
+	e := newEnvWith(t, nil, logger)
+	e.do(t, "GET", "/healthz", "", nil)
+	e.do(t, "GET", "/v1/requests", "", nil)
+	lines := strings.Split(strings.TrimSpace(buf.String()), "\n")
+	var probe, request string
+	for _, l := range lines {
+		switch {
+		case strings.Contains(l, `"path":"/healthz"`):
+			probe = l
+		case strings.Contains(l, `"path":"/v1/requests"`):
+			request = l
+		}
+	}
+	if !strings.Contains(probe, `"level":"DEBUG"`) {
+		t.Errorf("probe line must be debug: %s", probe)
+	}
+	if !strings.Contains(request, `"level":"INFO"`) || !strings.Contains(request, `"status":401`) {
+		t.Errorf("request line must be info with its status: %s", request)
+	}
+}
+
+// A request that panics still gets its request line, carrying the 500 the
+// recovery answered: logging wraps recovery.
+func TestPanickingRequestGetsALoggedRequestLine(t *testing.T) {
+	var buf bytes.Buffer
+	logger := slog.New(slog.NewJSONHandler(&buf, nil))
+	s := &Server{logger: logger}
+	h := s.withRequestLog(s.withRecovery(http.HandlerFunc(func(http.ResponseWriter, *http.Request) { panic("boom") })))
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/v1/requests", http.NoBody))
+	if rec.Code != http.StatusInternalServerError {
+		t.Fatalf("status = %d", rec.Code)
+	}
+	out := buf.String()
+	if !strings.Contains(out, `"msg":"request"`) || !strings.Contains(out, `"status":500`) || !strings.Contains(out, "panic in handler") {
+		t.Fatalf("log = %s", out)
+	}
 }

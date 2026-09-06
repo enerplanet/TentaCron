@@ -21,6 +21,9 @@ under "Changed" with the keys or fields concerned.
 
 ### Changed
 
+- Requests to `/healthz`, `/readyz` and `/version` are logged at `debug`;
+  a request that panicked now has a request line with its `500`; every
+  response varies on `Origin` when CORS is configured.
 - `POST /v1/schedules` answers `409 schedule_limit` when the key already
   holds as many schedules as it may; previously schedules were unbounded
   while the listing stopped at 100.

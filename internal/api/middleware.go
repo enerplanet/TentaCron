@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
+	"log/slog"
 	"net/http"
 	"time"
 )
@@ -35,8 +36,13 @@ func noteClient(r *http.Request, name string) {
 	}
 }
 
+// probePaths are hit by orchestrators every few seconds; their request
+// lines are logged at debug so they do not drown the log.
+var probePaths = map[string]bool{"/healthz": true, "/readyz": true, "/version": true}
+
 // withRequestLog assigns/echoes a request id and logs one line per request,
-// including the client name once a handler authenticated the caller.
+// including the client name once a handler authenticated the caller and the
+// status a recovered panic turned into. Probes log at debug.
 func (s *Server) withRequestLog(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		reqID := r.Header.Get("X-Request-ID")
@@ -51,7 +57,11 @@ func (s *Server) withRequestLog(next http.Handler) http.Handler {
 		rec := &statusRecorder{ResponseWriter: w, status: http.StatusOK}
 		start := time.Now()
 		next.ServeHTTP(rec, r)
-		s.logger.Info("request",
+		level := slog.LevelInfo
+		if probePaths[r.URL.Path] {
+			level = slog.LevelDebug
+		}
+		s.logger.Log(r.Context(), level, "request",
 			"request_id", reqID,
 			"method", r.Method,
 			"path", r.URL.Path,
@@ -77,8 +87,10 @@ func (s *Server) withRecovery(next http.Handler) http.Handler {
 
 // withCORS lets configured browser origins call the API directly: it answers
 // preflights and marks responses for exactly those origins. An origin that
-// is not configured gets no CORS headers at all, so the browser blocks the
-// call; with no origins configured the middleware is a no-op.
+// is not configured gets no CORS headers, so the browser blocks the call —
+// but every response varies on Origin, so a shared cache never serves one
+// origin's headers to another; with no origins configured the middleware is
+// a no-op.
 func (s *Server) withCORS(next http.Handler) http.Handler {
 	allowed := map[string]bool{}
 	for _, origin := range s.cfg().Server.CORS.AllowedOrigins {
@@ -88,14 +100,14 @@ func (s *Server) withCORS(next http.Handler) http.Handler {
 		return next
 	}
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		h := w.Header()
+		h.Add("Vary", "Origin")
 		origin := r.Header.Get("Origin")
 		if origin == "" || !allowed[origin] {
 			next.ServeHTTP(w, r)
 			return
 		}
-		h := w.Header()
 		h.Set("Access-Control-Allow-Origin", origin)
-		h.Add("Vary", "Origin")
 		h.Set("Access-Control-Expose-Headers", "X-Request-ID, Allow, Content-Disposition, Content-Length, Content-Range, Accept-Ranges")
 		if r.Method == http.MethodOptions && r.Header.Get("Access-Control-Request-Method") != "" {
 			h.Set("Access-Control-Allow-Methods", "GET, HEAD, POST, DELETE, OPTIONS")
