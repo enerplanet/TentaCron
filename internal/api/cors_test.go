@@ -1,6 +1,8 @@
 package api
 
 import (
+	"bytes"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -268,6 +270,38 @@ func TestCORSUpdateAppliesToTheRunningHandler(t *testing.T) {
 	e.server.UpdateCORS(cors.Config{})
 	if rec := call(); rec.Code != http.StatusMethodNotAllowed || rec.Header().Get("Vary") != "" {
 		t.Fatalf("disabled again: %d %v", rec.Code, rec.Header())
+	}
+}
+
+// The request log names a browser's origin and says when the policy
+// refused it; preflights log at debug like probes.
+func TestCORSRequestLogNamesDeniedOriginsAndDebugsPreflights(t *testing.T) {
+	var buf bytes.Buffer
+	logger := slog.New(slog.NewJSONHandler(&buf, &slog.HandlerOptions{Level: slog.LevelDebug}))
+	e := newEnvWith(t, func(c *config.Config) { c.Server.CORS.AllowedOrigins = []string{allowedOrigin} }, logger)
+	auth := map[string]string{"X-API-Key": "valid-key"}
+	e.do(t, http.MethodGet, "/v1/requests", "", withOrigin(foreignOrigin, auth))
+	e.do(t, http.MethodGet, "/v1/requests", "", withOrigin(allowedOrigin, auth))
+	e.do(t, http.MethodOptions, "/v1/requests", "", withOrigin(allowedOrigin, map[string]string{"Access-Control-Request-Method": "POST"}))
+	lines := strings.Split(strings.TrimSpace(buf.String()), "\n")
+	if len(lines) != 3 {
+		t.Fatalf("want three request lines, got %d:\n%s", len(lines), buf.String())
+	}
+	denied, allowed, preflight := lines[0], lines[1], lines[2]
+	if !strings.Contains(denied, `"origin":"`+foreignOrigin+`"`) || !strings.Contains(denied, `"cors":"denied"`) || !strings.Contains(denied, `"level":"INFO"`) {
+		t.Errorf("denied origin line: %s", denied)
+	}
+	if !strings.Contains(allowed, `"origin":"`+allowedOrigin+`"`) || strings.Contains(allowed, `"cors":`) {
+		t.Errorf("allowed origin line: %s", allowed)
+	}
+	if !strings.Contains(preflight, `"level":"DEBUG"`) || !strings.Contains(preflight, `"method":"OPTIONS"`) || !strings.Contains(preflight, `"status":204`) {
+		t.Errorf("preflight line: %s", preflight)
+	}
+	plain := newEnvWith(t, nil, logger)
+	buf.Reset()
+	plain.do(t, http.MethodGet, "/v1/requests", "", withOrigin(foreignOrigin, auth))
+	if strings.Contains(buf.String(), `"cors":`) {
+		t.Errorf("with CORS off no origin is denied: %s", buf.String())
 	}
 }
 

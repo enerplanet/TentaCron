@@ -322,7 +322,8 @@ func reloadConfig(provider *config.Provider, logger *slog.Logger, level *slog.Le
 	client.SetMaxBody(cfg.Upstream.MaxResponseBytes)
 	api.UpdateCORS(cfg.Server.CORS.Policy())
 	attrs := []any{"hash", res.Hash[:12], "changed", res.Changed,
-		"targets", len(cfg.Targets), "resolvents", len(cfg.Resolvents), "keys", len(cfg.Auth.APIKeys)}
+		"targets", len(cfg.Targets), "resolvents", len(cfg.Resolvents), "keys", len(cfg.Auth.APIKeys),
+		"cors", config.DescribeCORS(cfg.Server.CORS)}
 	if len(res.RestartRequired) > 0 {
 		attrs = append(attrs, "restart_required", res.RestartRequired)
 		logger.Warn("configuration reloaded; some changes need a restart", attrs...)

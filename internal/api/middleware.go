@@ -60,17 +60,35 @@ func (s *Server) withRequestLog(next http.Handler) http.Handler {
 		start := time.Now()
 		next.ServeHTTP(rec, r)
 		level := slog.LevelInfo
-		if probePaths[r.URL.Path] {
+		if probePaths[r.URL.Path] || isPreflight(r) {
+			// Probes and preflights arrive every few seconds; at info
+			// they would drown the log.
 			level = slog.LevelDebug
 		}
-		s.logger.Log(r.Context(), level, "request",
+		attrs := []any{
 			"request_id", reqID,
 			"method", r.Method,
 			"path", r.URL.Path,
 			"status", rec.status,
 			"client", meta.client,
-			"duration_ms", time.Since(start).Milliseconds())
+			"duration_ms", time.Since(start).Milliseconds(),
+		}
+		// A browser's origin, and whether the policy refused it, so one
+		// grep answers "is my frontend's origin configured".
+		if origin := r.Header.Get("Origin"); origin != "" {
+			attrs = append(attrs, "origin", origin)
+			if h := s.cors.Load(); h != nil && h.Enabled() && !h.Allows(origin) {
+				attrs = append(attrs, "cors", "denied")
+			}
+		}
+		s.logger.Log(r.Context(), level, "request", attrs...)
 	})
+}
+
+// isPreflight reports a CORS preflight: an OPTIONS naming the method the
+// browser wants to send.
+func isPreflight(r *http.Request) bool {
+	return r.Method == http.MethodOptions && r.Header.Get("Access-Control-Request-Method") != ""
 }
 
 // withRecovery turns handler panics into a JSON 500 and a structured log

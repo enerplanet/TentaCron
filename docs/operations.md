@@ -156,9 +156,11 @@ Structured JSON on stdout (`log/slog`), at `server.log_level` and above
 (`info` by default; `debug` adds the per-tick poll status and dropped
 duplicate outcomes). One line per HTTP request
 (`request_id` echoed from/into `X-Request-ID`, `method`, `path`, `status`,
-`duration_ms`; probes of `/healthz`, `/readyz` and `/version` at `debug`
-so an orchestrator does not drown the log, a request that panicked with
-its `500`) and one per job transition (`job_id`, `target`, `attempt`,
+`duration_ms`; `origin` when a browser sent one and `cors: denied` when
+the policy refused it, so one grep answers whether a frontend's origin is
+configured; probes of `/healthz`, `/readyz` and `/version` and CORS
+preflights at `debug` so an orchestrator or a page does not drown the
+log; a request that panicked with its `500`) and one per job transition (`job_id`, `target`, `attempt`,
 `client` — the name of the API key used — `error`). Substitution warnings
 (e.g. a series without `"type": "time-series"`) are logged at `WARN` and do
 not fail the job. API keys are never logged; upstream error bodies have every

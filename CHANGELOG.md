@@ -10,6 +10,10 @@ under "Changed" with the keys or fields concerned.
 
 ### Added
 
+- The request log names a browser's `origin` and carries `cors: denied`
+  when the policy refused it; CORS preflights log at `debug` like the
+  health probes. The start-up and reload log lines print the browser
+  policy in one line.
 - `server.cors` gains the knobs meme's browser policy has, opt-in and
   validated by the Fetch rules: `allow_credentials` (the response then
   always echoes the specific origin, and the `*` origin is refused),
