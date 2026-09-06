@@ -26,12 +26,18 @@ Live next to their packages:
 
 | Area | What is proven |
 |---|---|
-| `internal/config` | YAML loading, `${ENV}` interpolation, every validation rule |
+| `internal/config` | YAML loading, `${ENV}` interpolation, every validation rule; the reload provider swaps a valid file and keeps the old one on error, and names startup-only settings as `restart_required` |
+| `internal/plan` | dry-run inspection: resolvent discovery with JSON pointers, cache state, predicted problems, level ordering of chained resolvents; discovery answers reveal routing knobs only |
+| `internal/schedule` | cron expressions and descriptors, time-zone-aware next due time, rejection of bad input |
+| `internal/callback` | signed delivery and retries, giving up on client errors, redirects and an exhausted budget, the host allow-list |
+| `internal/notify` | the long-poll hub: every waiter woken once, targeted forget, a nil hub as no-op |
+| `internal/metrics` | the documented metric names, a scrape that counts a store error instead of failing, nil-safety |
 | `internal/resolver` | traversal/substitution engine, canonical hashing, number fidelity, null rejection |
 | `internal/store` | migrations, claim CAS races, terminal-state guard, idempotency scoping/conflict, backoff scheduling, retention, the SQLITE_BUSY regression |
 | `internal/upstream` | error classification, redirect refusal, credential redaction, job-id validation, size caps |
 | `internal/api` | every 4xx path, idempotency replay, result serving |
-| `internal/worker` | full pipeline against `httptest` fakes: retries, cache, recovery, shutdown parking, poll deadlines |
+| `internal/worker` | full pipeline against `httptest` fakes: retries, cache, recovery, shutdown parking, poll deadlines, the scheduler loop with an injected clock |
+| `cmd/tentacron` | subcommand dispatch and usage, `validate` output and exit codes (unset variables named), `backup`, the metrics listener only when configured |
 
 Each package also carries an `*_edge_test.go` file: the boundary and
 failure cases that the happy paths above do not reach — config validation
@@ -84,8 +90,13 @@ the verified weather/city2tabula/ignis contracts (query-parameter and
 path-template mapping frozen as exact request lines, array responses indexed
 via `response_path`), the full validation-error surface, idempotency
 replay/conflict/cross-client scoping, cross-client read visibility, and list
-ordering. Every counts step also freezes an
-`unexpected_upstream_requests` tripwire (always empty), so any unscripted
+ordering. Later additions freeze the dry run and discovery answers,
+batches with mixed outcomes, cancellation (queued, awaiting the target, the
+in-flight `409`), long-polls, cache modes and label-insensitive cache keys,
+resolvent chaining including a cycle, delayed and scheduled runs, callbacks
+delivered and given up, fair claim order and per-client ceilings, admin
+reads across clients, and filtered, cursor-paginated lists. Every counts
+step also freezes an `unexpected_upstream_requests` tripwire (always empty), so any unscripted
 outbound request becomes a golden diff, and a corpus gate fails on stale
 golden files whose scenario no longer exists.
 [`e2e/examples_test.go`](e2e/examples_test.go) additionally runs every
