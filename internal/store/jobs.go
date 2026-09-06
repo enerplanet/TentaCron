@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	mrand "math/rand/v2"
 	"strings"
 	"time"
 )
@@ -432,18 +433,24 @@ func (s *Store) CountByState(ctx context.Context) (map[string]int, error) {
 	return counts, rows.Err()
 }
 
-// ClaimPolicy tells ClaimNext how to schedule: the poll cadence per target
-// and the per-client ceiling on jobs in flight (0 means unlimited).
+// ClaimPolicy tells ClaimNext how to schedule: how long a claimed poll tick
+// is leased per target, and the per-client ceiling on jobs in flight (0
+// means unlimited).
 type ClaimPolicy struct {
-	PollInterval  func(target string) time.Duration
+	// PollLease is how far a claimed tick pushes next_attempt_at: long
+	// enough for the whole tick — a status call and a result download — so
+	// no other worker claims the next tick while this one runs. The worker
+	// reschedules to the real cadence when the tick ends (ReschedulePoll);
+	// the lease only matters when it does not, that is, when it died.
+	PollLease     func(target string) time.Duration
 	MaxConcurrent func(client string) int
 }
 
-func (p ClaimPolicy) pollInterval(target string) time.Duration {
-	if p.PollInterval == nil {
+func (p ClaimPolicy) pollLease(target string) time.Duration {
+	if p.PollLease == nil {
 		return time.Minute
 	}
-	return p.PollInterval(target)
+	return p.PollLease(target)
 }
 
 func (p ClaimPolicy) maxConcurrent(client string) int {
@@ -618,7 +625,7 @@ func (s *Store) claimOne(ctx context.Context, c claimCand, now time.Time, policy
 		}
 		return s.claimReceived(ctx, c.id, c.client, policy.maxConcurrent(c.client), now)
 	case StateAwaitingTarget:
-		return s.claimPollTick(ctx, c.id, c.nextAt, now.Add(policy.pollInterval(c.target)), now)
+		return s.claimPollTick(ctx, c.id, c.nextAt, now.Add(policy.pollLease(c.target)), now)
 	}
 	return false, nil
 }
@@ -662,20 +669,72 @@ func (s *Store) claimReceived(ctx context.Context, id, client string, maxConcurr
 	return true, tx.Commit()
 }
 
-// claimPollTick claims a due poll tick by CAS-ing next_attempt_at forward so
-// no other worker picks the same tick; 0 rows affected means another worker
-// won. Deliberately no audit event and no transaction here: a job_events row
-// per poll tick would flood the trail, and the single CAS UPDATE is already
-// atomic; the outcome is recorded by the eventual completed/failed transition.
-func (s *Store) claimPollTick(ctx context.Context, id, prevNextAt string, next, now time.Time) (bool, error) {
+// claimPollTick claims a due poll tick by CAS-ing next_attempt_at forward to
+// the lease so no other worker picks the same tick — nor the next one while
+// this tick still runs; 0 rows affected means another worker won.
+// Deliberately no audit event and no transaction here: a job_events row per
+// poll tick would flood the trail, and the single CAS UPDATE is already
+// atomic; the outcome is recorded by the eventual completed/failed
+// transition.
+func (s *Store) claimPollTick(ctx context.Context, id, prevNextAt string, lease, now time.Time) (bool, error) {
 	res, err := s.db.ExecContext(ctx, `UPDATE jobs SET next_attempt_at = ?, updated_at = ?
 		WHERE id = ? AND state = ? AND next_attempt_at = ?`,
-		ts(next), ts(now), id, StateAwaitingTarget, prevNextAt)
+		ts(lease), ts(now), id, StateAwaitingTarget, prevNextAt)
 	if err != nil {
 		return false, err
 	}
 	n, _ := res.RowsAffected()
 	return n == 1, nil
+}
+
+// ReschedulePoll ends a poll tick that leaves the job waiting: the next tick
+// is due at "at" — the real cadence — instead of when the lease expires. It
+// reports false when the job is no longer awaiting its target (the tick, or
+// a cancellation, ended it), which is not an error.
+func (s *Store) ReschedulePoll(ctx context.Context, id string, at time.Time) (bool, error) {
+	res, err := s.db.ExecContext(ctx, `UPDATE jobs SET next_attempt_at = ?, updated_at = ?
+		WHERE id = ? AND state = ?`, ts(at), ts(time.Now()), id, StateAwaitingTarget)
+	if err != nil {
+		return false, err
+	}
+	n, _ := res.RowsAffected()
+	return n == 1, nil
+}
+
+// ResetPollSchedules makes every waiting job due within its target's
+// spread from now — at a random point in it, so a restart never fires every
+// status call in the same instant — instead of when a lease taken by the
+// previous process would have expired.
+func (s *Store) ResetPollSchedules(ctx context.Context, spreadFor func(target string) time.Duration) (int, error) {
+	rows, err := s.db.QueryContext(ctx, `SELECT id, target FROM jobs WHERE state = ?`, StateAwaitingTarget)
+	if err != nil {
+		return 0, err
+	}
+	type waiting struct{ id, target string }
+	var jobs []waiting
+	for rows.Next() {
+		var w waiting
+		if err := rows.Scan(&w.id, &w.target); err != nil {
+			_ = rows.Close()
+			return 0, err
+		}
+		jobs = append(jobs, w)
+	}
+	_ = rows.Close()
+	if err := rows.Err(); err != nil {
+		return 0, err
+	}
+	now := time.Now()
+	for _, w := range jobs {
+		at := now
+		if spread := spreadFor(w.target); spread > 0 {
+			at = now.Add(mrand.N(spread)) //nolint:gosec // G404: spreading load, not security
+		}
+		if _, err := s.ReschedulePoll(ctx, w.id, at); err != nil {
+			return 0, err
+		}
+	}
+	return len(jobs), nil
 }
 
 // SetResolved stores the resolved payload and moves the job to "forwarding".

@@ -18,6 +18,13 @@ under "Changed" with the keys or fields concerned.
 
 ### Fixed
 
+- A poll tick was claimed by pushing the next poll forward by one interval
+  only, so a tick that outlasted the interval — a result download, a slow
+  status call — was claimed again by another worker and the download ran
+  twice. A claimed tick is now leased for the time a status call and a
+  result download may take, and the worker reschedules to the real cadence
+  when its tick ends; after a restart every waiting job polls within one
+  interval, spread at random over it.
 - A client at its `max_concurrent` ceiling whose queued jobs outranked the
   others filled the claim's candidate batch, every candidate was skipped,
   and the worker reported no work while other clients' jobs were due. A

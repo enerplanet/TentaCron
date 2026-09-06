@@ -72,6 +72,14 @@ func (p *Pool) Run(ctx context.Context) {
 	} else if n > 0 {
 		p.logger.Info("recovered in-flight jobs after restart", "count", n)
 	}
+	// A lease the previous process took must not delay the first poll, and
+	// every waiting job must not poll in the same instant: spread them over
+	// one interval.
+	if n, err := p.store.ResetPollSchedules(ctx, p.pollInterval); err != nil {
+		p.logger.Error("resetting poll schedules after restart failed", "error", err)
+	} else if n > 0 {
+		p.logger.Info("rescheduled waiting jobs after restart", "count", n)
+	}
 
 	var wg sync.WaitGroup
 	for i := 0; i < p.config().Worker.Count; i++ {
@@ -130,20 +138,31 @@ func (p *Pool) drain(ctx context.Context) {
 // ceilings never pays for the in-flight count on every claim.
 func (p *Pool) claimPolicy() store.ClaimPolicy {
 	cfg := p.config()
-	policy := store.ClaimPolicy{PollInterval: p.pollInterval}
+	policy := store.ClaimPolicy{PollLease: p.pollLease}
 	if cfg.HasConcurrencyCeilings() {
 		policy.MaxConcurrent = cfg.MaxConcurrentFor
 	}
 	return policy
 }
 
-// pollInterval supplies the per-target poll cadence used by the store when it
-// claims a poll tick (pushing next_attempt_at forward). The Worker.PollInterval
-// fallback only applies when an awaiting_target job's target lost its poll
-// config; it keeps the job claimable so processPoll can fail it promptly.
+// pollInterval is the per-target poll cadence: what a finished tick
+// reschedules the next one to. The Worker.PollInterval fallback only
+// applies when an awaiting_target job's target lost its poll config; it
+// keeps the job claimable so processPoll can fail it promptly.
 func (p *Pool) pollInterval(target string) time.Duration {
 	if t, ok := p.config().Targets[target]; ok && t.Response.Mode == config.ModePoll && t.Response.Poll != nil {
 		return t.Response.Poll.Interval.Std()
+	}
+	return p.config().Worker.PollInterval.Std()
+}
+
+// pollLease is how long a claimed tick is reserved: the status call, the
+// result download it may lead to, and one interval of slack. Only a worker
+// that dies mid-tick ever lets a lease run out; a live one reschedules.
+func (p *Pool) pollLease(target string) time.Duration {
+	if t, ok := p.config().Targets[target]; ok && t.Response.Mode == config.ModePoll && t.Response.Poll != nil {
+		poll := t.Response.Poll
+		return t.Timeout.Std() + poll.ResultBudget() + poll.Interval.Std()
 	}
 	return p.config().Worker.PollInterval.Std()
 }

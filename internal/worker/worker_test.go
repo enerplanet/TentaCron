@@ -498,7 +498,7 @@ func TestRecoveryCompletesInterruptedJob(t *testing.T) {
 	id := createJob(t, st, "buem", `{"time-series":[]}`, 3)
 	// Simulate a crash mid-processing: claim the job so it sits in
 	// "resolving", then boot the pool, whose startup recovery requeues it.
-	if job, err := st.ClaimNext(context.Background(), store.ClaimPolicy{PollInterval: func(string) time.Duration { return time.Minute }}); err != nil || job == nil {
+	if job, err := st.ClaimNext(context.Background(), store.ClaimPolicy{PollLease: func(string) time.Duration { return time.Minute }}); err != nil || job == nil {
 		t.Fatalf("pre-claim: %v, %v", job, err)
 	}
 	startPool(t, cfg, st)

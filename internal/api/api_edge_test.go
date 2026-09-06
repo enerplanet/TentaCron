@@ -641,7 +641,7 @@ func TestEventsEndpoint(t *testing.T) {
 	}, nil)
 	created := decodeBody[createResponse](t, e.do(t, "POST", "/v1/requests", validBody, nil))
 	ctx := context.Background()
-	if _, err := e.store.ClaimNext(ctx, store.ClaimPolicy{PollInterval: func(string) time.Duration { return time.Minute }}); err != nil {
+	if _, err := e.store.ClaimNext(ctx, store.ClaimPolicy{PollLease: func(string) time.Duration { return time.Minute }}); err != nil {
 		t.Fatal(err)
 	}
 	if err := e.store.MarkFailed(ctx, created.ID, "target_error", "boom"); err != nil {

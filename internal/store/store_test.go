@@ -38,7 +38,7 @@ func mustCreate(t *testing.T, s *Store, j *Job) {
 }
 
 // noPoll is the claim policy of tests that never poll a target.
-var noPoll = ClaimPolicy{PollInterval: func(string) time.Duration { return time.Minute }}
+var noPoll = ClaimPolicy{PollLease: func(string) time.Duration { return time.Minute }}
 
 func TestMigrationsIdempotent(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "test.db")

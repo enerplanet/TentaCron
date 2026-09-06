@@ -405,6 +405,27 @@ var targetProtocolScenarios = []scenario{
 		},
 	},
 	{
+		// A status call slower than the poll interval. The claim leases
+		// the tick, so ticks run strictly one after another and the number
+		// of status calls is a fact the corpus can freeze — three, the
+		// third reporting success — where it used to be a race.
+		name: "poll-slower-than-interval",
+		fakes: fakes{
+			statusDelay: func(int64) time.Duration { return 3 * goldenPollInterval },
+			status: func(call int64) reply {
+				if call < 3 {
+					return reply{200, `{"id":"m-golden-1","state":"running"}`, ""}
+				}
+				return reply{200, `{"id":"m-golden-1","state":"succeeded"}`, ""}
+			},
+		},
+		run: func(t *testing.T, h *harness) {
+			id := h.post("submit", requestBody("meme", `{"model":{"timeseries":{}}}`), nil)
+			h.await("final state", id)
+			h.countsWithPolls()
+		},
+	},
+	{
 		name:  "poll-deadline-exceeded",
 		fakes: fakes{status: func(int64) reply { return reply{200, `{"id":"m-golden-1","state":"running"}`, ""} }},
 		mod: func(cfg *config.Config) {

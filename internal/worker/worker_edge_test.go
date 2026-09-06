@@ -85,7 +85,7 @@ func pollTarget(base string, interval, timeout time.Duration) config.Target {
 func parkAwaiting(t *testing.T, st *store.Store, id string) {
 	t.Helper()
 	ctx := context.Background()
-	if c, err := st.ClaimNext(ctx, store.ClaimPolicy{PollInterval: func(string) time.Duration { return time.Minute }}); err != nil || c == nil {
+	if c, err := st.ClaimNext(ctx, store.ClaimPolicy{PollLease: func(string) time.Duration { return time.Minute }}); err != nil || c == nil {
 		t.Fatalf("claim: %v %v", c, err)
 	}
 	if err := st.SetResolved(ctx, id, []byte(`{}`), "resolved"); err != nil {
@@ -466,7 +466,7 @@ func TestRetryOrFailCapsOverflowedBackoff(t *testing.T) {
 	st := openStore(t)
 	id := createJob(t, st, "demo", `{}`, 200)
 	ctx := context.Background()
-	job, err := st.ClaimNext(ctx, store.ClaimPolicy{PollInterval: func(string) time.Duration { return time.Minute }})
+	job, err := st.ClaimNext(ctx, store.ClaimPolicy{PollLease: func(string) time.Duration { return time.Minute }})
 	if err != nil || job == nil {
 		t.Fatal("claim failed")
 	}
@@ -598,7 +598,7 @@ func TestLateResultFileOfACancelledJobIsDiscarded(t *testing.T) {
 	st := openStore(t)
 	id := createJob(t, st, "meme", `{}`, 3)
 	ctx := context.Background()
-	if c, _ := st.ClaimNext(ctx, store.ClaimPolicy{PollInterval: func(string) time.Duration { return time.Minute }}); c == nil {
+	if c, _ := st.ClaimNext(ctx, store.ClaimPolicy{PollLease: func(string) time.Duration { return time.Minute }}); c == nil {
 		t.Fatal("claim failed")
 	}
 	if err := st.SetResolved(ctx, id, []byte(`{}`), "resolved"); err != nil {
@@ -650,7 +650,7 @@ func TestSweepRescuesStuckJob(t *testing.T) {
 	st := openStore(t)
 	id := createJob(t, st, "demo", `{}`, 3)
 	ctx := context.Background()
-	if c, _ := st.ClaimNext(ctx, store.ClaimPolicy{PollInterval: func(string) time.Duration { return time.Minute }}); c == nil {
+	if c, _ := st.ClaimNext(ctx, store.ClaimPolicy{PollLease: func(string) time.Duration { return time.Minute }}); c == nil {
 		t.Fatal("claim failed")
 	}
 	time.Sleep(5 * time.Millisecond)
@@ -1368,13 +1368,100 @@ func TestSlowMovingResultDownloadCompletes(t *testing.T) {
 	if job.State != store.StateCompleted || job.ResultPath == "" {
 		t.Fatalf("state=%s code=%s message=%s path=%q, want completed with a file", job.State, job.ErrorCode, job.ErrorMessage, job.ResultPath)
 	}
-	// Overlapping poll ticks may still fetch the result more than once
-	// until the tick lease lands; what matters here is that a download
-	// slower than the call timeout finishes at all.
-	if n := resultCalls.Load(); n < 1 {
-		t.Fatalf("result fetched %d times, want at least once", n)
+	if n := resultCalls.Load(); n != 1 {
+		t.Fatalf("result fetched %d times, want exactly once: the tick is leased for the whole download", n)
 	}
 	if data, err := os.ReadFile(job.ResultPath); err != nil || len(data) != 20*len("chunk---") {
 		t.Fatalf("stored %d bytes (err %v), want the whole download", len(data), err)
+	}
+}
+
+// pollMeme wires a meme-style poll target at srv with short timings.
+func pollMeme(srv *httptest.Server, interval time.Duration) config.Target {
+	return config.Target{URL: srv.URL + "/simulate", Method: "POST", Timeout: dur(time.Second), TimeseriesPath: "time-series",
+		Response: config.Response{Mode: config.ModePoll, Poll: &config.Poll{
+			IDJSONPath: "id", URLTemplate: srv.URL + "/jobs/{id}/status", ResultURLTemplate: srv.URL + "/jobs/{id}",
+			StatusJSONPath: "state", DoneValues: []string{"succeeded"},
+			Interval: dur(interval), Timeout: dur(3 * time.Second), ResultTimeout: dur(time.Second),
+		}}}
+}
+
+// A status call slower than the poll interval is never in flight twice:
+// the claim leases the tick, and the next one is due only once this one
+// rescheduled it. Two workers used to poll the same job at once.
+func TestSlowStatusPollIsNeverClaimedTwice(t *testing.T) {
+	var inFlight, maxInFlight, statusCalls atomic.Int64
+	mux := http.NewServeMux()
+	mux.HandleFunc("POST /simulate", func(w http.ResponseWriter, _ *http.Request) { _, _ = io.WriteString(w, `{"id":"m-1"}`) })
+	mux.HandleFunc("GET /jobs/m-1/status", func(w http.ResponseWriter, r *http.Request) {
+		n := inFlight.Add(1)
+		defer inFlight.Add(-1)
+		for {
+			if m := maxInFlight.Load(); n <= m || maxInFlight.CompareAndSwap(m, n) {
+				break
+			}
+		}
+		call := statusCalls.Add(1)
+		select {
+		case <-time.After(60 * time.Millisecond):
+		case <-r.Context().Done():
+			return
+		}
+		if call < 4 {
+			_, _ = io.WriteString(w, `{"state":"running"}`)
+			return
+		}
+		_, _ = io.WriteString(w, `{"state":"succeeded"}`)
+	})
+	mux.HandleFunc("GET /jobs/m-1", func(w http.ResponseWriter, _ *http.Request) { _, _ = io.WriteString(w, `{"ok":true}`) })
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+	cfg := baseConfig(t)
+	cfg.Targets["meme"] = pollMeme(srv, 20*time.Millisecond)
+	st := openStore(t)
+	nudge := startPool(t, cfg, st)
+	id := createJob(t, st, "meme", `{"time-series":[]}`, 3)
+	nudge <- struct{}{}
+	if job := waitForTerminal(t, st, id); job.State != store.StateCompleted {
+		t.Fatalf("state=%s code=%s message=%s", job.State, job.ErrorCode, job.ErrorMessage)
+	}
+	if m := maxInFlight.Load(); m != 1 {
+		t.Fatalf("%d status calls were in flight at once, want 1", m)
+	}
+	if n := statusCalls.Load(); n != 4 {
+		t.Fatalf("%d status calls, want exactly one per tick until success (4)", n)
+	}
+}
+
+// A restart resets the poll schedule of every waiting job to within one
+// interval, whatever lease the previous process had taken.
+func TestRestartPollsWithinOneInterval(t *testing.T) {
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /jobs/m-1/status", func(w http.ResponseWriter, _ *http.Request) { _, _ = io.WriteString(w, `{"state":"succeeded"}`) })
+	mux.HandleFunc("GET /jobs/m-1", func(w http.ResponseWriter, _ *http.Request) { _, _ = io.WriteString(w, `{"ok":true}`) })
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+	cfg := baseConfig(t)
+	cfg.Targets["meme"] = pollMeme(srv, 20*time.Millisecond)
+	st := openStore(t)
+	id := createJob(t, st, "meme", `{"time-series":[]}`, 3)
+	ctx := context.Background()
+	if c, _ := st.ClaimNext(ctx, store.ClaimPolicy{PollLease: func(string) time.Duration { return time.Minute }}); c == nil {
+		t.Fatal("claim failed")
+	}
+	if err := st.SetResolved(ctx, id, []byte(`{}`), "resolved"); err != nil {
+		t.Fatal(err)
+	}
+	// The previous process leased the tick for an hour and died.
+	if err := st.MarkAwaitingTarget(ctx, id, "m-1", 202, []byte(`{"id":"m-1"}`), time.Now().Add(time.Hour), time.Now().Add(2*time.Hour)); err != nil {
+		t.Fatal(err)
+	}
+	start := time.Now()
+	startPool(t, cfg, st)
+	if job := waitForTerminal(t, st, id); job.State != store.StateCompleted {
+		t.Fatalf("state=%s code=%s message=%s", job.State, job.ErrorCode, job.ErrorMessage)
+	}
+	if elapsed := time.Since(start); elapsed > time.Second {
+		t.Fatalf("first poll after restart took %s, want within an interval", elapsed)
 	}
 }

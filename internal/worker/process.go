@@ -456,6 +456,10 @@ func (p *run) parkForPolling(bg context.Context, job *store.Job, poll *config.Po
 // with a wrong target_timeout. ctx bounds upstream I/O; bg is for store
 // writes that must survive cancellation.
 func (p *run) processPoll(ctx, bg context.Context, job *store.Job) {
+	// The claim leased the tick; every way out of it — done, still waiting,
+	// a recovered panic — hands the job back at its real cadence. A job the
+	// tick ended, or a cancellation did, is left alone by the CAS.
+	defer p.reschedulePoll(bg, job)
 	tcfg, ok := p.cfg.Targets[job.Target]
 	if !ok || tcfg.Response.Mode != config.ModePoll || tcfg.Response.Poll == nil {
 		p.failJob(bg, job, store.JobCodeUnknownTarget, fmt.Sprintf("target %q is no longer configured for polling", job.Target))
@@ -490,6 +494,18 @@ func (p *run) processPoll(ctx, bg context.Context, job *store.Job) {
 			"target job %s did not finish before the poll deadline", job.TargetJobID))
 	default:
 		p.logger.Debug("target job still running", "job_id", job.ID, "status", st.Raw)
+	}
+}
+
+// reschedulePoll ends a tick: the next one is due after the target's poll
+// interval, not when the claim's lease would have expired.
+func (p *run) reschedulePoll(bg context.Context, job *store.Job) {
+	interval := p.cfg.Worker.PollInterval.Std()
+	if t, ok := p.cfg.Targets[job.Target]; ok && t.Response.Mode == config.ModePoll && t.Response.Poll != nil {
+		interval = t.Response.Poll.Interval.Std()
+	}
+	if _, err := p.store.ReschedulePoll(bg, job.ID, time.Now().Add(interval)); err != nil {
+		p.logger.Error("rescheduling the next poll failed", "job_id", job.ID, "error", err)
 	}
 }
 

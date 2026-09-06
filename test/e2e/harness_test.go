@@ -995,16 +995,15 @@ func (h *harness) events(label, id string) {
 
 // counts records how often each upstream endpoint was hit, plus the tripwire
 // list of unscripted requests (frozen empty in every golden). The status and
-// result counts are load-dependent (overlapping poll ticks) and deliberately
-// not asserted here.
+// result counts are left out by default; countsWithPolls freezes them.
 func (h *harness) counts() {
 	h.record(h.countsStep(false))
 }
 
 // countsWithPolls additionally asserts the numeric status/result counts.
-// Only valid in scenarios where the job structurally never enters
-// awaiting_target — there zero polls is guaranteed, whereas elsewhere the
-// counts depend on timing.
+// Poll ticks are leased, so the counts are deterministic whenever the
+// scenario's scripted delays obey the band rule around goldenPollInterval;
+// scenarios that never enter awaiting_target freeze zero.
 func (h *harness) countsWithPolls() {
 	h.record(h.countsStep(true))
 }

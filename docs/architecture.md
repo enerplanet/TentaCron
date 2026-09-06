@@ -160,9 +160,12 @@ SQLite *is* the queue — no external broker:
   fill the batch and starve the others; the ceiling is also checked inside
   the claim's write transaction, so concurrent workers cannot overshoot it
   together.
-- Poll ticks for `awaiting_target` jobs are claimed by pushing
-  `next_attempt_at` forward atomically by the target's poll interval, so
-  concurrent workers never poll the same job twice for the same tick.
+- Poll ticks for `awaiting_target` jobs are claimed by leasing the tick:
+  `next_attempt_at` is pushed forward atomically for as long as a status
+  call and a result download may take, so no other worker claims the same
+  tick, nor the next one while this one still runs. When the tick ends with
+  the job still waiting, the worker reschedules it to one poll interval
+  from now; only a worker that dies mid-tick lets the lease run out.
 - Transient failures (network errors, timeouts, HTTP 429/5xx, the job
   timeout) requeue the job with capped exponential backoff and ±20 % jitter;
   permanent failures (other non-2xx statuses including redirects, oversized
@@ -213,8 +216,10 @@ answer read only up to 1 KiB.
 - On startup, jobs stuck in `resolving`/`forwarding` are requeued. Processing
   restarts from the stored original payload; the series cache makes the redo
   cheap.
-- Jobs in `awaiting_target` keep their state and resume polling — the target
-  job is never submitted twice.
+- Jobs in `awaiting_target` keep their state and resume polling within one
+  poll interval, spread at random over it so a restart never fires every
+  status call in the same instant — the target job is never submitted
+  twice.
 - The housekeeping sweeper additionally rescues jobs left in
   `resolving`/`forwarding` without a schedule while the process kept running
   (a failed bookkeeping write) once they have been untouched for twice

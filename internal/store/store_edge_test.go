@@ -216,7 +216,7 @@ func TestPollTickScheduling(t *testing.T) {
 	}
 	time.Sleep(80 * time.Millisecond)
 	before := time.Now()
-	c, err := s.ClaimNext(ctx, ClaimPolicy{PollInterval: func(string) time.Duration { return 5 * time.Minute }})
+	c, err := s.ClaimNext(ctx, ClaimPolicy{PollLease: func(string) time.Duration { return 5 * time.Minute }})
 	if err != nil || c == nil || c.State != StateAwaitingTarget {
 		t.Fatalf("due poll tick not claimed: %v %v", c, err)
 	}
@@ -936,7 +936,7 @@ func TestClaimRespectsPerClientCeiling(t *testing.T) {
 	s := openTest(t)
 	ctx := context.Background()
 	policy := ClaimPolicy{
-		PollInterval:  func(string) time.Duration { return time.Minute },
+		PollLease:     func(string) time.Duration { return time.Minute },
 		MaxConcurrent: func(client string) int { return map[string]int{"batch": 2}[client] },
 	}
 	var batch []*Job
@@ -1241,4 +1241,77 @@ func openBench(b *testing.B) *Store {
 	}
 	b.Cleanup(func() { _ = s.Close() })
 	return s
+}
+
+// A claimed poll tick is leased: nobody claims the next tick before the
+// lease ends, unless the worker reschedules explicitly when its tick is
+// over; a reschedule of a job that already ended reports false.
+func TestPollTickLeaseAndReschedule(t *testing.T) {
+	s := openTest(t)
+	ctx := context.Background()
+	j := newJob(t, "meme")
+	mustCreate(t, s, j)
+	if c, _ := s.ClaimNext(ctx, noPoll); c == nil {
+		t.Fatal("claim failed")
+	}
+	if err := s.SetResolved(ctx, j.ID, []byte(`{}`), "resolved"); err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now()
+	if err := s.MarkAwaitingTarget(ctx, j.ID, "m-1", 202, []byte(`{}`), now.Add(-time.Second), now.Add(time.Hour)); err != nil {
+		t.Fatal(err)
+	}
+	lease := ClaimPolicy{PollLease: func(string) time.Duration { return time.Hour }}
+	tick, err := s.ClaimNext(ctx, lease)
+	if err != nil || tick == nil || tick.State != StateAwaitingTarget {
+		t.Fatalf("first tick not claimed: %v %v", tick, err)
+	}
+	if again, _ := s.ClaimNext(ctx, lease); again != nil {
+		t.Fatalf("the next tick was claimed inside the lease: %+v", again)
+	}
+	if ok, err := s.ReschedulePoll(ctx, j.ID, time.Now().Add(-time.Millisecond)); err != nil || !ok {
+		t.Fatalf("reschedule: ok=%v err=%v", ok, err)
+	}
+	if next, _ := s.ClaimNext(ctx, lease); next == nil {
+		t.Fatal("the rescheduled tick must be claimable")
+	}
+	if err := s.MarkCancelled(ctx, j.ID, "cancelled"); err != nil {
+		t.Fatal(err)
+	}
+	if ok, err := s.ReschedulePoll(ctx, j.ID, time.Now()); err != nil || ok {
+		t.Fatalf("a finished job must not be rescheduled: ok=%v err=%v", ok, err)
+	}
+}
+
+// After a restart every waiting job is due within its target's spread from
+// now, at a random point in it, whatever lease the previous process took.
+func TestResetPollSchedulesSpreadsWithinOneInterval(t *testing.T) {
+	s := openTest(t)
+	ctx := context.Background()
+	var ids []string
+	for range 5 {
+		j := newJob(t, "meme")
+		mustCreate(t, s, j)
+		if c, _ := s.ClaimNext(ctx, noPoll); c == nil {
+			t.Fatal("claim failed")
+		}
+		if err := s.SetResolved(ctx, j.ID, []byte(`{}`), "resolved"); err != nil {
+			t.Fatal(err)
+		}
+		if err := s.MarkAwaitingTarget(ctx, j.ID, "m", 202, []byte(`{}`), time.Now().Add(time.Hour), time.Now().Add(2*time.Hour)); err != nil {
+			t.Fatal(err)
+		}
+		ids = append(ids, j.ID)
+	}
+	before := time.Now()
+	n, err := s.ResetPollSchedules(ctx, func(string) time.Duration { return 500 * time.Millisecond })
+	if err != nil || n != 5 {
+		t.Fatalf("reset %d (err %v), want 5", n, err)
+	}
+	for _, id := range ids {
+		got, _ := s.GetJob(ctx, id)
+		if got.NextAttemptAt == nil || got.NextAttemptAt.Before(before.Add(-time.Second)) || got.NextAttemptAt.After(before.Add(600*time.Millisecond)) {
+			t.Errorf("job %s next poll %v, want within half a second of the restart", id, got.NextAttemptAt)
+		}
+	}
 }
