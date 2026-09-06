@@ -10,11 +10,20 @@ under "Changed" with the keys or fields concerned.
 
 ### Added
 
+- `auth.api_keys[].max_schedules` caps how many schedules a key may hold
+  at once, 100 by default, the size of one schedule listing, so a key can
+  always list everything it holds; `0` lets a key create none.
 - `response.poll.result_timeout` (default 10 minutes, never below the
   target's `timeout`) bounds one result download as a whole, while the
   target's `timeout` bounds the wait between two reads of it. A stalled
   download fails within `timeout`; a slow but moving bundle may take up to
   `result_timeout`.
+
+### Changed
+
+- `POST /v1/schedules` answers `409 schedule_limit` when the key already
+  holds as many schedules as it may; previously schedules were unbounded
+  while the listing stopped at 100.
 
 ### Fixed
 

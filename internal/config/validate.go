@@ -141,6 +141,9 @@ func (v *validator) auth(a Auth) {
 		if k.Role != RoleClient && k.Role != RoleAdmin {
 			v.fail("auth.api_keys[%d] (%s): role must be %q or %q (got %q)", i, k.Name, RoleClient, RoleAdmin, k.Role)
 		}
+		if k.MaxSchedules != nil && *k.MaxSchedules < 0 {
+			v.fail("auth.api_keys[%d] (%s): max_schedules must not be negative (got %d)", i, k.Name, *k.MaxSchedules)
+		}
 		if k.MaxConcurrent < 0 {
 			v.fail("auth.api_keys[%d] (%s): max_concurrent must be zero (unlimited) or positive (got %d)", i, k.Name, k.MaxConcurrent)
 		}

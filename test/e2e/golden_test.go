@@ -931,6 +931,25 @@ var apiContractScenarios = []scenario{
 		},
 	},
 	{
+		// A key holds at most max_schedules schedules: the one past the cap
+		// is refused with 409, and deleting one makes room again.
+		name: "schedule-limit",
+		mod: func(cfg *config.Config) {
+			two := 2
+			cfg.Auth.APIKeys[0].MaxSchedules = &two
+		},
+		run: func(t *testing.T, h *harness) {
+			auth := map[string]string{"X-API-Key": clientKey}
+			body := `{"target":"demo","payload":{"time-series":[]},"cron":"@yearly"}`
+			first := h.call("first schedule", http.MethodPost, "/v1/schedules", body, auth)
+			h.call("second schedule", http.MethodPost, "/v1/schedules", body, auth)
+			h.call("the third is refused: the key holds two", http.MethodPost, "/v1/schedules", body, auth)
+			id, _ := first["id"].(string)
+			h.call("delete the first", http.MethodDelete, "/v1/schedules/"+id, "", auth)
+			h.call("room again", http.MethodPost, "/v1/schedules", body, auth)
+		},
+	},
+	{
 		// A delayed run: not_before keeps the request in received until the
 		// time arrives, visible in the audit trail and echoed by GET for the
 		// job's whole life; the queue then runs it like any other request.

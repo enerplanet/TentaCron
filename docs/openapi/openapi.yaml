@@ -302,6 +302,14 @@ paths:
                     error: { code: unknown_resolvent, message: no resolvent config for type "resolvent-tidal" }
         "401":
           $ref: "#/components/responses/Unauthorized"
+        "409":
+          description: The key already holds as many schedules as `auth.api_keys[].max_schedules` allows (100 by default); delete one first.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+              example:
+                error: { code: schedule_limit, message: this key may hold at most 100 schedules; delete one first }
         "422":
           $ref: "#/components/responses/UnknownTarget"
     get:
@@ -780,7 +788,7 @@ components:
               description: "`invalid_payload`, `unknown_resolvent` and `target_error` are the dry-run problem codes, answered by `POST /v1/schedules` when every run would fail."
               enum: [invalid_json, missing_field, unauthorized, unknown_target, idempotency_conflict,
                      payload_too_large, unsupported_media_type, not_found, method_not_allowed,
-                     not_cancellable, callback_not_allowed, invalid_parameter, internal,
+                     not_cancellable, callback_not_allowed, invalid_parameter, schedule_limit, internal,
                      invalid_payload, unknown_resolvent, target_error]
             message:
               type: string

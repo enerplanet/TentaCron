@@ -40,6 +40,7 @@ auth:
     - name: ops
       key: "${TENTACRON_KEY_OPS}"
       role: admin               # reads every client's requests
+      max_schedules: 0          # an admin key that must not hold schedules
 ```
 
 At least one key is required; names must be unique. Every endpoint reads
@@ -60,6 +61,9 @@ client's batch never starves another's interactive requests. `max_concurrent` ca
 in flight (resolving or forwarding) at once — further jobs wait while other
 clients' work proceeds; `0` (default) means no ceiling. `max_priority` caps
 the `priority` a key may request (`-10`..`10`, default: the full range).
+`max_schedules` caps how many schedules a key may hold at once (default
+100, the size of one schedule listing; `0` lets the key create none); the
+one past the cap answers `409 schedule_limit`.
 
 ## storage
 

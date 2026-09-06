@@ -19,6 +19,7 @@ const (
 	CodeNotCancellable       = "not_cancellable"
 	CodeCallbackNotAllowed   = "callback_not_allowed"
 	CodeInvalidParameter     = "invalid_parameter"
+	CodeScheduleLimit        = "schedule_limit"
 	CodeInternal             = "internal"
 )
 
@@ -29,7 +30,7 @@ func ErrorCodes() []string {
 	return []string{
 		CodeInvalidJSON, CodeMissingField, CodeUnauthorized, CodeUnknownTarget, CodeIdempotencyConflict,
 		CodePayloadTooLarge, CodeUnsupportedMediaType, CodeNotFound, CodeMethodNotAllowed,
-		CodeNotCancellable, CodeCallbackNotAllowed, CodeInvalidParameter, CodeInternal,
+		CodeNotCancellable, CodeCallbackNotAllowed, CodeInvalidParameter, CodeScheduleLimit, CodeInternal,
 	}
 }
 

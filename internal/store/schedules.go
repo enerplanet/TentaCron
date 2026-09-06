@@ -42,18 +42,43 @@ func RunKey(scheduleID string, t time.Time) string {
 
 const scheduleColumns = `id, client, target, payload, cron, timezone, priority, options, next_run_at, last_run_at, last_job_id, created_at, updated_at`
 
-// CreateSchedule stores a schedule; NextRunAt must be set by the caller.
-func (s *Store) CreateSchedule(ctx context.Context, sc *Schedule) error {
+// ErrScheduleLimit is returned when a client already holds as many
+// schedules as its key allows.
+var ErrScheduleLimit = errors.New("schedule limit reached")
+
+// CreateSchedule stores a schedule unless the client already holds limit
+// schedules; count and insert share one write transaction, so concurrent
+// creations cannot overshoot the limit together. NextRunAt must be set by
+// the caller.
+func (s *Store) CreateSchedule(ctx context.Context, sc *Schedule, limit int) (err error) {
 	now := time.Now()
 	var next any
 	if sc.NextRunAt != nil {
 		next = ts(*sc.NextRunAt)
 	}
-	_, err := s.db.ExecContext(ctx, `INSERT INTO schedules (`+scheduleColumns+`)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, ?, ?)`,
-		sc.ID, sc.Client, sc.Target, sc.Payload, sc.Cron, sc.Timezone, sc.Priority, sc.Options.encode(), next, ts(now), ts(now))
+	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
+		return err
+	}
+	defer func() {
+		if err != nil {
+			_ = tx.Rollback()
+		}
+	}()
+	var held int
+	if err = tx.QueryRowContext(ctx, `SELECT count(*) FROM schedules WHERE client = ?`, sc.Client).Scan(&held); err != nil {
+		return fmt.Errorf("count schedules: %w", err)
+	}
+	if held >= limit {
+		return fmt.Errorf("client %s holds %d of %d schedules: %w", sc.Client, held, limit, ErrScheduleLimit)
+	}
+	if _, err = tx.ExecContext(ctx, `INSERT INTO schedules (`+scheduleColumns+`)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, ?, ?)`,
+		sc.ID, sc.Client, sc.Target, sc.Payload, sc.Cron, sc.Timezone, sc.Priority, sc.Options.encode(), next, ts(now), ts(now)); err != nil {
 		return fmt.Errorf("insert schedule: %w", err)
+	}
+	if err = tx.Commit(); err != nil {
+		return err
 	}
 	sc.CreatedAt, sc.UpdatedAt = now, now
 	return nil

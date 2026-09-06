@@ -341,7 +341,7 @@ is then computed from the current time.
 
 | Method and path | Description |
 |---|---|
-| `POST /v1/schedules` | Create. Body: `target`, `payload`, `cron`, optional `timezone` (IANA name, default `UTC`), `priority`, `options`. `201` with the schedule and its `next_run_at`. |
+| `POST /v1/schedules` | Create. Body: `target`, `payload`, `cron`, optional `timezone` (IANA name, default `UTC`), `priority`, `options`. `201` with the schedule and its `next_run_at`; `409 schedule_limit` when the key already holds as many schedules as its `max_schedules` allows (100 by default, the size of one listing), so a key can always list everything it holds. |
 | `GET /v1/schedules` | The caller's schedules, oldest first, at most 100 (`items`). An admin key lists every client's, or one client's with `?client=`. |
 | `GET /v1/schedules/{id}` | One schedule: `cron`, `timezone`, `next_run_at`, `last_run_at`, `last_job_id`, `links.runs`. |
 | `DELETE /v1/schedules/{id}` | `204`; runs already created stay. |

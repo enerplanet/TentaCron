@@ -1,0 +1,73 @@
+[
+  {
+    "request": "POST /v1/schedules",
+    "response": {
+      "created_at": "«ts»",
+      "cron": "@yearly",
+      "id": "«schedule-1»",
+      "links": {
+        "runs": "/v1/schedules/«schedule-1»/runs",
+        "self": "/v1/schedules/«schedule-1»"
+      },
+      "next_run_at": "«ts»",
+      "target": "demo",
+      "timezone": "UTC",
+      "updated_at": "«ts»"
+    },
+    "status": 201,
+    "step": "first schedule"
+  },
+  {
+    "request": "POST /v1/schedules",
+    "response": {
+      "created_at": "«ts»",
+      "cron": "@yearly",
+      "id": "«schedule-2»",
+      "links": {
+        "runs": "/v1/schedules/«schedule-2»/runs",
+        "self": "/v1/schedules/«schedule-2»"
+      },
+      "next_run_at": "«ts»",
+      "target": "demo",
+      "timezone": "UTC",
+      "updated_at": "«ts»"
+    },
+    "status": 201,
+    "step": "second schedule"
+  },
+  {
+    "request": "POST /v1/schedules",
+    "response": {
+      "error": {
+        "code": "schedule_limit",
+        "message": "this key may hold at most 2 schedules; delete one first"
+      }
+    },
+    "status": 409,
+    "step": "the third is refused: the key holds two"
+  },
+  {
+    "request": "DELETE /v1/schedules/«schedule-1»",
+    "response": "",
+    "status": 204,
+    "step": "delete the first"
+  },
+  {
+    "request": "POST /v1/schedules",
+    "response": {
+      "created_at": "«ts»",
+      "cron": "@yearly",
+      "id": "«schedule-3»",
+      "links": {
+        "runs": "/v1/schedules/«schedule-3»/runs",
+        "self": "/v1/schedules/«schedule-3»"
+      },
+      "next_run_at": "«ts»",
+      "target": "demo",
+      "timezone": "UTC",
+      "updated_at": "«ts»"
+    },
+    "status": 201,
+    "step": "room again"
+  }
+]

@@ -67,7 +67,9 @@ func toScheduleResponse(sc *store.Schedule) scheduleResponse {
 // handleCreateSchedule validates a recurring submission exactly like a single
 // one — plus its cron expression and time zone — and stores it with its
 // first due time. The payload is inspected as a dry run would, so a schedule
-// whose every run would fail is refused up front.
+// whose every run would fail is refused up front; a key already holding as
+// many schedules as it may answers 409, so a key can always list everything
+// it holds.
 func (s *Server) handleCreateSchedule(w http.ResponseWriter, r *http.Request) {
 	var req scheduleRequest
 	if !requireJSON(w, r) {
@@ -107,7 +109,13 @@ func (s *Server) handleCreateSchedule(w http.ResponseWriter, r *http.Request) {
 	if req.Priority != nil {
 		sc.Priority = *req.Priority
 	}
-	if err := s.store.CreateSchedule(r.Context(), sc); err != nil {
+	limit := s.cfg().MaxSchedulesFor(id.name)
+	if err := s.store.CreateSchedule(r.Context(), sc, limit); err != nil {
+		if errors.Is(err, store.ErrScheduleLimit) {
+			writeError(w, http.StatusConflict, CodeScheduleLimit,
+				fmt.Sprintf("this key may hold at most %d schedules; delete one first", limit))
+			return
+		}
 		s.internalError(w, "create schedule failed", err)
 		return
 	}

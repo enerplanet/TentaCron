@@ -81,7 +81,7 @@ func TestSchedulerMaterialisesEachDueTimeOnce(t *testing.T) {
 	clk := &fakeClock{t: time.Date(2026, 9, 5, 4, 29, 0, 0, time.UTC)}
 	due := time.Date(2026, 9, 5, 4, 30, 0, 0, time.UTC) // 06:30 Berlin in September
 	sc := &store.Schedule{ID: "s1", Client: "acme", Target: "outer", Payload: []byte(`{"time-series":[]}`), Cron: "30 6 * * *", Timezone: "Europe/Berlin", Priority: 3, NextRunAt: &due}
-	if err := st.CreateSchedule(context.Background(), sc); err != nil {
+	if err := st.CreateSchedule(context.Background(), sc, 100); err != nil {
 		t.Fatal(err)
 	}
 	startPoolWithClock(t, cfg, st, clk)

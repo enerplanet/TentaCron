@@ -13,10 +13,10 @@ func TestScheduleLifecycle(t *testing.T) {
 	due := time.Date(2026, 9, 6, 4, 30, 0, 0, time.UTC)
 	sc := &Schedule{ID: "s1", Client: "c1", Target: "demo", Payload: []byte(`{"a":1}`), Cron: "30 6 * * *", Timezone: "Europe/Berlin",
 		Priority: 2, Options: JobOptions{Cache: CacheBypass}, NextRunAt: &due}
-	if err := s.CreateSchedule(ctx, sc); err != nil {
+	if err := s.CreateSchedule(ctx, sc, 100); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.CreateSchedule(ctx, &Schedule{ID: "s2", Client: "c2", Target: "demo", Payload: []byte(`{}`), Cron: "@daily", Timezone: "UTC", NextRunAt: &due}); err != nil {
+	if err := s.CreateSchedule(ctx, &Schedule{ID: "s2", Client: "c2", Target: "demo", Payload: []byte(`{}`), Cron: "@daily", Timezone: "UTC", NextRunAt: &due}, 100); err != nil {
 		t.Fatal(err)
 	}
 	got, err := s.GetSchedule(ctx, "s1")
@@ -153,5 +153,31 @@ func TestTerminalTransitionEnqueuesCallback(t *testing.T) {
 	_ = s.RecordAttempt(ctx, "gone", 0, &st, "HTTP 410", false, nil)
 	if d, _ := s.GetDelivery(ctx, "gone"); d.State() != DeliveryFailed || d.Event != "request.failed" {
 		t.Errorf("given up = %+v", d)
+	}
+}
+
+// A client holds at most limit schedules; the one past it is refused with
+// ErrScheduleLimit, and a limit of zero refuses the first.
+func TestCreateScheduleRespectsTheLimit(t *testing.T) {
+	s := openTest(t)
+	ctx := context.Background()
+	next := time.Now().Add(time.Hour)
+	mk := func(client string) *Schedule {
+		id, _ := NewID()
+		return &Schedule{ID: id, Client: client, Target: "demo", Payload: []byte(`{}`), Cron: "@daily", Timezone: "UTC", NextRunAt: &next}
+	}
+	for range 2 {
+		if err := s.CreateSchedule(ctx, mk("a"), 2); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := s.CreateSchedule(ctx, mk("a"), 2); !errors.Is(err, ErrScheduleLimit) {
+		t.Fatalf("third schedule: err = %v, want ErrScheduleLimit", err)
+	}
+	if err := s.CreateSchedule(ctx, mk("b"), 2); err != nil {
+		t.Fatalf("another client's first schedule: %v", err)
+	}
+	if err := s.CreateSchedule(ctx, mk("c"), 0); !errors.Is(err, ErrScheduleLimit) {
+		t.Fatalf("limit 0: err = %v, want ErrScheduleLimit", err)
 	}
 }

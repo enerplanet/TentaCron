@@ -109,6 +109,10 @@ type APIKey struct {
 	// (resolving or forwarding) at once; 0 means no ceiling. Further jobs
 	// wait in the queue while other clients' work proceeds.
 	MaxConcurrent int `yaml:"max_concurrent"`
+	// MaxSchedules caps how many schedules this client may hold at once;
+	// nil means DefaultMaxSchedules, the size of one schedule listing, and
+	// an explicit 0 lets the key create none.
+	MaxSchedules *int `yaml:"max_schedules"`
 	// MaxPriority caps the priority this client may request (-10..10);
 	// nil allows the full range. Set 0 for a client that must never jump
 	// the queue.
@@ -264,6 +268,21 @@ type Target struct {
 }
 
 // MaxConcurrentFor returns the in-flight ceiling of a client key (0 = none).
+// DefaultMaxSchedules is how many schedules a key may hold unless its
+// max_schedules says otherwise: the size of one schedule listing, so a key
+// can always see everything it holds.
+const DefaultMaxSchedules = 100
+
+// MaxSchedulesFor returns how many schedules a client may hold.
+func (c *Config) MaxSchedulesFor(client string) int {
+	for _, k := range c.Auth.APIKeys {
+		if k.Name == client && k.MaxSchedules != nil {
+			return *k.MaxSchedules
+		}
+	}
+	return DefaultMaxSchedules
+}
+
 // HasConcurrencyCeilings reports whether any key sets max_concurrent.
 func (c *Config) HasConcurrencyCeilings() bool {
 	for _, k := range c.Auth.APIKeys {
