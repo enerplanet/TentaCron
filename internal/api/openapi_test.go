@@ -5,8 +5,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/enerplanet/tentacron/docs/openapi"
 	"gopkg.in/yaml.v3"
+
+	"github.com/enerplanet/tentacron/docs/openapi"
 )
 
 // The OpenAPI document and the registered routes must agree exactly: every

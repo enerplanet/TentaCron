@@ -77,7 +77,7 @@ provides the toolchain if you prefer not to install it.
 ### 4) Test your changes
 
 ```bash
-make lint           # go vet + golangci-lint (CI runs the same)
+make lint           # go vet + golangci-lint incl. gofmt/goimports (CI runs the same)
 make lint-openapi   # when docs/openapi/openapi.yaml changed (needs Node)
 make test           # unit, integration and golden E2E suites
 make test-race      # what CI runs: race detector, shuffled order

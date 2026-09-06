@@ -43,3 +43,15 @@ linters:
         linters:
           - gosec
           - funlen
+
+# Formatting is part of the gate: `golangci-lint run` reports unformatted
+# files, `golangci-lint fmt` fixes them. Imports group standard library,
+# third-party and this module, in that order.
+formatters:
+  enable:
+    - gofmt
+    - goimports
+  settings:
+    goimports:
+      local-prefixes:
+        - github.com/enerplanet/tentacron

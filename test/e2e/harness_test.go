@@ -14,7 +14,6 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
-	"github.com/enerplanet/tentacron/internal/callback"
 	"io"
 	"log/slog"
 	"maps"
@@ -29,6 +28,8 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/enerplanet/tentacron/internal/callback"
 
 	"github.com/enerplanet/tentacron/internal/api"
 	"github.com/enerplanet/tentacron/internal/config"

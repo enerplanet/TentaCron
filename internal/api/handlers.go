@@ -6,8 +6,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/enerplanet/tentacron/internal/callback"
-	"github.com/enerplanet/tentacron/internal/jobview"
 	"io"
 	"io/fs"
 	"mime"
@@ -18,6 +16,9 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/enerplanet/tentacron/internal/callback"
+	"github.com/enerplanet/tentacron/internal/jobview"
 
 	"github.com/enerplanet/tentacron/internal/config"
 	"github.com/enerplanet/tentacron/internal/plan"
