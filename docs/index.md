@@ -12,11 +12,11 @@ until their job finishes.
 ## The core idea
 
 A client shouldn't need to gather PV and wind generation profiles before
-submitting an energy-model run. Instead it submits the model with placeholders:
+submitting an energy-model run. Instead it submits the model with
+placeholders, authenticated by its `X-API-Key` header:
 
 ```json
 {
-  "api_key": "…",
   "target": "meme",
   "payload": {
     "model": {
@@ -37,7 +37,22 @@ original object under its `resolvent` key for traceability), leaves genuine
 ## Highlights
 
 - **Async job API** — `POST /v1/requests` returns `202` + id immediately;
-  poll `GET /v1/requests/{id}` for state and result.
+  read `GET /v1/requests/{id}` for state and result, long-poll it with
+  `?wait=`, or receive a signed callback when the request ends. Submit up to
+  a hundred requests at once, dry-run a payload first, cancel a request
+  that has not started.
+- **Schedules** — a cron expression in a time zone turns the same
+  submission into a recurring run; every due time becomes an ordinary
+  request, never twice.
+- **Resolvent chaining** — a resolvent's field may reference a sibling's
+  result (`{"$from": "building", "path": "tabula_variant_code"}`), so a
+  lookup feeds a calculation feeds a simulation in one request.
+- **Third-party APIs without a shim** — `query_map` renames fields onto an
+  API's parameters and `response_map` reshapes its answer into a series;
+  PVGIS is wired that way.
+- **Fair by default** — priorities, per-client round-robin and concurrency
+  ceilings keep one client's batch from starving another's interactive
+  requests.
 - **Three resolvent backends** — POST resource APIs (the object is the
   body), GET resource APIs (fields become query parameters and `{field}` path
   segments — the weather, city2tabula and ignis contracts), and configured
@@ -55,6 +70,9 @@ original object under its `resolvent` key for traceability), leaves genuine
   transient faults; fast, explicit failures for permanent ones.
 - **Number fidelity** — payloads and series round-trip without float
   conversion, so integer ids above 2^53 reach the target byte-exact.
+- **Operable** — Prometheus metrics on their own listener, structured
+  logs, a `SIGHUP` reload that rotates keys without a gap, a `backup`
+  subcommand, and an OpenAPI description served by the running build.
 
 ## Where to go next
 
@@ -62,6 +80,8 @@ original object under its `resolvent` key for traceability), leaves genuine
 - [API Reference](api.md) — endpoints, error codes, examples
 - [Configuration](configuration.md) — every YAML key explained
 - [Operations](operations.md) — deployment, logs, failure handling
+- [OpenAPI reference](openapi/index.html) — the contract, rendered
+- [Decisions](decisions/README.md) — why the service looks the way it does
 
 For the quickstart and the list of wired integrations, see the
 [README](https://github.com/enerplanet/tentacron#quickstart).
