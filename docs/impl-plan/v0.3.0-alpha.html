@@ -1,0 +1,824 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<!-- Implementation plan for TentaCron 0.3.0-alpha, written 2026-09-07 from the
+     whole-repository quality review of the same day. A standalone page like
+     docs/openapi/index.html: open it from a checkout or read it on the docs
+     site under impl-plan/. Fonts come from Google Fonts; everything else is in
+     this file. The plan is the source of truth for the release; when an item
+     lands, its status is updated here in the same commit. -->
+<title>TentaCron 0.3.0-alpha Plan</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Source+Serif+4:ital,opsz,wght@0,8..60,400;0,8..60,600;1,8..60,400&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+  :root {
+    --bg: #f4f4f8;
+    --surface: #ffffff;
+    --ink: #21232e;
+    --muted: #5b5c6b;
+    --faint: #8a8b9a;
+    --rule: #d9d9e3;
+    --rule-strong: #b9b9c8;
+    --accent: #5d5294;
+    --accent-soft: #ebe8f7;
+    --accent-ink: #3f3770;
+    --crit: #a8352e;
+    --crit-soft: #f6e3e1;
+    --warn: #8a5a0e;
+    --warn-soft: #f5ead3;
+    --info: #2f5f9e;
+    --info-soft: #e0e9f5;
+    --ok: #2f6f4e;
+    --ok-soft: #dfeee6;
+    --code-bg: #ededf3;
+    color-scheme: light;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #15141f;
+      --surface: #1d1c2a;
+      --ink: #e9e9ed;
+      --muted: #a9a9bb;
+      --faint: #7d7d90;
+      --rule: #2d2c3d;
+      --rule-strong: #43425a;
+      --accent: #9184d9;
+      --accent-soft: #272440;
+      --accent-ink: #b8aee8;
+      --crit: #e58a82;
+      --crit-soft: #3a2422;
+      --warn: #e2b258;
+      --warn-soft: #3a2f1a;
+      --info: #8cb4ea;
+      --info-soft: #1f2b3d;
+      --ok: #7fc59f;
+      --ok-soft: #1c2f26;
+      --code-bg: #24233a;
+      color-scheme: dark;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #15141f;
+    --surface: #1d1c2a;
+    --ink: #e9e9ed;
+    --muted: #a9a9bb;
+    --faint: #7d7d90;
+    --rule: #2d2c3d;
+    --rule-strong: #43425a;
+    --accent: #9184d9;
+    --accent-soft: #272440;
+    --accent-ink: #b8aee8;
+    --crit: #e58a82;
+    --crit-soft: #3a2422;
+    --warn: #e2b258;
+    --warn-soft: #3a2f1a;
+    --info: #8cb4ea;
+    --info-soft: #1f2b3d;
+    --ok: #7fc59f;
+    --ok-soft: #1c2f26;
+    --code-bg: #24233a;
+    color-scheme: dark;
+  }
+
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--ink);
+    font-family: "Source Serif 4", Georgia, "Times New Roman", serif;
+    font-size: 17px;
+    line-height: 1.55;
+    -webkit-font-smoothing: antialiased;
+  }
+  .page { max-width: 980px; margin: 0 auto; padding: 40px 28px 96px; }
+
+  /* masthead */
+  .mast { display: flex; align-items: center; gap: 18px; padding-bottom: 22px; border-bottom: 1px solid var(--rule-strong); }
+  .mast svg { width: 56px; height: 56px; flex: 0 0 auto; color: var(--accent); }
+  .mast .word { font-family: Inter, system-ui, sans-serif; font-weight: 500; font-size: 30px; letter-spacing: -0.01em; line-height: 1.1; }
+  .mast .sub { font-family: Inter, system-ui, sans-serif; font-size: 13px; color: var(--muted); letter-spacing: 0.06em; text-transform: uppercase; margin-top: 6px; }
+  .mast .tag { margin-left: auto; font-family: "IBM Plex Mono", ui-monospace, Menlo, monospace; font-size: 13px; color: var(--accent-ink); background: var(--accent-soft); padding: 6px 10px; border-radius: 4px; white-space: nowrap; }
+
+  h1 { font-family: Inter, system-ui, sans-serif; font-weight: 600; font-size: 34px; letter-spacing: -0.02em; line-height: 1.15; margin: 40px 0 12px; text-wrap: balance; }
+  h2 { font-family: Inter, system-ui, sans-serif; font-weight: 600; font-size: 22px; letter-spacing: -0.01em; margin: 56px 0 8px; text-wrap: balance; display: flex; align-items: baseline; gap: 14px; }
+  h2 .num { font-family: "IBM Plex Mono", ui-monospace, monospace; font-weight: 500; font-size: 14px; color: var(--accent-ink); background: var(--accent-soft); padding: 3px 8px; border-radius: 4px; letter-spacing: 0.04em; }
+  h3 { font-family: Inter, system-ui, sans-serif; font-weight: 600; font-size: 17px; margin: 0 0 6px; letter-spacing: -0.005em; }
+  p { max-width: 68ch; margin: 0 0 14px; }
+  .lead { font-size: 19px; color: var(--ink); max-width: 66ch; }
+  .phase-intro { color: var(--muted); max-width: 70ch; margin-bottom: 18px; }
+  a { color: var(--accent-ink); text-decoration-color: var(--rule-strong); text-underline-offset: 3px; }
+  a:focus-visible, button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  code, .mono { font-family: "IBM Plex Mono", ui-monospace, Menlo, monospace; font-size: 0.86em; }
+  code { background: var(--code-bg); padding: 1px 5px; border-radius: 3px; }
+  pre { background: var(--code-bg); padding: 12px 14px; border-radius: 4px; overflow-x: auto; font-size: 13.5px; line-height: 1.5; margin: 8px 0 14px; }
+  pre code { background: none; padding: 0; font-size: inherit; }
+
+  /* summary grid */
+  .facts { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 0; border-top: 1px solid var(--rule); border-bottom: 1px solid var(--rule); margin: 26px 0 10px; }
+  .fact { padding: 16px 18px 16px 0; border-right: 1px solid var(--rule); }
+  .fact:last-child { border-right: 0; }
+  .fact + .fact { padding-left: 18px; }
+  .fact .k { font-family: Inter, system-ui, sans-serif; font-size: 12px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--faint); }
+  .fact .v { font-family: Inter, system-ui, sans-serif; font-weight: 600; font-size: 22px; margin-top: 4px; font-variant-numeric: tabular-nums; }
+  .fact .d { font-size: 14px; color: var(--muted); margin-top: 2px; }
+
+  /* phase index */
+  table.index { width: 100%; border-collapse: collapse; margin: 18px 0 8px; font-size: 15px; }
+  table.index th { text-align: left; font-family: Inter, system-ui, sans-serif; font-size: 12px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--faint); font-weight: 500; padding: 0 12px 8px 0; border-bottom: 1px solid var(--rule-strong); }
+  table.index td { padding: 10px 12px 10px 0; border-bottom: 1px solid var(--rule); vertical-align: top; }
+  table.index td.n { font-family: "IBM Plex Mono", ui-monospace, monospace; font-size: 13px; color: var(--accent-ink); white-space: nowrap; }
+  table.index td.num { font-variant-numeric: tabular-nums; text-align: right; padding-right: 0; white-space: nowrap; }
+  .scroll { overflow-x: auto; }
+
+  /* work items */
+  .item { display: grid; grid-template-columns: 200px 1fr; gap: 0 28px; padding: 22px 0 24px; border-top: 1px solid var(--rule); }
+  .item:first-of-type { border-top: 1px solid var(--rule-strong); }
+  .item .meta { font-family: Inter, system-ui, sans-serif; font-size: 13px; color: var(--muted); }
+  .item .id { font-family: "IBM Plex Mono", ui-monospace, monospace; font-size: 13px; color: var(--accent-ink); font-weight: 500; }
+  .item .meta dl { margin: 12px 0 0; display: grid; grid-template-columns: max-content 1fr; gap: 5px 10px; }
+  .item .meta dt { color: var(--faint); font-size: 11.5px; letter-spacing: 0.06em; text-transform: uppercase; padding-top: 2px; }
+  .item .meta dd { margin: 0; }
+  .item .body p { margin-bottom: 10px; }
+  .item .body p:last-child { margin-bottom: 0; }
+  .item .body .lbl { font-family: Inter, system-ui, sans-serif; font-weight: 600; font-size: 12.5px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--faint); display: block; margin: 12px 0 3px; }
+  .item .body .lbl:first-child { margin-top: 0; }
+  .item ul { margin: 0 0 8px; padding-left: 20px; max-width: 70ch; }
+  .item li { margin-bottom: 4px; }
+  .commit { display: block; font-family: "IBM Plex Mono", ui-monospace, monospace; font-size: 12.5px; color: var(--ink); background: var(--code-bg); padding: 8px 10px; border-radius: 3px; margin-top: 12px; overflow-wrap: anywhere; }
+  .files { font-family: "IBM Plex Mono", ui-monospace, monospace; font-size: 12px; color: var(--muted); line-height: 1.6; overflow-wrap: anywhere; }
+
+  .pill { display: inline-block; font-family: Inter, system-ui, sans-serif; font-size: 11.5px; font-weight: 600; letter-spacing: 0.05em; text-transform: uppercase; padding: 3px 8px; border-radius: 3px; line-height: 1.3; }
+  .pill.crit { color: var(--crit); background: var(--crit-soft); }
+  .pill.warn { color: var(--warn); background: var(--warn-soft); }
+  .pill.info { color: var(--info); background: var(--info-soft); }
+  .pill.ok { color: var(--ok); background: var(--ok-soft); }
+  .pill.neutral { color: var(--muted); background: var(--code-bg); }
+
+  .rules { border: 1px solid var(--rule-strong); border-radius: 4px; padding: 18px 22px; margin: 22px 0; background: var(--surface); }
+  .rules h3 { margin-bottom: 8px; }
+  .rules ul { margin: 0; padding-left: 20px; max-width: 72ch; }
+  .rules li { margin-bottom: 6px; }
+
+  .risk { padding: 18px 0 20px; border-top: 1px solid var(--rule); }
+  .risk:first-of-type { border-top: 1px solid var(--rule-strong); }
+  .risk h3 { margin-bottom: 10px; }
+  .risk p { margin-bottom: 8px; max-width: 74ch; }
+  .risk .rk { font-family: Inter, system-ui, sans-serif; font-weight: 600; font-size: 12.5px; letter-spacing: 0.05em; text-transform: uppercase; color: var(--accent-ink); margin-right: 6px; }
+  .note { border-left: 3px solid var(--accent); padding: 4px 0 4px 16px; color: var(--muted); max-width: 70ch; margin: 14px 0 18px; }
+
+  @media (max-width: 720px) {
+    .item { grid-template-columns: 1fr; gap: 12px; }
+    .mast .tag { display: none; }
+    h1 { font-size: 28px; }
+  }
+  @media (prefers-reduced-motion: no-preference) { html { scroll-behavior: smooth; } }
+</style>
+<style>
+  /* Standalone page: paint the ground the artifact host used to provide. */
+  html { background: var(--bg); }
+</style>
+</head>
+<body>
+<div class="page">
+  <header class="mast">
+    <svg viewBox="24 20 76 76" role="img" aria-label="TentaCron icon">
+      <g fill="none" stroke="currentColor" stroke-width="5" stroke-linecap="round" stroke-linejoin="round">
+        <circle cx="62" cy="58" r="34"></circle>
+        <g stroke-width="3.6"><path d="M62 27.2 L62 33.2"></path><path d="M92.8 58 L86.8 58"></path><path d="M62 88.8 L62 82.8"></path><path d="M31.2 58 L37.2 58"></path></g>
+        <g stroke-width="2.2"><path d="M77.4 31.3 L75.8 34.1"></path><path d="M88.7 42.6 L85.9 44.2"></path><path d="M88.7 73.4 L85.9 71.8"></path><path d="M77.4 84.7 L75.8 81.9"></path><path d="M46.6 84.7 L48.2 81.9"></path><path d="M35.3 73.4 L38.1 71.8"></path><path d="M35.3 42.6 L38.1 44.2"></path><path d="M46.6 31.3 L48.2 34.1"></path></g>
+        <path d="M62 58 L39.5 45"></path><path d="M62 58 L76.7 49.5"></path>
+      </g>
+      <circle cx="62" cy="58" r="4" fill="currentColor"></circle><circle cx="49" cy="35" r="4" fill="currentColor"></circle><circle cx="75" cy="35" r="4" fill="currentColor"></circle>
+    </svg>
+    <div>
+      <div class="word">TentaCron</div>
+      <div class="sub">Implementation plan · 0.3.0-alpha</div>
+    </div>
+    <div class="tag">baseline 1de2058 · review 2026-09-07</div>
+  </header>
+
+  <h1>Fix what the review found, ship it as 0.3.0-alpha</h1>
+  <p class="lead">Every item below traces to a finding of the whole-repository review of 7 September. The release adds no API surface beyond what a fix needs: one configuration key for result downloads, one per-key ceiling for schedules, one error code, and a health command for the shell-less image. Everything else is a correction, a test, or a document. Every risk the plan names is answered by an item with a test of its own or by a gate in the release checklist, never by a warning alone.</p>
+
+  <div class="facts">
+    <div class="fact"><div class="k">Work items</div><div class="v">28</div><div class="d">in 5 phases, one commit each</div></div>
+    <div class="fact"><div class="k">Correctness bugs</div><div class="v">6</div><div class="d">phase 1, the reason for the release</div></div>
+    <div class="fact"><div class="k">Estimated effort</div><div class="v">8–10 days</div><div class="d">one developer, gate on every commit</div></div>
+    <div class="fact"><div class="k">Goldens that may change</div><div class="v">5</div><div class="d">each diff reviewed, never bulk-accepted</div></div>
+  </div>
+
+  <div class="rules">
+    <h3>Rules that apply to every item</h3>
+    <ul>
+      <li><strong>One item, one conventional commit</strong>, with its tests, its documentation and its <code>CHANGELOG.md</code> entry under <em>Unreleased</em> in the same commit. Subjects are given below; bodies explain the why, as the existing history does.</li>
+      <li><strong>The gate runs before every commit and must fail hard:</strong> <code>go build ./...</code>, <code>go vet ./...</code>, <code>go test -race -shuffle=on ./...</code>, <code>golangci-lint run</code>, <code>make lint-openapi</code>, <code>mkdocs build --strict</code>. Items marked <em>timing</em> also run the stress gate, <code>GOMAXPROCS=2 go test -race -shuffle=on -count=3 ./...</code>.</li>
+      <li><strong>Goldens change only for intended behaviour.</strong> A regenerated transcript is read line by line before it is accepted; the item text names which files are expected to move.</li>
+      <li><strong>Any change to a response or an error code</strong> updates <code>docs/openapi/openapi.yaml</code> in the same commit; the route test, the golden validation and the Redocly lint enforce it.</li>
+      <li><strong>Checkpoint after phase 1.</strong> If phase 1 took longer than three days, 0.3.0-alpha ships with the phases that are on <code>main</code> at that point and the rest becomes 0.3.1-alpha; every phase is a fast-forward, so a cut at any phase boundary is clean.</li>
+      <li><strong>Work on a branch</strong> named after the phase (<code>fix/phase-1-correctness</code>, and so on), fast-forwarded onto <code>main</code> when the phase is green, as the earlier phases were.</li>
+    </ul>
+  </div>
+
+  <h2><span class="num">Order</span>Phases and their dependencies</h2>
+  <p class="phase-intro">Phase 0 first, because it hardens the gate every later commit relies on. Inside phase 1, the result timeout (1.3) lands before the poll lease (1.6), which is sized by it. Inside phase 2, the testable process wiring (2.1) lands before the shutdown fix (2.2) it tests. Phase 4 is a scope decision with a rule attached: it ships only if phases 0 to 3 land inside their estimate.</p>
+  <div class="scroll">
+  <table class="index">
+    <thead><tr><th>Phase</th><th>Contents</th><th>Items</th><th>Size</th></tr></thead>
+    <tbody>
+      <tr><td class="n"><a href="#p0">0</a></td><td>Gate hardening: pinned linter, enforced formatting, error wrapping, deterministic poll timing in the golden harness, error-code parity test</td><td class="num">5</td><td class="num">1 day</td></tr>
+      <tr><td class="n"><a href="#p1">1</a></td><td>Correctness: rescue safety, orphaned results, download timeout, CORS, claim starvation, poll lease</td><td class="num">6</td><td class="num">2½ days</td></tr>
+      <tr><td class="n"><a href="#p2">2</a></td><td>Robustness and operability: process lifecycle, reload, schedules cap, callbacks, middleware, index, transport, upgrade test, non-migrating backup</td><td class="num">11</td><td class="num">3½ days</td></tr>
+      <tr><td class="n"><a href="#p3">3</a></td><td>Supply chain and operations: provenance, health command, durability, the proxy boundary</td><td class="num">4</td><td class="num">1 day</td></tr>
+      <tr><td class="n"><a href="#p4">4</a></td><td>Safeguards, opt-in: queue cap, idempotent schedule creation</td><td class="num">2</td><td class="num">1 day</td></tr>
+      <tr><td class="n"><a href="#rel">Cut</a></td><td>Release 0.3.0-alpha per the contributing guide, behind a readiness checklist</td><td class="num">1</td><td class="num">½ day</td></tr>
+    </tbody>
+  </table>
+  </div>
+
+  <!-- ============================================================ PHASE 0 -->
+  <h2 id="p0"><span class="num">Phase 0</span>Gate hardening</h2>
+  <p class="phase-intro">Five small commits that make the gate deterministic before the fixes start. None changes behaviour; the last two exist so that phase 1 cannot produce flaky goldens or undocumented error codes.</p>
+
+  <div class="item">
+    <div class="meta">
+      <div class="id">0.1</div>
+      <dl><dt>Kind</dt><dd><span class="pill neutral">Hygiene</span></dd><dt>Size</dt><dd>S</dd><dt>Files</dt><dd class="files">.github/workflows/ci.yml<br>.github/workflows/docs.yml<br>Makefile</dd></dl>
+    </div>
+    <div class="body">
+      <h3>Pin the Redocly CLI and move the lint to Node 22</h3>
+      <span class="lbl">Problem</span>
+      <p>Both workflows run <code>npx @redocly/cli</code> unpinned, so a Redocly release can turn the spec job red with no change in the repository, exactly what the golangci pin comment warns against. The runners also report Node 20 as deprecated.</p>
+      <span class="lbl">Change</span>
+      <p>Pin the CLI to its current major and minor in both workflows and in <code>make lint-openapi</code> with a comment naming the reason; set <code>node-version: 22</code>. Bump deliberately, as with golangci-lint.</p>
+      <span class="lbl">Tests</span><p>The spec job and the docs build on the branch.</p>
+      <span class="lbl">Docs</span><p>CONTRIBUTING: the pinned version is the one to use locally.</p>
+      <code class="commit">ci: pin the Redocly CLI and lint on Node 22</code>
+    </div>
+  </div>
+
+  <div class="item">
+    <div class="meta">
+      <div class="id">0.2</div>
+      <dl><dt>Kind</dt><dd><span class="pill neutral">Hygiene</span></dd><dt>Size</dt><dd>S</dd><dt>Files</dt><dd class="files">.golangci.yml<br>internal/api/handlers.go<br>internal/api/openapi_test.go<br>test/e2e/harness_test.go</dd></dl>
+    </div>
+    <div class="body">
+      <h3>Enforce gofmt and goimports in the linter</h3>
+      <span class="lbl">Problem</span>
+      <p>Formatting is not part of the gate. Three files are not goimports-clean today, and the import grouping in handlers.go shows it: two project imports sit inside the standard-library group.</p>
+      <span class="lbl">Change</span>
+      <p>Add the golangci v2 <code>formatters</code> section with <code>gofmt</code> and <code>goimports</code>, local prefix <code>github.com/enerplanet/tentacron</code>, and fix the three files. From then on <code>make lint</code> and the CI lint job refuse unformatted code.</p>
+      <span class="lbl">Tests</span><p>None beyond the gate.</p>
+      <span class="lbl">Docs</span><p>CONTRIBUTING step 4 mentions that <code>make lint</code> now checks formatting.</p>
+      <code class="commit">chore(lint): enforce gofmt and goimports</code>
+    </div>
+  </div>
+
+  <div class="item">
+    <div class="meta">
+      <div class="id">0.3</div>
+      <dl><dt>Kind</dt><dd><span class="pill neutral">Hygiene</span></dd><dt>Size</dt><dd>S</dd><dt>Files</dt><dd class="files">.golangci.yml<br>internal/worker/process.go</dd></dl>
+    </div>
+    <div class="body">
+      <h3>Wrap errors with %w and lint for it</h3>
+      <span class="lbl">Problem</span>
+      <p>Three <code>fmt.Errorf</code> calls in the resolvent fetch path format the inner error with <code>%v</code> while wrapping only the sentinel, so <code>errors.Is</code> on the inner cause stops working there. Nothing catches the pattern today.</p>
+      <span class="lbl">Change</span>
+      <p>Use <code>%w</code> for both errors, which Go supports since 1.20, and enable <code>errorlint</code>. The linter is also run once over the tests; findings there are fixed only where they are real, the rest is excluded for <code>_test.go</code> like <code>gosec</code> already is.</p>
+      <span class="lbl">Tests</span><p>Existing worker tests that assert on error codes stay green; add one assertion that <code>errors.Is</code> reaches the wrapped cause.</p>
+      <code class="commit">chore(lint): wrap errors with %w and enable errorlint</code>
+    </div>
+  </div>
+
+  <div class="item">
+    <div class="meta">
+      <div class="id">0.4</div>
+      <dl><dt>Kind</dt><dd><span class="pill neutral">Test infra</span></dd><dt>Size</dt><dd>S · timing · before 1.6</dd><dt>Files</dt><dd class="files">test/e2e/harness_test.go<br>test/e2e/golden_test.go</dd></dl>
+    </div>
+    <div class="body">
+      <h3>Keep fake target delays far from the poll interval</h3>
+      <span class="lbl">Risk it answers</span>
+      <p>The poll lease (1.6) changes when ticks are claimed, and the goldens freeze call counts. A count is only a fact when the fake target's delay is nowhere near the interval; a delay close to it makes the count a race, and a race would be "fixed" by accepting whichever diff appears.</p>
+      <span class="lbl">Change</span>
+      <p>Audit every poll-mode scenario in the corpus: each fake status or result delay is set either far below the scenario's poll interval or at least twice above it, and the scenario comment states which and why. A harness assertion refuses a scripted delay inside the band between half and twice the interval, so a future scenario cannot reintroduce the race.</p>
+      <span class="lbl">Tests</span><p>The corpus itself, under the stress gate three times; no golden may change in this commit.</p>
+      <span class="lbl">Docs</span><p>test/README.md, the golden-corpus section: the timing rule and the reason.</p>
+      <code class="commit">test(e2e): keep fake target delays far from the poll interval</code>
+    </div>
+  </div>
+
+  <div class="item">
+    <div class="meta">
+      <div class="id">0.5</div>
+      <dl><dt>Kind</dt><dd><span class="pill neutral">Test infra</span></dd><dt>Size</dt><dd>S</dd><dt>Files</dt><dd class="files">internal/api/openapi_test.go<br>internal/api/errors.go<br>internal/plan/plan.go<br>internal/worker/process.go</dd></dl>
+    </div>
+    <div class="body">
+      <h3>Keep the OpenAPI error codes equal to the constants</h3>
+      <span class="lbl">Risk it answers</span>
+      <p>Items 2.4 and 4.1 add error codes. The golden validation catches a code the description lacks only when a golden records it; a code that no scenario exercises can still slip through undocumented.</p>
+      <span class="lbl">Change</span>
+      <p>A test in the style of the route test: the <code>Error.code</code> enum in the description must equal, in both directions, the API's constants plus the job codes the dry run and the worker can answer with. The three code lists are exported from one place so the test has a single source; the worker's private aliases of the plan codes disappear on the way. A second, smaller test scans the handler sources for a quoted literal passed as a code, so a code can only ever be a constant.</p>
+      <span class="lbl">Tests</span><p>The test itself; it must fail when a constant is added without the description, and when the description lists a code nothing produces.</p>
+      <span class="lbl">Docs</span><p>docs/api.md, OpenAPI description: the sentence on what the tests enforce gains the error codes.</p>
+      <code class="commit">test(api): keep the OpenAPI error codes equal to the constants</code>
+    </div>
+  </div>
+
+  <!-- ============================================================ PHASE 1 -->
+  <h2 id="p1"><span class="num">Phase 1</span>Correctness</h2>
+  <p class="phase-intro">The six bugs that can lose, duplicate or block work. Each has a failing test written first; the stress gate runs for the timing-sensitive ones.</p>
+
+  <div class="item">
+    <div class="meta">
+      <div class="id">1.1</div>
+      <dl><dt>Severity</dt><dd><span class="pill crit">High</span></dd><dt>Size</dt><dd>M · timing</dd><dt>Files</dt><dd class="files">internal/worker/sweep.go<br>internal/store/jobs.go<br>internal/config/validate.go<br>docs/operations.md<br>docs/architecture.md</dd></dl>
+    </div>
+    <div class="body">
+      <h3>Rescue stuck jobs by their target's own attempt deadline</h3>
+      <span class="lbl">Problem</span>
+      <p>The sweeper requeues any job in <code>resolving</code> or <code>forwarding</code> untouched for twice <code>worker.job_timeout</code>, but a target may set a longer <code>job_timeout</code>, validation does not bound it, and nothing refreshes <code>updated_at</code> during an attempt. A legitimate 11-minute simulation under the 5-minute default is requeued and forwarded again by a second worker while the first still runs, and the two then race the state machine.</p>
+      <span class="lbl">Change</span>
+      <p><code>RescueStuck</code> takes a cutoff function per target instead of one time: it selects the in-flight rows with their target and timestamp (there are never many) and rescues those older than twice <em>that target's</em> deadline, <code>JobTimeoutFor(target)</code>. A job whose target vanished from the configuration falls back to the worker default. No heartbeat, no schema change.</p>
+      <span class="lbl">Tests</span>
+      <ul>
+        <li>Store: two in-flight jobs untouched for 12 minutes, one on a target with a 20-minute deadline, one on the default; only the second is rescued.</li>
+        <li>Worker: the sweeper runs with a fake target that answers after the worker default has passed; the job completes once and the target received exactly one forward.</li>
+        <li>Stress gate.</li>
+      </ul>
+      <span class="lbl">Docs</span><p>Operations, Housekeeping and Failure handling: "twice the target's attempt deadline". Architecture, Restart safety. CHANGELOG under Fixed.</p>
+      <code class="commit">fix(worker): rescue stuck jobs by their target's own attempt deadline</code>
+    </div>
+  </div>
+
+  <div class="item">
+    <div class="meta">
+      <div class="id">1.2</div>
+      <dl><dt>Severity</dt><dd><span class="pill warn">Medium</span></dd><dt>Size</dt><dd>S</dd><dt>Files</dt><dd class="files">internal/worker/process.go<br>internal/worker/worker_edge_test.go</dd></dl>
+    </div>
+    <div class="body">
+      <h3>Discard a result file whose job ended first</h3>
+      <span class="lbl">Problem</span>
+      <p>A poll tick renames its download into place and then records the completion. When the job was cancelled in between, the terminal-state error is logged and dropped, but the file stays, and retention never deletes it because the row carries no result path.</p>
+      <span class="lbl">Change</span>
+      <p>On the terminal-state branch, re-read the job: when its stored result path is not the file just written, remove the file. The comparison keeps the file of an overlapping tick that won with the same path, so the duplicate-tick case is unchanged.</p>
+      <span class="lbl">Tests</span>
+      <ul>
+        <li>Worker: a result download that blocks until the test cancels the job, then finishes; the results directory is empty afterwards and the job stays cancelled.</li>
+        <li>Worker: two ticks completing the same job keep exactly one file.</li>
+      </ul>
+      <span class="lbl">Docs</span><p>Architecture, Request lifecycle: a late result of a finished request is discarded, file included. CHANGELOG under Fixed.</p>
+      <code class="commit">fix(worker): discard a result file whose job ended first</code>
+    </div>
+  </div>
+
+  <div class="item">
+    <div class="meta">
+      <div class="id">1.3</div>
+      <dl><dt>Severity</dt><dd><span class="pill warn">Medium</span></dd><dt>Size</dt><dd>M</dd><dt>Files</dt><dd class="files">internal/config/config.go<br>internal/config/validate.go<br>internal/upstream/target.go<br>internal/worker/process.go<br>config.example.yaml<br>environment/config.yaml<br>docs/configuration.md<br>docs/operations.md</dd></dl>
+    </div>
+    <div class="body">
+      <h3>Bound a result download by its own result_timeout</h3>
+      <span class="lbl">Problem</span>
+      <p>The whole result stream runs under the target's per-call <code>timeout</code>, 60 seconds by default, and under the job timeout on top. A bundle anywhere near the 1 GiB cap cannot finish; the failure classifies as transient and the tick retries until the poll deadline ends the job as <code>target_error</code>, although the target's work succeeded.</p>
+      <span class="lbl">Change</span>
+      <p>New key <code>response.poll.result_timeout</code>, default 10 minutes, validated to be at least <code>timeout</code>. Two bounds on the stream, because they answer different failures: an idle bound equal to <code>timeout</code>, renewed after every read, so a stalled connection fails as fast as any other call; and <code>result_timeout</code> as the total, so a slow but moving download of a large bundle is allowed to finish. The status call keeps <code>timeout</code>. A poll tick no longer runs under the job's attempt deadline, which was written for resolution and forwarding: the download context derives from the bookkeeping context. The transport gets a <code>ResponseHeaderTimeout</code> equal to <code>timeout</code>.</p>
+      <span class="lbl">Tests</span>
+      <ul>
+        <li>Config: default applied, a value below <code>timeout</code> refused, the example configs still validate.</li>
+        <li>Upstream: a stream that stalls for longer than <code>timeout</code> fails within it; one that keeps moving past <code>timeout</code> succeeds; one that outlasts <code>result_timeout</code> ends as a transient error.</li>
+        <li>Worker: a download that outlasts the call timeout completes the job; <code>result_calls</code> is one.</li>
+      </ul>
+      <span class="lbl">Docs</span><p>Configuration, targets table. Operations, Result sizes. Both reference configs gain the key on the meme target with a comment. CHANGELOG under Added (the key) and Fixed (the behaviour).</p>
+      <code class="commit">feat(config): bound a result download by its own result_timeout</code>
+    </div>
+  </div>
+
+  <div class="item">
+    <div class="meta">
+      <div class="id">1.4</div>
+      <dl><dt>Severity</dt><dd><span class="pill warn">Medium</span></dd><dt>Size</dt><dd>S</dd><dt>Files</dt><dd class="files">internal/api/middleware.go<br>internal/api/api_edge_test.go<br>docs/api.md</dd></dl>
+    </div>
+    <div class="body">
+      <h3>Allow DELETE in CORS preflights</h3>
+      <span class="lbl">Problem</span>
+      <p>The preflight answer lists GET, HEAD, POST and OPTIONS. A browser frontend on an allowed origin therefore cannot cancel a request or delete a schedule, the two DELETE endpoints CORS was added to serve.</p>
+      <span class="lbl">Change</span><p>Add DELETE to <code>Access-Control-Allow-Methods</code>.</p>
+      <span class="lbl">Tests</span><p>The CORS test asserts the exact method list, including DELETE, on a preflight for a cancel URL.</p>
+      <span class="lbl">Docs</span><p>API reference, Browsers: cancellation included. CHANGELOG under Fixed.</p>
+      <code class="commit">fix(api): allow DELETE in CORS preflights</code>
+    </div>
+  </div>
+
+  <div class="item">
+    <div class="meta">
+      <div class="id">1.5</div>
+      <dl><dt>Severity</dt><dd><span class="pill warn">Medium</span></dd><dt>Size</dt><dd>M · timing</dd><dt>Files</dt><dd class="files">internal/store/jobs.go<br>internal/store/store_edge_test.go<br>docs/architecture.md</dd></dl>
+    </div>
+    <div class="body">
+      <h3>Skip clients at their ceiling when choosing claim candidates</h3>
+      <span class="lbl">Problem</span>
+      <p><code>claimCandidates</code> takes eight rows ordered by priority first. A client at its <code>max_concurrent</code> ceiling whose jobs outrank the others fills the batch, every candidate is skipped, and the worker reports no work while other clients' jobs are due.</p>
+      <span class="lbl">Change</span>
+      <p><code>ClaimNext</code> reads the in-flight count per client once (one <code>GROUP BY</code> on the indexed state column, only when any key configures a ceiling), skips candidates already at their ceiling, and when the batch was full and every row was skipped for that reason, re-queries with those clients excluded, at most as many rounds as there are capped clients. The check inside the claim transaction stays the authority.</p>
+      <span class="lbl">Tests</span>
+      <ul>
+        <li>Store: client A capped at one with nine queued priority-10 jobs and one in flight, client B with one priority-0 job; the next claim returns B's job.</li>
+        <li>Goldens <code>per-client-concurrency-ceiling</code> and <code>fair-claim-order</code> must not change.</li>
+        <li>Benchmark <code>BenchmarkClaimNext</code> with ten thousand queued jobs, run with and without a configured ceiling, before and after the change; the four numbers go into the commit body and the benchmark stays in the package to guard later changes.</li>
+        <li>Stress gate.</li>
+      </ul>
+      <span class="lbl">Docs</span><p>Architecture, Queue semantics. CHANGELOG under Fixed.</p>
+      <code class="commit">fix(store): skip clients at their ceiling when choosing claim candidates</code>
+    </div>
+  </div>
+
+  <div class="item">
+    <div class="meta">
+      <div class="id">1.6</div>
+      <dl><dt>Severity</dt><dd><span class="pill warn">Medium</span></dd><dt>Size</dt><dd>M · timing · after 1.3</dd><dt>Files</dt><dd class="files">internal/store/jobs.go<br>internal/worker/process.go<br>internal/worker/pool.go<br>docs/architecture.md</dd></dl>
+    </div>
+    <div class="body">
+      <h3>Lease a poll tick for its whole duration</h3>
+      <span class="lbl">Problem</span>
+      <p>A tick is claimed by pushing <code>next_attempt_at</code> forward by the poll interval only. A tick that outlasts the interval, a result download for instance, is claimed again by another worker; the duplicate completion is dropped safely, but the download runs twice.</p>
+      <span class="lbl">Change</span>
+      <p>The claim leases the tick for <code>timeout + result_timeout + interval</code>. When a tick ends with the job still waiting, the worker reschedules explicitly to <code>now + interval</code> with a compare-and-set on the state; the reschedule runs in a <code>defer</code>, so every way out of a tick, including a recovered panic, restores the cadence. A worker that dies mid-tick is covered by the lease expiring. Startup recovery resets the next poll of every waiting job to a point spread at random across one interval, so a long lease never delays the first poll after a restart and a restart never sends every waiting job's status call in the same instant.</p>
+      <span class="lbl">Tests</span>
+      <ul>
+        <li>Store: a leased tick is not claimable before the lease ends; the reschedule fails once the job left <code>awaiting_target</code>.</li>
+        <li>Worker: a status endpoint slower than the interval is polled once per tick, not twice; a restart polls within one interval. Written before the change on the fakes 0.4 made deterministic, and seen failing on the old code.</li>
+        <li>Worker: a tick that panics still reschedules; a tick that ends the job does not.</li>
+        <li>Goldens that count polls may move: <code>result-fetch-flaky-then-success</code>, <code>awaiting-target-mid-flight</code>, the two target-timeout transcripts. Expected direction is fewer duplicate calls; anything else is a regression.</li>
+        <li>Stress gate.</li>
+      </ul>
+      <span class="lbl">Docs</span><p>Architecture, Queue semantics and Restart safety. CHANGELOG under Fixed. The follow-up note in the project notes is closed.</p>
+      <code class="commit">fix(worker): lease a poll tick for its whole duration</code>
+    </div>
+  </div>
+
+  <!-- ============================================================ PHASE 2 -->
+  <h2 id="p2"><span class="num">Phase 2</span>Robustness and operability</h2>
+  <p class="phase-intro">Findings that do not lose work but make the service harder to run or to trust. The first item makes the process lifecycle testable; the others build on it or stand alone.</p>
+
+  <div class="item">
+    <div class="meta">
+      <div class="id">2.1</div>
+      <dl><dt>Severity</dt><dd><span class="pill info">Low</span></dd><dt>Size</dt><dd>M</dd><dt>Files</dt><dd class="files">cmd/tentacron/main.go<br>cmd/tentacron/serve_test.go (new)</dd></dl>
+    </div>
+    <div class="body">
+      <h3>Run the process under an injectable context and test its lifecycle</h3>
+      <span class="lbl">Problem</span>
+      <p>Serve, reload and shutdown sit at zero coverage. The ordering the documentation promises, HTTP drains first, workers park afterwards, is asserted by nobody.</p>
+      <span class="lbl">Change</span>
+      <p><code>serve</code> takes a context and a reload channel instead of installing signal handlers itself; <code>runServe</code> wires the signals. A test starts the service on <code>127.0.0.1:0</code> with a temporary database, waits for <code>/readyz</code>, triggers a reload through the channel, opens a long-poll, cancels the context and asserts the long-poll answered and the process returned within the grace window.</p>
+      <span class="lbl">Tests</span><p>The lifecycle test above, run under the race detector. Coverage of main.go moves from near zero to the wiring paths.</p>
+      <span class="lbl">Docs</span><p>None user-facing. CHANGELOG: none, internal.</p>
+      <code class="commit">refactor(cmd): run the process under an injectable context and test its lifecycle</code>
+    </div>
+  </div>
+
+  <div class="item">
+    <div class="meta">
+      <div class="id">2.2</div>
+      <dl><dt>Severity</dt><dd><span class="pill info">Low</span></dd><dt>Size</dt><dd>S · after 2.1</dd><dt>Files</dt><dd class="files">cmd/tentacron/main.go<br>internal/api/server.go<br>docs/operations.md</dd></dl>
+    </div>
+    <div class="body">
+      <h3>End long-polls at shutdown and let a second signal force exit</h3>
+      <span class="lbl">Problem</span>
+      <p>A long-poll waits up to <code>write_timeout</code> minus five seconds, 25 by default, the grace window is 20, and <code>http.Server.Shutdown</code> does not cancel request contexts, so a drain overruns and logs an incomplete shutdown. A second interrupt during a hung shutdown does nothing, because the signal context is only released after serve returns.</p>
+      <span class="lbl">Change</span>
+      <p>The server exposes a <em>draining</em> channel closed when the drain begins, and only the long-poll wait selects on it, answering with the current state at once. Request contexts are deliberately not cancelled: that would abort in-flight writes and turn a graceful shutdown into 500s for clients mid-request. The signal context is released as soon as the first signal arrives, so a second one terminates the process with Go's default behaviour. Target-cancel notifications are tracked in a wait group the drain waits for, bounded by the target timeout.</p>
+      <span class="lbl">Tests</span><p>The lifecycle test asserts a long-poll opened before shutdown returns 200 within a second of the signal. An API test asserts <code>awaitTerminal</code> returns when the draining channel closes, and that a request in flight during the drain completes normally.</p>
+      <span class="lbl">Docs</span><p>Operations, Failure handling row Shutdown, and a sentence on the second signal. CHANGELOG under Fixed.</p>
+      <code class="commit">fix(cmd): end long-polls at shutdown and let a second signal force exit</code>
+    </div>
+  </div>
+
+  <div class="item">
+    <div class="meta">
+      <div class="id">2.3</div>
+      <dl><dt>Severity</dt><dd><span class="pill info">Low</span></dd><dt>Size</dt><dd>S</dd><dt>Files</dt><dd class="files">internal/upstream/client.go<br>cmd/tentacron/main.go<br>internal/config/provider.go<br>docs/operations.md</dd></dl>
+    </div>
+    <div class="body">
+      <h3>Apply upstream.max_response_bytes on reload</h3>
+      <span class="lbl">Problem</span>
+      <p>The outbound client is built once with the cap, and the reload neither applies a changed value nor lists the key as restart-required. The operator sees "configuration reloaded" and a limit that did not move.</p>
+      <span class="lbl">Change</span><p>The cap becomes an atomic value with <code>SetMaxBody</code>, set by the reload next to the redaction list. The reload documentation lists <code>upstream</code> among the hot settings.</p>
+      <span class="lbl">Tests</span><p>Upstream: a reload-sized cap takes effect on the next call. Observability test in cmd: the reload path calls it.</p>
+      <span class="lbl">Docs</span><p>Operations, Reloading configuration. CHANGELOG under Fixed.</p>
+      <code class="commit">fix(config): apply upstream.max_response_bytes on reload</code>
+    </div>
+  </div>
+
+  <div class="item">
+    <div class="meta">
+      <div class="id">2.4</div>
+      <dl><dt>Severity</dt><dd><span class="pill info">Low</span></dd><dt>Size</dt><dd>M</dd><dt>Files</dt><dd class="files">internal/config/config.go<br>internal/store/schedules.go<br>internal/api/schedules.go<br>internal/api/errors.go<br>docs/openapi/openapi.yaml<br>test/e2e/golden_test.go<br>docs/api.md<br>docs/configuration.md</dd></dl>
+    </div>
+    <div class="body">
+      <h3>Cap schedules per key and refuse the next one with 409</h3>
+      <span class="lbl">Problem</span>
+      <p>A client may create schedules without limit while the listing stops at 100 with no cursor. Beyond that, schedules run that their owner cannot see or find.</p>
+      <span class="lbl">Change</span>
+      <p><code>auth.api_keys[].max_schedules</code>, default 100, the listing cap. Creation counts the client's schedules inside the insert transaction and answers <code>409 schedule_limit</code> with the limit in the message when it is reached. Consistent with <code>max_concurrent</code> and <code>max_priority</code>, no new endpoint.</p>
+      <span class="lbl">Tests</span>
+      <ul>
+        <li>Store: count and insert are atomic under concurrent creates.</li>
+        <li>New golden <code>schedule-limit</code>: a key capped at two creates a third and gets the 409.</li>
+        <li>OpenAPI: the code joins the Error enum, the 409 response joins <code>createSchedule</code> with an example; the golden validation proves both.</li>
+      </ul>
+      <span class="lbl">Docs</span><p>API reference, Schedules. Configuration, auth. CHANGELOG under Added (the key) and Changed (the refusal).</p>
+      <code class="commit">feat(api): cap schedules per key and refuse the next one with 409</code>
+    </div>
+  </div>
+
+  <div class="item">
+    <div class="meta">
+      <div class="id">2.5</div>
+      <dl><dt>Severity</dt><dd><span class="pill info">Low</span></dd><dt>Size</dt><dd>S</dd><dt>Files</dt><dd class="files">internal/callback/deliverer.go<br>internal/callback/deliverer_test.go<br>docs/operations.md</dd></dl>
+    </div>
+    <div class="body">
+      <h3>Keep delivering after a reload and fail what the allow-list no longer covers</h3>
+      <span class="lbl">Problem</span>
+      <p>When a reload empties <code>callbacks.allowed_hosts</code>, the deliverer stops entirely and every pending delivery stays <code>pending</code> forever, visible as such in the API.</p>
+      <span class="lbl">Change</span>
+      <p>The loop runs whenever deliveries are due. Each attempt re-checks the URL against the current allow-list: a URL that still passes is delivered; one that no longer passes counts as a failed attempt with the reason in <code>last_error</code> and follows the backoff like any other, so a mistaken reload is reversible and the delivery is given up only when the attempt budget runs out. The API shows the reason meanwhile.</p>
+      <span class="lbl">Tests</span><p>Deliverer: a pending delivery is delivered after callbacks were re-enabled; one whose host was removed stays pending with the reason, is delivered once the host is restored, and fails only when the budget runs out.</p>
+      <span class="lbl">Docs</span><p>Operations, Callbacks. CHANGELOG under Fixed.</p>
+      <code class="commit">fix(callback): keep delivering after a reload and fail deliveries the allow-list no longer covers</code>
+    </div>
+  </div>
+
+  <div class="item">
+    <div class="meta">
+      <div class="id">2.6</div>
+      <dl><dt>Severity</dt><dd><span class="pill info">Low</span></dd><dt>Size</dt><dd>S</dd><dt>Files</dt><dd class="files">internal/api/middleware.go<br>internal/api/server.go<br>internal/api/api_edge_test.go<br>docs/operations.md</dd></dl>
+    </div>
+    <div class="body">
+      <h3>Log probes at debug, record panics as requests, vary on origin</h3>
+      <span class="lbl">Problem</span>
+      <p>Every health probe writes an Info line, which drowns the request log under an orchestrator. Recovery wraps logging, so a panicking request produces a 500 but no request line. Responses for origins that are not allowed carry no <code>Vary: Origin</code>, so a shared cache may serve one origin's headers to another.</p>
+      <span class="lbl">Change</span>
+      <p>Requests to <code>/healthz</code>, <code>/readyz</code> and <code>/version</code> log at Debug. The chain becomes logging outside recovery. When CORS is configured, every response carries <code>Vary: Origin</code>.</p>
+      <span class="lbl">Tests</span><p>API tests capture the log through a handler: a probe is absent at Info and present at Debug; a panicking route yields a request line with status 500; a non-allowed origin gets the Vary header and nothing else.</p>
+      <span class="lbl">Docs</span><p>Operations, Logs. CHANGELOG under Changed.</p>
+      <code class="commit">fix(api): log probes at debug, record panics as requests, vary on origin</code>
+    </div>
+  </div>
+
+  <div class="item">
+    <div class="meta">
+      <div class="id">2.7</div>
+      <dl><dt>Severity</dt><dd><span class="pill info">Low</span></dd><dt>Size</dt><dd>S</dd><dt>Files</dt><dd class="files">internal/store/migrations/0008_terminal_index.sql (new)<br>internal/store/store_edge_test.go</dd></dl>
+    </div>
+    <div class="body">
+      <h3>Index terminal jobs by completion time for retention</h3>
+      <span class="lbl">Problem</span><p>The retention scan filters on state and orders on <code>completed_at</code>, which no index covers; every sweep walks all terminal rows.</p>
+      <span class="lbl">Change</span><p>Migration 0008 adds <code>jobs_terminal_ix ON jobs(state, completed_at)</code>.</p>
+      <span class="lbl">Tests</span><p>Migration applies on a fresh and on an upgraded database. An <code>EXPLAIN QUERY PLAN</code> test asserts the retention query uses the index, so a future query change cannot silently lose it.</p>
+      <span class="lbl">Docs</span><p>CHANGELOG under Changed.</p>
+      <code class="commit">perf(store): index terminal jobs by completion time for retention</code>
+    </div>
+  </div>
+
+  <div class="item">
+    <div class="meta">
+      <div class="id">2.8</div>
+      <dl><dt>Severity</dt><dd><span class="pill info">Low</span></dd><dt>Size</dt><dd>S · timing</dd><dt>Files</dt><dd class="files">internal/upstream/client.go<br>internal/callback/deliverer.go<br>cmd/tentacron/main.go</dd></dl>
+    </div>
+    <div class="body">
+      <h3>Size the outbound connection pool to the worker fan-out</h3>
+      <span class="lbl">Problem</span><p>Both outbound clients use Go's shared default transport, which keeps two idle connections per host. Four workers times four concurrent fetches churn connections against the same resource API, and the callback deliverer shares the pool.</p>
+      <span class="lbl">Change</span><p>A dedicated transport per client, cloned from the default, with idle connections per host sized to <code>worker.count × resolvent_concurrency</code>, the response-header timeout from 1.3, and proxy settings from the environment as today.</p>
+      <span class="lbl">Tests</span><p>Unit test on the constructed transport; stress gate.</p>
+      <span class="lbl">Docs</span><p>CHANGELOG under Changed.</p>
+      <code class="commit">perf(upstream): size the outbound connection pool to the worker fan-out</code>
+    </div>
+  </div>
+
+  <div class="item">
+    <div class="meta">
+      <div class="id">2.9</div>
+      <dl><dt>Severity</dt><dd><span class="pill info">Low</span></dd><dt>Size</dt><dd>S</dd><dt>Files</dt><dd class="files">internal/api/handlers.go<br>internal/api/schedules.go<br>internal/store/schedules.go</dd></dl>
+    </div>
+    <div class="body">
+      <h3>Give schedules an Idempotency-Key like requests</h3>
+      <span class="lbl">Problem</span><p>A client that retries a schedule creation after a lost response creates a second schedule and a doubled run cadence.</p>
+      <span class="lbl">Change</span><p>The header is honoured on <code>POST /v1/schedules</code> with the request endpoint's semantics: same key and identical body replays the stored schedule with 201, a different body answers 409. Migration 0009 adds the unique partial index on <code>(client, idempotency_key)</code>.</p>
+      <span class="lbl">Tests</span><p>Golden <code>schedule-crud</code> gains a replay and a conflict step. OpenAPI: the parameter and the 409 join <code>createSchedule</code>.</p>
+      <span class="lbl">Docs</span><p>API reference, Schedules. CHANGELOG under Added.</p>
+      <code class="commit">feat(api): honour Idempotency-Key on schedule creation</code>
+    </div>
+  </div>
+
+  <div class="item">
+    <div class="meta">
+      <div class="id">2.10</div>
+      <dl><dt>Kind</dt><dd><span class="pill neutral">Test infra</span></dd><dt>Size</dt><dd>S · after 2.7 and 2.9</dd><dt>Files</dt><dd class="files">internal/store/migrate_test.go (new)<br>docs/operations.md<br>CHANGELOG.md</dd></dl>
+    </div>
+    <div class="body">
+      <h3>Migrate a populated 0.2.0-alpha database in a test</h3>
+      <span class="lbl">Risk it answers</span>
+      <p>Migrations 0008 and 0009 are additive and there is no downgrade. The existing tests migrate an empty database; an upgrade of a live one with rows in every table, including a job mid-flight and a pending callback, is what production will do and nothing rehearses.</p>
+      <span class="lbl">Change</span>
+      <p>A test applies migrations up to 0007 through the runner, inserts rows into every table in every state, applies the rest, and asserts the rows survive, the new indexes exist, and the claim, retention and schedule queries still answer. No binary fixture: the old schema is rebuilt from the migration files, so the test cannot rot.</p>
+      <span class="lbl">Docs</span><p>Operations, Backups: upgrade after a <code>tentacron backup</code>, and the note that a migrated database cannot be opened by the previous release. The CHANGELOG section for the release gets an <em>Upgrading</em> paragraph saying the same.</p>
+      <code class="commit">test(store): migrate a populated 0.2.0-alpha database</code>
+    </div>
+  </div>
+
+  <div class="item">
+    <div class="meta">
+      <div class="id">2.11</div>
+      <dl><dt>Severity</dt><dd><span class="pill warn">Medium</span></dd><dt>Size</dt><dd>S</dd><dt>Files</dt><dd class="files">internal/store/store.go<br>cmd/tentacron/main.go<br>cmd/tentacron/backup_test.go<br>docs/operations.md</dd></dl>
+    </div>
+    <div class="body">
+      <h3>Back up without migrating the database</h3>
+      <span class="lbl">Risk it answers</span>
+      <p>Found while analysing the upgrade risk: <code>tentacron backup</code> opens the store through the same path the service uses, which applies pending migrations first. Following the documented advice with the new binary migrates the live database before any backup exists, and the copy it then writes is already on the new schema.</p>
+      <span class="lbl">Change</span>
+      <p>A read-only open for the backup path that applies no migrations and refuses a database whose recorded schema version is newer than the binary knows, naming both versions. The operations page says which binary to back up with: the one currently running.</p>
+      <span class="lbl">Tests</span><p>cmd: a backup of a database at the previous schema leaves it at that schema and the copy identical in version; a database from the future is refused with the message.</p>
+      <span class="lbl">Docs</span><p>Operations, Backups and the upgrade note from 2.10. CHANGELOG under Fixed.</p>
+      <code class="commit">fix(cmd): back up without migrating the database</code>
+    </div>
+  </div>
+
+  <!-- ============================================================ PHASE 3 -->
+  <h2 id="p3"><span class="num">Phase 3</span>Supply chain and operations</h2>
+  <p class="phase-intro">What a public repository owes its users: verifiable artifacts, a probe that works in the image, and an honest statement of durability and of where rate limiting lives.</p>
+
+  <div class="item">
+    <div class="meta">
+      <div class="id">3.1</div>
+      <dl><dt>Kind</dt><dd><span class="pill neutral">Supply chain</span></dd><dt>Size</dt><dd>S</dd><dt>Files</dt><dd class="files">.github/workflows/release.yml<br>docs/operations.md<br>SECURITY.md</dd></dl>
+    </div>
+    <div class="body">
+      <h3>Attest build provenance for binaries and the image</h3>
+      <span class="lbl">Problem</span><p>The release publishes checksums but nothing that ties them to the workflow that built them.</p>
+      <span class="lbl">Precondition</span><p>Artifact attestations are available for public repositories, so this item waits until the repository is public. If it is not public by the release, the item moves to 0.4.0 unchanged and the release notes say so.</p>
+      <span class="lbl">Change</span><p>Proven before it is promised: the CI build job first attests the binary it already compiles, guarded to pushes and same-repository pull requests because a fork's run has no identity token and would fail every outside contribution otherwise; a missing permission then fails a branch rather than a tag. Then the same step, <code>actions/attest-build-provenance</code> with the <code>id-token</code> and <code>attestations</code> permissions, attests the release binaries and the image digest. The image attestation takes the digest from the build step and pushes to the registry alongside the tags. Operations gains both verification forms, the binary with <code>--owner enerplanet</code> and the image by digest, and SECURITY.md lists provenance among what is in place. Needs no secrets.</p>
+      <span class="lbl">Tests</span><p>The branch attestation, then the pre-release run; the verification command in the docs is executed against the pre-release before the docs claim it works.</p>
+      <code class="commit">ci(release): attest build provenance for binaries and the image</code>
+    </div>
+  </div>
+
+  <div class="item">
+    <div class="meta">
+      <div class="id">3.2</div>
+      <dl><dt>Kind</dt><dd><span class="pill neutral">Operations</span></dd><dt>Size</dt><dd>S</dd><dt>Files</dt><dd class="files">cmd/tentacron/main.go<br>cmd/tentacron/main_test.go<br>Dockerfile<br>environment/docker-compose.yml<br>docs/operations.md</dd></dl>
+    </div>
+    <div class="body">
+      <h3>Add a healthcheck subcommand for the shell-less image</h3>
+      <span class="lbl">Problem</span><p>The distroless image has no shell and no curl, so Docker and Compose cannot probe it; only Kubernetes probes work today.</p>
+      <span class="lbl">Change</span><p><code>tentacron healthcheck [-addr]</code> requests <code>/readyz</code> and exits 0 or 1, in a few lines beside the other subcommands. The Dockerfile gains a <code>HEALTHCHECK</code> that execs the binary; the release service in Compose gains the matching <code>healthcheck</code>.</p>
+      <span class="lbl">Tests</span><p>cmd: exit code against an httptest server answering 200 and 503; the CI image job runs the command inside the built image.</p>
+      <span class="lbl">Docs</span><p>Operations, Health and readiness, and the command table. CHANGELOG under Added.</p>
+      <code class="commit">feat(cmd): add a healthcheck subcommand for shell-less images</code>
+    </div>
+  </div>
+
+  <div class="item">
+    <div class="meta">
+      <div class="id">3.3</div>
+      <dl><dt>Kind</dt><dd><span class="pill neutral">Docs</span></dd><dt>Size</dt><dd>S</dd><dt>Files</dt><dd class="files">docs/operations.md<br>docs/architecture.md<br>docs/decisions/0002-sqlite-store-and-queue.md</dd></dl>
+    </div>
+    <div class="body">
+      <h3>State the durability of WAL with synchronous NORMAL</h3>
+      <span class="lbl">Problem</span><p>The store runs SQLite with <code>synchronous(NORMAL)</code> under WAL, which survives a crash but can lose the last transactions on power loss, while the docs say every request is durable.</p>
+      <span class="lbl">Change</span><p>Say it precisely: durable across process crashes, the last commits at risk on power loss, and the trade the setting buys. A dated amendment on ADR-0002 records it. A <code>storage.synchronous: full</code> switch is noted as a future option, not built now.</p>
+      <code class="commit">docs(operations): state the durability of WAL with synchronous NORMAL</code>
+    </div>
+  </div>
+
+  <div class="item">
+    <div class="meta">
+      <div class="id">3.4</div>
+      <dl><dt>Kind</dt><dd><span class="pill neutral">Decision</span></dd><dt>Size</dt><dd>S</dd><dt>Files</dt><dd class="files">docs/decisions/0008-reverse-proxy-boundary.md (new)<br>docs/decisions/README.md<br>docs/operations.md<br>mkdocs.yml</dd></dl>
+    </div>
+    <div class="body">
+      <h3>Record the reverse-proxy boundary as ADR-0008</h3>
+      <span class="lbl">Problem</span><p>The service has no rate limiting, no TLS and no connection limits, and the docs mention TLS at the proxy in passing. Whether that is a decision or an omission is not written down, so the question will come back with every new deployment.</p>
+      <span class="lbl">Change</span><p>ADR-0008 states that TLS, rate limiting, connection limits and request-size limits beyond the body cap belong to the reverse proxy in front of the service, why, and what would change the decision. Operations gains a short example for Caddy and nginx: a per-key rate limit and a connection cap.</p>
+      <code class="commit">docs: record the reverse-proxy boundary as ADR-0008</code>
+    </div>
+  </div>
+
+  <!-- ============================================================ PHASE 4 -->
+  <h2 id="p4"><span class="num">Phase 4</span>Safeguards, opt-in</h2>
+  <p class="phase-intro">Two small features the review recommended because their absence bites in production. They are independent of everything above and can be dropped from the release without affecting it. Schedule pause and update, and auto-pausing a schedule whose runs always fail, are deferred to 0.4.0: they need the unused <code>enabled</code> column, a resume endpoint and a design of their own.</p>
+
+  <div class="item">
+    <div class="meta">
+      <div class="id">4.1</div>
+      <dl><dt>Kind</dt><dd><span class="pill ok">Safeguard</span></dd><dt>Size</dt><dd>M</dd><dt>Files</dt><dd class="files">internal/config/config.go<br>internal/store/jobs.go<br>internal/api/handlers.go<br>internal/api/errors.go<br>docs/openapi/openapi.yaml<br>test/e2e/golden_test.go<br>docs/api.md<br>docs/configuration.md</dd></dl>
+    </div>
+    <div class="body">
+      <h3>Cap a key's queued requests with max_queued</h3>
+      <span class="lbl">Problem</span><p>A client may enqueue without limit, a hundred per batch call; <code>max_concurrent</code> limits processing, not the queue. The database grows until retention, and one runaway client shapes everyone's latency.</p>
+      <span class="lbl">Change</span><p><code>auth.api_keys[].max_queued</code>, default 0 meaning unlimited: the count of the client's non-terminal requests. Above it, submission answers <code>429 queue_full</code> with <code>Retry-After</code> set to the worker poll interval; batch items are refused individually with the same code. The count runs inside the insert transaction like the schedule cap, over a new index on <code>(client, state)</code> so it costs one range scan rather than a table walk under load.</p>
+      <span class="lbl">Tests</span><p>Store: atomic under concurrent submits. New golden <code>queue-full</code> for the single and the batch path. OpenAPI: the code, the 429 with its header, an example.</p>
+      <span class="lbl">Docs</span><p>API reference, Configuration auth table, Operations alert suggestion. CHANGELOG under Added.</p>
+      <code class="commit">feat(api): cap a key's queued requests with max_queued</code>
+    </div>
+  </div>
+
+  <div class="item">
+    <div class="meta">
+      <div class="id">4.2</div>
+      <dl><dt>Kind</dt><dd><span class="pill ok">Safeguard</span></dd><dt>Size</dt><dd>S</dd><dt>Files</dt><dd class="files">internal/metrics/metrics.go<br>internal/api/handlers.go<br>docs/operations.md</dd></dl>
+    </div>
+    <div class="body">
+      <h3>Expose long-poll and build gauges</h3>
+      <span class="lbl">Problem</span><p>Waiting long-polls are invisible to an operator, and there is no <code>tentacron_build_info</code> to join dashboards to a version.</p>
+      <span class="lbl">Change</span><p>A gauge of long-polls in flight, and a build-info gauge with version and revision labels. Both trivial, both the first thing a dashboard author looks for.</p>
+      <span class="lbl">Tests</span><p>Metrics test asserts the documented names; operations lists both.</p>
+      <code class="commit">feat(metrics): expose long-poll and build-info gauges</code>
+    </div>
+  </div>
+
+  <!-- ============================================================ RELEASE -->
+  <h2 id="rel"><span class="num">Cut</span>Release 0.3.0-alpha</h2>
+  <p class="phase-intro">Exactly the procedure in CONTRIBUTING: move the Unreleased entries under <code>## [0.3.0-alpha] - date</code>, bump CITATION.cff, commit as <code>chore(release): 0.3.0-alpha</code>, sign the tag on that commit, push branch then tag. The pinned-image and version examples follow the version as they did for 0.2.0-alpha.</p>
+  <div class="rules">
+    <h3>Release readiness checklist, all items required before the tag</h3>
+    <ul>
+      <li><strong>Stress gate on the tip</strong>, <code>GOMAXPROCS=2 go test -race -shuffle=on -count=3 ./...</code>, green.</li>
+      <li><strong>CI green on the release commit</strong>, including the image job and, once 3.1 is in, the branch attestation.</li>
+      <li><strong>Live tier against staging</strong>: <code>make live</code> with the reference configuration against a staging deployment, once through the meme path and once through buem, because the poll lease and the result timeout change exactly those. The transcript is attached to the release pull request.</li>
+      <li><strong>Upgrade rehearsal</strong>: the 0.3.0-alpha binary started against a copy of a 0.2.0-alpha database taken with <code>tentacron backup</code>; migrations apply, <code>/readyz</code> answers, a queued request completes.</li>
+      <li><strong>Provenance verified</strong> (when 3.1 shipped): <code>gh attestation verify</code> against the previous pre-release succeeds with the command as documented.</li>
+      <li><strong>Changelog and citation</strong> carry the version and today's date; the <em>Upgrading</em> paragraph from 2.10 is present.</li>
+    </ul>
+  </div>
+
+  <h2><span class="num">Tracking</span>Issues and definition of done</h2>
+  <p>One GitHub issue per item, titled with its commit subject, in a milestone <em>v0.3.0-alpha</em>, labelled <code>bug</code>, <code>hygiene</code>, <code>operations</code> or <code>safeguard</code> after its phase. An item is done when its commit is on the phase branch with the gate green, its tests exist and fail on the old code where a bug is fixed, every golden diff was read, the documentation and the CHANGELOG entry are in the commit, and the OpenAPI description passes the route, golden and lint checks. The phase is done when the stress gate passes on its tip and it is fast-forwarded onto <code>main</code>.</p>
+
+  <h2><span class="num">Risks</span>Each risk, analysed</h2>
+  <p class="phase-intro">For every risk: the mechanism as the code actually has it, how likely and how bad, how it would be noticed, the mitigation that is now an item, and what remains once that item is done. Two of these analyses changed the plan above: the drain in 2.2 no longer cancels request contexts, and a callback whose host left the allow-list (2.5) stays pending instead of failing. One found a new bug, 2.11.</p>
+
+  <div class="risk">
+    <h3>The poll lease moves golden call counts</h3>
+    <p><span class="rk">Mechanism.</span> The corpus polls every 10 ms with a 2 s poll timeout, and the fakes answer in microseconds, so no tick outlasts the interval there today and none will after the lease. Ten transcripts freeze poll counts; the only way the lease can move one is the explicit reschedule at the end of a tick: a path that ends a tick without it leaves the job leased for <code>timeout + result_timeout + interval</code>, seconds in the corpus, minutes in production. In the corpus that shows up as an <code>await</code> timeout, a hard failure, never a quietly changed count.</p>
+    <p><span class="rk">Likelihood and impact.</span> Low. Missed, the failure mode changes from duplicated work, today's behaviour, to a delayed poll, which is worse for one job and better for the target.</p>
+    <p><span class="rk">Detection.</span> The band assertion from 0.4, the lease test written first, the corpus under the stress gate, and the panic-path test.</p>
+    <p><span class="rk">Mitigation.</span> The reschedule runs in a <code>defer</code> (1.6), so every exit restores the cadence; a restart spreads the reset polls across one interval instead of firing them together.</p>
+    <p><span class="rk">Residual.</span> A worker killed mid-tick delays that job's next poll until the lease expires or the process restarts. Accepted and documented; the metric for it, a gauge of leased ticks, is a 0.4.0 idea.</p>
+  </div>
+
+  <div class="risk">
+    <h3>The ceiling-aware claim costs a query per claim</h3>
+    <p><span class="rk">Mechanism.</span> The added count reads only rows in <code>resolving</code> or <code>forwarding</code> through the state index. Those are the claimed jobs: at most one per worker plus any stuck ones, so the query is proportional to the worker count, not to the queue. The expensive part of a claim is older: the window function ranks every due job to pick eight, which is <em>n log n</em> in the backlog. A backlog stays small unless a target is down for hours and retries pile up.</p>
+    <p><span class="rk">Likelihood and impact.</span> A regression from 1.5 is very unlikely. The pre-existing cost is real but only under a backlog of tens of thousands, where each claim would take milliseconds; not a cliff at the service's stated scale.</p>
+    <p><span class="rk">Detection.</span> The benchmark in 1.5, with and without a ceiling, ten thousand queued jobs, before and after.</p>
+    <p><span class="rk">Mitigation.</span> The count is skipped when no key configures a ceiling; the benchmark stays in the package.</p>
+    <p><span class="rk">Residual.</span> The ranking cost. If the benchmark makes it matter, 0.4.0 picks each client's head with a per-client subquery instead of ranking all due rows.</p>
+  </div>
+
+  <div class="risk">
+    <h3>New error codes reach the API undocumented</h3>
+    <p><span class="rk">Mechanism.</span> Codes live in three places: the API constants, the plan's dry-run codes, and the worker's private strings, some of which alias the plan's. The description has three enums: the API error, the job error and the dry-run problem. The golden validation only sees codes a transcript records; a code no scenario exercises can be undocumented and still ship.</p>
+    <p><span class="rk">Likelihood and impact.</span> Moderate without the test, since two items add codes. The impact is a client generated from the description that rejects a real response.</p>
+    <p><span class="rk">Detection.</span> The parity test from 0.5, both directions, and the literal-scan test beside it.</p>
+    <p><span class="rk">Mitigation.</span> One exported list per family; the worker's aliases removed; the test maps families to enums.</p>
+    <p><span class="rk">Residual.</span> None worth naming: a code can only be a constant, and every constant is in the description.</p>
+  </div>
+
+  <div class="risk">
+    <h3>Attestations fail on the tag</h3>
+    <p><span class="rk">Mechanism.</span> Attestations need a public repository on this plan, the <code>id-token</code> and <code>attestations</code> permissions, and for the image the registry push permission. A run triggered by a fork's pull request has no identity token at all, so an unguarded attest step would fail every outside contribution once the repository is public.</p>
+    <p><span class="rk">Likelihood and impact.</span> High without the guard, because contributors arrive with publicity. The impact of a failing release run is a red tag and a manual retry, not a broken artifact.</p>
+    <p><span class="rk">Detection.</span> The branch attestation in CI, before the release workflow changes.</p>
+    <p><span class="rk">Mitigation.</span> The guard and the precondition in 3.1; the verification commands executed against the pre-release before the docs claim them.</p>
+    <p><span class="rk">Residual.</span> None once verified.</p>
+  </div>
+
+  <div class="risk">
+    <h3>Migrations meet a live database</h3>
+    <p><span class="rk">Mechanism.</span> 0008 builds an index over every job at startup inside one transaction, seconds at current volumes, during which readiness waits. 0009 adds a nullable column and a partial unique index. Both are additive. Rollback is therefore possible: the previous binary ignores migration versions it does not know and never selects the new column, so a 0.2.0-alpha binary opens a 0.3.0-alpha database. The trap is elsewhere: <code>tentacron backup</code> migrates the database it opens, so the documented "back up before upgrading" run with the new binary migrates first and backs up second.</p>
+    <p><span class="rk">Likelihood and impact.</span> The trap is certain for anyone following the docs with the new binary. Its impact is a backup that is no longer of the old schema, which defeats the reason for taking it.</p>
+    <p><span class="rk">Detection.</span> The backup test in 2.11 fails on today's code.</p>
+    <p><span class="rk">Mitigation.</span> 2.11 opens read-only and refuses a newer schema; 2.10 rehearses the upgrade over a populated database and states that rollback works; the readiness checklist rehearses it once more against a real copy.</p>
+    <p><span class="rk">Residual.</span> A rollback across more than one release is not covered and is not promised.</p>
+  </div>
+
+  <div class="risk">
+    <h3>The alpha meets real endpoints only in production</h3>
+    <p><span class="rk">Mechanism.</span> Every test speaks to fakes: no TLS, no latency, no bundles of real size, no real 429. The changed paths are the meme poll and result download (1.3, 1.6) and long synchronous targets (1.1). Callbacks need an https receiver on an allow-listed host, which the live tier does not provide.</p>
+    <p><span class="rk">Likelihood and impact.</span> A timing constant tuned on fakes is the classic escape; the impact is a job that fails or stalls against the one target that matters.</p>
+    <p><span class="rk">Detection.</span> The live tier against staging through meme and buem, transcript attached to the release pull request.</p>
+    <p><span class="rk">Mitigation.</span> A line in the readiness checklist that blocks the tag.</p>
+    <p><span class="rk">Residual.</span> Cancellation and callbacks are proven by the goldens only. A staging callback receiver is a small 0.4.0 task.</p>
+  </div>
+
+  <div class="risk">
+    <h3>The release stretches</h3>
+    <p><span class="rk">Mechanism.</span> Twenty-eight items with tests and documentation for one developer; the estimate is the sum of small numbers, and small numbers are optimistic.</p>
+    <p><span class="rk">Likelihood and impact.</span> Likely by a few days. The impact is only a later tag, because nothing lands on <code>main</code> unfinished.</p>
+    <p><span class="rk">Mitigation.</span> The checkpoint after phase 1 and the rule for phase 4, both in the rules above; each phase is a clean cut point.</p>
+    <p><span class="rk">Residual.</span> None: scope moves, quality does not.</p>
+  </div>
+</div>
+</body>
+</html>
