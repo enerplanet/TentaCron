@@ -1,6 +1,6 @@
 # Branch Naming Convention
 
-Tentacron follows the [Conventional Branch](https://conventional-branch.github.io/) specification, extended with additional types to mirror the commit convention.
+TentaCron follows the [Conventional Branch](https://conventional-branch.github.io/) specification, extended with additional types to mirror the commit convention.
 
 Branch names are automatically validated when a pull request is opened. A PR cannot be merged until the branch name passes the check.
 

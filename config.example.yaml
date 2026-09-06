@@ -1,4 +1,4 @@
-# Tentacron configuration reference.
+# TentaCron configuration reference.
 # $${VAR} references are interpolated from the environment at startup;
 # referencing an unset variable aborts startup. Use $$$$ for a literal $$.
 # (Interpolation runs over the whole file, comments included.)

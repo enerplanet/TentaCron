@@ -2,7 +2,7 @@
 # See https://citation-file-format.github.io/ for the full specification.
 
 cff-version: 1.2.0
-title: "Tentacron"
+title: "TentaCron"
 message: "If you use this software, please cite it as below."
 type: software
 abstract: >-

@@ -11,7 +11,7 @@ distroless base, a non-root user, and `/data` as the only writable path.
   replica. Horizontal scaling would mean moving to Postgres; the measured
   gates that would trigger it, and its shape, are recorded in
   [ADR-0006](decisions/0006-postgres-decision-gate.md).
-- **TLS at the proxy.** Tentacron listens on plain HTTP; put it behind a
+- **TLS at the proxy.** TentaCron listens on plain HTTP; put it behind a
   reverse proxy (Caddy, nginx, Traefik) for TLS and rate limiting.
 - **Secrets via environment.** The YAML config references `${VARS}`; supply
   them through your orchestrator's secret mechanism. Startup fails fast if a

@@ -1,4 +1,4 @@
-# Tentacron configuration for the containerized environment.
+# TentaCron configuration for the containerized environment.
 #
 # Same layout as ../config.example.yaml, but the listen port and every
 # credential come from the environment (.env.dev / .env.prod via docker

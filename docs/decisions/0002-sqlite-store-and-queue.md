@@ -16,7 +16,7 @@ surface of a service whose whole point is to be simple to run.
 A single SQLite database holds the jobs table (which is also the queue), the
 audit trail and the resolved-series cache. Claiming a job is a compare-and-
 swap `UPDATE`; transactions open in immediate mode under WAL so concurrent
-workers never deadlock. Tentacron runs as exactly one instance.
+workers never deadlock. TentaCron runs as exactly one instance.
 
 ## Consequences
 

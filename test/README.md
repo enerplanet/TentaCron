@@ -143,7 +143,7 @@ Without both variables the tier skips instantly, so it never touches CI.
 ## Why there is no meme container tier
 
 meme's own E2E runs real solvers in a container because meme's job *is* the
-solvers. Tentacron's job is orchestration: its outbound contract is the
+solvers. TentaCron's job is orchestration: its outbound contract is the
 generic accept/status/result HTTP protocol described entirely by its YAML
 config, and the golden corpus exercises that protocol — including MEME-style
 async polling — with deterministic fakes. A real meme container would test

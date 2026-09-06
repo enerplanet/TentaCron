@@ -1,6 +1,6 @@
 # Configuration
 
-Tentacron reads one YAML file (`-config` flag, default `config.yaml`).
+TentaCron reads one YAML file (`-config` flag, default `config.yaml`).
 `${VAR}` references anywhere in the file are interpolated from the
 environment at startup; referencing an unset variable aborts startup so the
 service never runs with empty credentials. `$$` escapes a literal `$`.

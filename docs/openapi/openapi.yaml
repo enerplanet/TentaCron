@@ -1,6 +1,6 @@
 openapi: 3.1.0
 info:
-  title: Tentacron
+  title: TentaCron
   version: "1"
   summary: Orchestration and resolvent API for renewable-energy modelling workflows.
   description: |

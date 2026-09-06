@@ -15,7 +15,7 @@ Swagger UI page next to it, and lint it with Redocly in the docs
 workflow; their consumers in the backend are hand-written Go clients, not
 generated ones. Nothing consumes tentacron's description yet.
 
-Tentacron's contract contains things OpenAPI 3.0.3 cannot express: the
+TentaCron's contract contains things OpenAPI 3.0.3 cannot express: the
 completion callback is a webhook, `result` and `error` are `null` or an
 object (3.0 has only a `nullable` flag), and the health statuses are
 constants. The server registers its routes from one table, and the golden

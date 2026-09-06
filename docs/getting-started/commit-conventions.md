@@ -1,6 +1,6 @@
 # Commit Message Conventions
 
-Tentacron follows the [Conventional Commits](https://www.conventionalcommits.org/)
+TentaCron follows the [Conventional Commits](https://www.conventionalcommits.org/)
 specification. Commit messages are validated on every pull request by
 `.github/scripts/lint_commits.py`; a PR cannot be merged until all commit
 messages pass the check.

@@ -1,6 +1,6 @@
 # Attributions
 
-Tentacron is licensed under the [MIT License](LICENSE). It builds on the Go
+TentaCron is licensed under the [MIT License](LICENSE). It builds on the Go
 standard library and the following direct third-party modules (see
 [`go.mod`](go.mod) for versions):
 

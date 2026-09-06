@@ -1,6 +1,6 @@
 # Architecture
 
-Tentacron is a single Go binary. SQLite serves as both the audit store and the
+TentaCron is a single Go binary. SQLite serves as both the audit store and the
 durable job queue; a worker pool drives each request through resolution,
 forwarding and target polling.
 

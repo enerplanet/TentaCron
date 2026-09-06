@@ -1,6 +1,6 @@
-# Tentacron
+# TentaCron
 
-Tentacron is an orchestration and *resolvent* API for renewable-energy
+TentaCron is an orchestration and *resolvent* API for renewable-energy
 modelling workflows. It accepts model payloads that still contain **resolvent
 objects** — placeholders such as `"type": "resolvent-pv1"` describing a PV
 plant, a wind turbine or a weather query — resolves each into a real time
@@ -29,7 +29,7 @@ placeholders, authenticated by its `X-API-Key` header:
 }
 ```
 
-Tentacron resolves `pv_cf` by calling the PV resource API with the resolvent's
+TentaCron resolves `pv_cf` by calling the PV resource API with the resolvent's
 own properties, replaces the placeholder with the returned series (keeping the
 original object under its `resolvent` key for traceability), leaves genuine
 `time-series` entries untouched, and forwards the completed model to MEME.

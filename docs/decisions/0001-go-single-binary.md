@@ -5,7 +5,7 @@
 
 ## Context
 
-Tentacron is an orchestration service: it accepts requests, fans out to
+TentaCron is an orchestration service: it accepts requests, fans out to
 resource APIs, forwards to targets and polls them, and must keep doing so
 across restarts. It runs next to research services written in Python and is
 operated by a small team without a platform group. Concurrency, a durable
@@ -14,7 +14,7 @@ scientific ecosystem, which tentacron does not need — it moves JSON.
 
 ## Decision
 
-Tentacron is written in Go using the standard library for HTTP, JSON and
+TentaCron is written in Go using the standard library for HTTP, JSON and
 logging, with two direct dependencies: a pure-Go SQLite driver and a YAML
 parser. It builds with `CGO_ENABLED=0` into one static binary, which is
 also what the release image ships.
