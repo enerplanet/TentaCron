@@ -10,6 +10,9 @@ under "Changed" with the keys or fields concerned.
 
 ### Added
 
+- CI builds the release image on every push and runs `validate` inside it
+  against the reference configuration, so a build-context or image
+  regression is caught before a tag, not by the release.
 - ADR-0007 records why the API contract is a hand-written OpenAPI 3.1
   document kept true by tests — rather than generated from annotations
   like the EnerPlanET backend's, or 3.0.3 like the sibling services' — and
