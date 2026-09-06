@@ -74,6 +74,23 @@ func migrationNames() ([]string, error) {
 	return names, nil
 }
 
+// latestMigrationVersion is the highest version this binary embeds.
+func latestMigrationVersion() (int, error) {
+	names, err := migrationNames()
+	if err != nil {
+		return 0, err
+	}
+	latest := 0
+	for _, name := range names {
+		v, err := migrationVersion(name)
+		if err != nil {
+			return 0, err
+		}
+		latest = max(latest, v)
+	}
+	return latest, nil
+}
+
 // migrationVersion parses the NNNN_ prefix of a migration file name.
 func migrationVersion(name string) (int, error) {
 	prefix, _, _ := strings.Cut(name, "_")

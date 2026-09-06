@@ -10,10 +10,10 @@ under "Changed" with the keys or fields concerned.
 
 ### Upgrading
 
-- Back up with the binary you run now (`tentacron backup`) before
-  installing this release. Migrations 0008 (an index) and 0009 (a column
-  and an index on schedules) apply on first start and are additive: a
-  0.2.0-alpha binary can still open the migrated database.
+- Back up (`tentacron backup`) before installing this release; the command
+  never migrates the database it copies. Migrations 0008 (an index) and
+  0009 (a column and an index on schedules) apply on first start and are
+  additive: a 0.2.0-alpha binary can still open the migrated database.
 
 ### Added
 
@@ -47,6 +47,11 @@ under "Changed" with the keys or fields concerned.
 
 ### Fixed
 
+- `tentacron backup` opened the database through the path that applies
+  migrations, so following "back up before upgrading" with the new binary
+  migrated the live database before any copy existed. The command now
+  opens without migrating and refuses a database from a newer release,
+  naming both schema versions.
 - A reload that emptied `callbacks.allowed_hosts` stopped the deliverer
   entirely and left every pending delivery `pending` forever. Attempts now
   re-check the allow-list, record the reason, and follow the backoff, so

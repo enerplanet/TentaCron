@@ -5,6 +5,7 @@ package store
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"net/url"
 	"os"
@@ -39,6 +40,50 @@ func Open(path string) (*Store, error) {
 		return nil, err
 	}
 	return s, nil
+}
+
+// OpenForBackup connects without migrating, for tentacron backup: a backup
+// must copy the database as it is, never after applying migrations first,
+// or the advice "back up before upgrading" would be defeated by the very
+// command that follows it. A database recorded at a schema version newer
+// than this binary knows is refused, naming both versions.
+func OpenForBackup(path string) (*Store, error) {
+	s, err := open(path)
+	if err != nil {
+		return nil, err
+	}
+	recorded, err := s.recordedVersion(context.Background())
+	if err != nil {
+		_ = s.db.Close()
+		return nil, err
+	}
+	known, err := latestMigrationVersion()
+	if err != nil {
+		_ = s.db.Close()
+		return nil, err
+	}
+	if recorded > known {
+		_ = s.db.Close()
+		return nil, fmt.Errorf("database %s is at schema version %d, newer than this binary knows (%d): back up with the binary that runs it, or upgrade this one", path, recorded, known)
+	}
+	return s, nil
+}
+
+// recordedVersion is the highest migration the database has applied; a
+// database without the migrations table was never started by tentacron.
+func (s *Store) recordedVersion(ctx context.Context) (int, error) {
+	var exists int
+	if err := s.db.QueryRowContext(ctx, `SELECT count(*) FROM sqlite_master WHERE type = 'table' AND name = 'schema_migrations'`).Scan(&exists); err != nil {
+		return 0, fmt.Errorf("inspect schema: %w", err)
+	}
+	if exists == 0 {
+		return 0, errors.New("not a tentacron database: no schema_migrations table")
+	}
+	var v int
+	if err := s.db.QueryRowContext(ctx, `SELECT coalesce(max(version), 0) FROM schema_migrations`).Scan(&v); err != nil {
+		return 0, fmt.Errorf("read schema version: %w", err)
+	}
+	return v, nil
 }
 
 // dsn is the connection string for path. _txlock=immediate makes every

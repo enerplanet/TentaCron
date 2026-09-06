@@ -96,7 +96,8 @@ func configFlag(name string, args []string, positional int, stdout, stderr io.Wr
 }
 
 // runBackup copies the configured database to DEST with VACUUM INTO — a
-// consistent snapshot that is safe to take while the service runs.
+// consistent snapshot that is safe to take while the service runs, of the
+// schema as it is: the command never migrates.
 func runBackup(args []string, stdout, stderr io.Writer) int {
 	path, rest, done, code := configFlag("backup", args, 1, stdout, stderr)
 	if done {
@@ -107,7 +108,9 @@ func runBackup(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintf(stderr, "%s: %v\n", path, err)
 		return 1
 	}
-	st, err := store.Open(cfg.Storage.Path)
+	// Never migrate the database being backed up: the copy must be of what
+	// runs today, and a database from a newer release is refused.
+	st, err := store.OpenForBackup(cfg.Storage.Path)
 	if err != nil {
 		fmt.Fprintf(stderr, "open %s: %v\n", cfg.Storage.Path, err)
 		return 1

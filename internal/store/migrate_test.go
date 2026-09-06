@@ -185,3 +185,63 @@ func TestUpgradeFromPreviousReleaseWithData(t *testing.T) {
 		t.Errorf("rescue after upgrade: n=%d err=%v, want 2", n, err)
 	}
 }
+
+// A backup copies the schema that runs today: opening for backup applies no
+// migration, the copy is at the same version, and the copy can be opened
+// and migrated by the new code afterwards.
+func TestOpenForBackupDoesNotMigrate(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "live.db")
+	db := databaseAt(t, path, previousReleaseVersion)
+	populatePreviousRelease(t, db)
+	_ = db.Close()
+
+	s, err := OpenForBackup(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if v := schemaVersion(t, s.db); v != previousReleaseVersion {
+		t.Fatalf("opening for backup migrated the live database to %d", v)
+	}
+	dst := filepath.Join(t.TempDir(), "copy.db")
+	if err := s.BackupTo(context.Background(), dst); err != nil {
+		t.Fatal(err)
+	}
+	_ = s.Close()
+	copyDB, err := sql.Open("sqlite", dsn(dst))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if v := schemaVersion(t, copyDB); v != previousReleaseVersion {
+		t.Fatalf("the copy is at version %d, want the live schema %d", v, previousReleaseVersion)
+	}
+	_ = copyDB.Close()
+	migrated, err := Open(dst)
+	if err != nil {
+		t.Fatalf("the copy must open and migrate under the new code: %v", err)
+	}
+	defer func() { _ = migrated.Close() }()
+	if j, err := migrated.GetJob(context.Background(), "waiting"); err != nil || j.State != StateAwaitingTarget {
+		t.Fatalf("job in the migrated copy: %v (err %v)", j, err)
+	}
+}
+
+// A database from a newer release is refused for backup, naming both
+// versions, so an old binary never writes a copy it does not understand.
+func TestOpenForBackupRefusesANewerSchema(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "future.db")
+	s, err := Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.db.Exec(`INSERT INTO schema_migrations (version, applied_at) VALUES (999, '2027-01-01T00:00:00.000Z')`); err != nil {
+		t.Fatal(err)
+	}
+	_ = s.Close()
+	_, err = OpenForBackup(path)
+	if err == nil || !strings.Contains(err.Error(), "schema version 999, newer than this binary knows") {
+		t.Fatalf("err = %v, want a refusal naming the versions", err)
+	}
+	if _, err := OpenForBackup(filepath.Join(t.TempDir(), "empty.db")); err == nil || !strings.Contains(err.Error(), "not a tentacron database") {
+		t.Fatalf("an empty file must be refused: %v", err)
+	}
+}
