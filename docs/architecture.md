@@ -154,10 +154,12 @@ SQLite *is* the queue — no external broker:
   across clients — a window function ranks each client's due jobs, every
   client's first comes before any client's second, and among those the
   client served least recently (tracked per claim) goes first — then age. A
-  client at
-  its `max_concurrent` ceiling is skipped for other clients' work; the
-  ceiling is checked inside the claim's write transaction, so concurrent
-  workers cannot overshoot it together.
+  client at its `max_concurrent` ceiling is skipped for other clients' work:
+  its in-flight count is read once per claim and its jobs are left out of
+  the candidate batch, so a capped client whose jobs outrank the rest cannot
+  fill the batch and starve the others; the ceiling is also checked inside
+  the claim's write transaction, so concurrent workers cannot overshoot it
+  together.
 - Poll ticks for `awaiting_target` jobs are claimed by pushing
   `next_attempt_at` forward atomically by the target's poll interval, so
   concurrent workers never poll the same job twice for the same tick.

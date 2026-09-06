@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"regexp"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -1159,4 +1160,85 @@ func TestRescueStuckUsesEachTargetsCutoff(t *testing.T) {
 	if got, _ := s.GetJob(ctx, quick.ID); got.State != StateReceived {
 		t.Errorf("quick job = %s, want rescued to received", got.State)
 	}
+}
+
+// A client at its in-flight ceiling must not block other clients even when
+// its jobs outrank theirs: its queued jobs would otherwise fill the
+// candidate batch, every candidate would be skipped, and the worker would
+// report no work while another client's job is due.
+func TestClaimSkipsAClientAtItsCeilingForOthers(t *testing.T) {
+	s := openTest(t)
+	ctx := context.Background()
+	ceiling := ClaimPolicy{MaxConcurrent: func(client string) int {
+		if client == "batch" {
+			return 1
+		}
+		return 0
+	}}
+	inFlight := newJob(t, "demo")
+	inFlight.Client, inFlight.Priority = "batch", 10
+	mustCreate(t, s, inFlight)
+	if c, _ := s.ClaimNext(ctx, ceiling); c == nil || c.Client != "batch" {
+		t.Fatal("the first batch job must be claimed")
+	}
+	for range 9 {
+		j := newJob(t, "demo")
+		j.Client, j.Priority = "batch", 10
+		mustCreate(t, s, j)
+	}
+	other := newJob(t, "demo")
+	other.Client = "frontend"
+	mustCreate(t, s, other)
+	got, err := s.ClaimNext(ctx, ceiling)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got == nil || got.ID != other.ID {
+		t.Fatalf("claimed %v, want the frontend job: the capped client filled the candidate batch", got)
+	}
+}
+
+// BenchmarkClaimNextDeepQueue measures one claim against a deep queue, with and
+// without a configured ceiling: the ceiling-aware path adds one in-flight
+// count per claim and must stay noise next to the candidate ranking.
+func BenchmarkClaimNextDeepQueue(b *testing.B) {
+	for _, tc := range []struct {
+		name   string
+		policy ClaimPolicy
+	}{
+		{"no-ceiling", ClaimPolicy{}},
+		{"ceiling", ClaimPolicy{MaxConcurrent: func(string) int { return 100 }}},
+	} {
+		b.Run(tc.name, func(b *testing.B) {
+			s := openBench(b)
+			ctx := context.Background()
+			for i := range 10000 {
+				id, _ := NewID()
+				j := &Job{ID: id, Client: "c" + strconv.Itoa(i%10), Target: "demo", MaxAttempts: 1 << 30, Payload: []byte(`{}`), Priority: i % 3}
+				if created, _, err := s.CreateJob(ctx, j); err != nil || !created {
+					b.Fatal(err)
+				}
+			}
+			b.ResetTimer()
+			for range b.N {
+				j, err := s.ClaimNext(ctx, tc.policy)
+				if err != nil || j == nil {
+					b.Fatalf("claim: %v %v", j, err)
+				}
+				if err := s.Requeue(ctx, j.ID, time.Now(), "bench"); err != nil {
+					b.Fatal(err)
+				}
+			}
+		})
+	}
+}
+
+func openBench(b *testing.B) *Store {
+	b.Helper()
+	s, err := Open(filepath.Join(b.TempDir(), "bench.db"))
+	if err != nil {
+		b.Fatal(err)
+	}
+	b.Cleanup(func() { _ = s.Close() })
+	return s
 }

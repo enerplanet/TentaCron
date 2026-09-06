@@ -453,6 +453,18 @@ func (p ClaimPolicy) maxConcurrent(client string) int {
 	return p.MaxConcurrent(client)
 }
 
+// claimBatch is how many candidates one claim query returns, and
+// claimRounds how many times a claim re-queries after a full batch yielded
+// nothing — because every candidate was skipped for a client at its ceiling
+// (then excluded from the next query), lost a claim race, or was failed for
+// exhausted attempts. Without the re-query a capped client whose jobs
+// outrank everyone else's would fill the batch and the worker would report
+// no work while other clients' jobs are due.
+const (
+	claimBatch  = 8
+	claimRounds = 8
+)
+
 // ClaimNext atomically claims the next eligible job. Candidates are ordered
 // by priority, then round-robin across clients — each client's oldest due
 // job first, least recently served client first — then age, so one client's
@@ -462,29 +474,77 @@ func (p ClaimPolicy) maxConcurrent(client string) int {
 // A received job whose attempts already reached max_attempts is failed here
 // instead of claimed, so a poison payload cannot retry forever even when its
 // attempts end in crashes. A client at its in-flight ceiling is skipped for
-// another client's work. Jobs in "awaiting_target" whose poll time is due
-// are claimed by pushing next_attempt_at forward (CAS), so no other worker
-// picks the same poll tick. Returns nil when no work is eligible.
+// another client's work: its in-flight count is read once per claim (only
+// when the policy has ceilings at all — the count touches the few claimed
+// rows through the state index) and its candidates are left out of the next
+// query. Jobs in "awaiting_target" whose poll time is due are claimed by
+// pushing next_attempt_at forward (CAS), so no other worker picks the same
+// poll tick. Returns nil when no work is eligible.
 func (s *Store) ClaimNext(ctx context.Context, policy ClaimPolicy) (*Job, error) {
 	now := time.Now()
-	cands, err := s.claimCandidates(ctx, ts(now))
-	if err != nil {
-		return nil, err
+	var inFlight map[string]int
+	if policy.MaxConcurrent != nil {
+		var err error
+		if inFlight, err = s.inFlightByClient(ctx); err != nil {
+			return nil, err
+		}
 	}
-	for _, c := range cands {
-		claimed, err := s.claimOne(ctx, c, now, policy)
+	atCeiling := func(client string) bool {
+		limit := policy.maxConcurrent(client)
+		return limit > 0 && inFlight[client] >= limit
+	}
+	var excluded []string
+	for range claimRounds {
+		cands, err := s.claimCandidates(ctx, ts(now), excluded)
 		if err != nil {
 			return nil, err
 		}
-		if claimed {
-			// The claim is committed: the job is now this worker's to
-			// process or park. Read it with a context that survives a
-			// shutdown arriving right now, or the job would be orphaned
-			// in resolving until restart recovery instead of being parked.
-			return s.GetJob(context.WithoutCancel(ctx), c.id)
+		capped := map[string]bool{}
+		for _, c := range cands {
+			if c.state == StateReceived && atCeiling(c.client) {
+				capped[c.client] = true
+				continue
+			}
+			claimed, err := s.claimOne(ctx, c, now, policy)
+			if err != nil {
+				return nil, err
+			}
+			if claimed {
+				// The claim is committed: the job is now this worker's to
+				// process or park. Read it with a context that survives a
+				// shutdown arriving right now, or the job would be orphaned
+				// in resolving until restart recovery instead of being parked.
+				return s.GetJob(context.WithoutCancel(ctx), c.id)
+			}
+		}
+		if len(cands) < claimBatch {
+			return nil, nil // the queue was seen to its end
+		}
+		for client := range capped {
+			excluded = append(excluded, client)
 		}
 	}
 	return nil, nil
+}
+
+// inFlightByClient counts each client's jobs a worker holds right now.
+func (s *Store) inFlightByClient(ctx context.Context) (map[string]int, error) {
+	rows, err := s.db.QueryContext(ctx, `SELECT client, count(*) FROM jobs WHERE state IN (?, ?) GROUP BY client`,
+		StateResolving, StateForwarding)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	counts := map[string]int{}
+	for rows.Next() {
+		var client string
+		var n int
+		if err := rows.Scan(&client, &n); err != nil {
+			return nil, err
+		}
+		counts[client] = n
+	}
+	return counts, rows.Err()
 }
 
 type claimCand struct {
@@ -497,19 +557,29 @@ type claimCand struct {
 // order: priority first; then each client's oldest due job (turn 1) before
 // any client's second, the least recently served client first, so a client
 // that was just handed a job yields to one that is waiting; then age. A
-// small batch lets a worker that loses the claim race on one row (or finds
-// a client at its ceiling) try the next without re-querying.
-func (s *Store) claimCandidates(ctx context.Context, nowS string) ([]claimCand, error) {
+// small batch lets a worker that loses the claim race on one row try the
+// next without re-querying; excluded clients (at their ceiling) are left
+// out so they cannot fill the batch.
+func (s *Store) claimCandidates(ctx context.Context, nowS string, excluded []string) ([]claimCand, error) {
+	args := []any{StateReceived, nowS, StateAwaitingTarget, nowS}
+	exclude := ""
+	if len(excluded) > 0 {
+		// Only "?" repetition; every client name is a bound parameter.
+		exclude = ` AND j.client NOT IN (` + strings.Repeat("?,", len(excluded)-1) + `?)`
+		for _, c := range excluded {
+			args = append(args, c)
+		}
+	}
+	args = append(args, claimBatch)
 	rows, err := s.db.QueryContext(ctx, `SELECT id, state, target, client, next_attempt_at, attempts, max_attempts FROM (
 			SELECT j.id, j.state, j.target, j.client, j.next_attempt_at, j.attempts, j.max_attempts,
 			       j.priority, j.created_at, j.rowid AS seq,
 			       COALESCE(cc.last_claimed_at, '') AS last_served,
 			       ROW_NUMBER() OVER (PARTITION BY j.client ORDER BY j.priority DESC, j.created_at, j.rowid) AS turn
 			FROM jobs j LEFT JOIN client_claims cc ON cc.client = j.client
-			WHERE (j.state = ? AND (j.next_attempt_at IS NULL OR j.next_attempt_at <= ?))
-			   OR (j.state = ? AND j.next_attempt_at IS NOT NULL AND j.next_attempt_at <= ?))
-		ORDER BY priority DESC, turn, last_served, created_at, seq LIMIT 8`,
-		StateReceived, nowS, StateAwaitingTarget, nowS)
+			WHERE ((j.state = ? AND (j.next_attempt_at IS NULL OR j.next_attempt_at <= ?))
+			   OR (j.state = ? AND j.next_attempt_at IS NOT NULL AND j.next_attempt_at <= ?))`+exclude+`)
+		ORDER BY priority DESC, turn, last_served, created_at, seq LIMIT ?`, args...) //nolint:gosec // G202: constant placeholders, bound values
 	if err != nil {
 		return nil, err
 	}

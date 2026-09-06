@@ -264,6 +264,16 @@ type Target struct {
 }
 
 // MaxConcurrentFor returns the in-flight ceiling of a client key (0 = none).
+// HasConcurrencyCeilings reports whether any key sets max_concurrent.
+func (c *Config) HasConcurrencyCeilings() bool {
+	for _, k := range c.Auth.APIKeys {
+		if k.MaxConcurrent > 0 {
+			return true
+		}
+	}
+	return false
+}
+
 func (c *Config) MaxConcurrentFor(client string) int {
 	for _, k := range c.Auth.APIKeys {
 		if k.Name == client {

@@ -111,7 +111,7 @@ func (p *Pool) workerLoop(ctx context.Context) {
 // drain claims and processes eligible jobs until the queue is empty.
 func (p *Pool) drain(ctx context.Context) {
 	for ctx.Err() == nil {
-		job, err := p.store.ClaimNext(ctx, store.ClaimPolicy{PollInterval: p.pollInterval, MaxConcurrent: p.config().MaxConcurrentFor})
+		job, err := p.store.ClaimNext(ctx, p.claimPolicy())
 		if err != nil {
 			if ctx.Err() == nil {
 				p.logger.Error("claim failed", "error", err)
@@ -123,6 +123,18 @@ func (p *Pool) drain(ctx context.Context) {
 		}
 		(&run{Pool: p, cfg: p.config()}).process(ctx, job)
 	}
+}
+
+// claimPolicy hands the store the poll cadence and, only when a key sets a
+// ceiling, the per-client in-flight limit — so a deployment without
+// ceilings never pays for the in-flight count on every claim.
+func (p *Pool) claimPolicy() store.ClaimPolicy {
+	cfg := p.config()
+	policy := store.ClaimPolicy{PollInterval: p.pollInterval}
+	if cfg.HasConcurrencyCeilings() {
+		policy.MaxConcurrent = cfg.MaxConcurrentFor
+	}
+	return policy
 }
 
 // pollInterval supplies the per-target poll cadence used by the store when it

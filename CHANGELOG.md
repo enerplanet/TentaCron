@@ -18,6 +18,12 @@ under "Changed" with the keys or fields concerned.
 
 ### Fixed
 
+- A client at its `max_concurrent` ceiling whose queued jobs outranked the
+  others filled the claim's candidate batch, every candidate was skipped,
+  and the worker reported no work while other clients' jobs were due. A
+  claim now reads the in-flight counts once, leaves capped clients out of
+  the candidates, and re-queries after a full batch that yielded nothing
+  (which also covers a batch of jobs failed for exhausted attempts).
 - CORS preflights allowed GET, HEAD, POST and OPTIONS only, so a browser
   frontend on an allowed origin could neither cancel a request nor delete
   a schedule; DELETE is allowed now.
