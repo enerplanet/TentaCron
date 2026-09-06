@@ -21,6 +21,8 @@ under "Changed" with the keys or fields concerned.
 
 ### Changed
 
+- Retention scans run over a new index on terminal jobs by completion
+  time (migration 0008) instead of walking every terminal row each sweep.
 - Requests to `/healthz`, `/readyz` and `/version` are logged at `debug`;
   a request that panicked now has a request line with its `500`; every
   response varies on `Origin` when CORS is configured.

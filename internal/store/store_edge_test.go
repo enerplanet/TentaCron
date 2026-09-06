@@ -1315,3 +1315,31 @@ func TestResetPollSchedulesSpreadsWithinOneInterval(t *testing.T) {
 		}
 	}
 }
+
+// The retention scan must run over its index: a later change to the query
+// or the schema that loses the index fails here, not in production.
+func TestRetentionScanUsesTheTerminalIndex(t *testing.T) {
+	s := openTest(t)
+	rows, err := s.db.QueryContext(context.Background(), `EXPLAIN QUERY PLAN SELECT id, result_path FROM jobs
+		WHERE state IN (?, ?, ?) AND completed_at < ?
+		ORDER BY completed_at LIMIT ?`, StateCompleted, StateFailed, StateCancelled, ts(time.Now()), 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rows.Close()
+	var plan []string
+	for rows.Next() {
+		var id, parent, notUsed int
+		var detail string
+		if err := rows.Scan(&id, &parent, &notUsed, &detail); err != nil {
+			t.Fatal(err)
+		}
+		plan = append(plan, detail)
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(strings.Join(plan, "\n"), "jobs_terminal_ix") {
+		t.Fatalf("retention scan does not use jobs_terminal_ix:\n%s", strings.Join(plan, "\n"))
+	}
+}
