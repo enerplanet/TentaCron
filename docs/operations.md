@@ -42,7 +42,7 @@ docker run -d --name tentacron -p 8080:8080 \
   -v /etc/tentacron/config.yaml:/etc/tentacron/config.yaml:ro \
   -v tentacron-data:/data \
   --env-file /etc/tentacron/secrets.env \
-  ghcr.io/enerplanet/tentacron:0.2.0-alpha
+  ghcr.io/enerplanet/tentacron:0.3.0-alpha
 
 # Compose: the same service wired in environment/ (settings from .env.prod)
 make -C environment run-release ENV=prod
@@ -62,7 +62,7 @@ env-gated live tier (`make live`, see
 ```bash
 tentacron validate -config /etc/tentacron/config.yaml   # or: make validate CONFIG=…
 docker run --rm -v /etc/tentacron/config.yaml:/etc/tentacron/config.yaml:ro \
-  --env-file /etc/tentacron/secrets.env ghcr.io/enerplanet/tentacron:0.2.0-alpha validate
+  --env-file /etc/tentacron/secrets.env ghcr.io/enerplanet/tentacron:0.3.0-alpha validate
 ```
 
 `validate` interpolates `${VARS}`, applies defaults and runs every validation

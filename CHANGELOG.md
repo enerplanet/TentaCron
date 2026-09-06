@@ -8,6 +8,8 @@ under "Changed" with the keys or fields concerned.
 
 ## [Unreleased]
 
+## [0.3.0-alpha] - 2026-09-06
+
 ### Upgrading
 
 - Back up (`tentacron backup`) before installing this release; the command
@@ -456,6 +458,7 @@ Initial release of the tentacron orchestration and resolvent API.
 - Containerized build/test environment (`environment/`, meme-style) and
   mkdocs documentation (architecture, API, configuration, operations).
 
-[Unreleased]: https://github.com/enerplanet/tentacron/compare/v0.2.0-alpha...HEAD
+[Unreleased]: https://github.com/enerplanet/tentacron/compare/v0.3.0-alpha...HEAD
+[0.3.0-alpha]: https://github.com/enerplanet/tentacron/compare/v0.2.0-alpha...v0.3.0-alpha
 [0.2.0-alpha]: https://github.com/enerplanet/tentacron/compare/v0.1.0...v0.2.0-alpha
 [0.1.0]: https://github.com/enerplanet/tentacron/releases/tag/v0.1.0

@@ -653,7 +653,7 @@ paths:
                 properties:
                   status: { type: string, const: ok }
                   version: { type: string }
-              example: { status: ok, version: v0.2.0-alpha }
+              example: { status: ok, version: v0.3.0-alpha }
   /readyz:
     get:
       tags: [system]
@@ -694,7 +694,7 @@ paths:
                   go: { type: string }
                   revision: { type: string }
                   built: { type: string }
-              example: { version: v0.2.0-alpha, go: go1.26.8, revision: e50bb1b3c2a1, built: "2026-09-06T18:40:00Z" }
+              example: { version: v0.3.0-alpha, go: go1.26.8, revision: e50bb1b3c2a1, built: "2026-09-06T18:40:00Z" }
   /openapi.yaml:
     get:
       tags: [system]

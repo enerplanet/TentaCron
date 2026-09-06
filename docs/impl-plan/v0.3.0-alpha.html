@@ -206,6 +206,7 @@
     <div class="fact"><div class="k">Correctness bugs</div><div class="v">6</div><div class="d">phase 1, the reason for the release</div></div>
     <div class="fact"><div class="k">Estimated effort</div><div class="v">8–10 days</div><div class="d">one developer, gate on every commit</div></div>
     <div class="fact"><div class="k">Goldens that may change</div><div class="v">5</div><div class="d">each diff reviewed, never bulk-accepted</div></div>
+    <div class="fact"><div class="k">Delivered</div><div class="v">27 + 1</div><div class="d">3.1 deferred while the repository is private; one follow-up from the upgrade rehearsal</div></div>
   </div>
 
   <p class="phase-intro">Each item carries its status: <span class="pill neutral">Planned</span>, <span class="pill info">In progress</span>, <span class="pill ok">Done</span> or <span class="pill warn">Deferred</span> with the reason. The status changes in the commit that lands the item, so this page is always the state of the release.</p>
@@ -745,12 +746,12 @@
   <div class="rules">
     <h3>Release readiness checklist, all items required before the tag</h3>
     <ul>
-      <li><strong>Stress gate on the tip</strong>, <code>GOMAXPROCS=2 go test -race -shuffle=on -count=3 ./...</code>, green.</li>
-      <li><strong>CI green on the release commit</strong>, including the image job and, once 3.1 is in, the branch attestation.</li>
-      <li><strong>Live tier against staging</strong>: <code>make live</code> with the reference configuration against a staging deployment, once through the meme path and once through buem, because the poll lease and the result timeout change exactly those. The transcript is attached to the release pull request.</li>
-      <li><strong>Upgrade rehearsal</strong>: the 0.3.0-alpha binary started against a copy of a 0.2.0-alpha database taken with <code>tentacron backup</code>; migrations apply, <code>/readyz</code> answers, a queued request completes.</li>
-      <li><strong>Provenance verified</strong> (when 3.1 shipped): <code>gh attestation verify</code> against the previous pre-release succeeds with the command as documented.</li>
-      <li><strong>Changelog and citation</strong> carry the version and today's date; the <em>Upgrading</em> paragraph from 2.10 is present.</li>
+      <li><strong>Stress gate on the tip</strong>, <code>GOMAXPROCS=2 go test -race -shuffle=on -count=3 ./...</code>, green. <span class="pill ok">Done 6 September on the last code commit, f05c8ba: 14 packages, three runs each, no failure</span></li>
+      <li><strong>CI green on the release commit</strong>, including the image job and, once 3.1 is in, the branch attestation. <span class="pill warn">Pending: runs on push; 3.1 deferred</span></li>
+      <li><strong>Live tier against staging</strong>: <code>make live</code> with the reference configuration against a staging deployment, once through the meme path and once through buem, because the poll lease and the result timeout change exactly those. The transcript is attached to the release pull request. <span class="pill warn">Open: no staging deployment is reachable from the development machine; the maintainer runs it before the tag</span></li>
+      <li><strong>Upgrade rehearsal</strong>: the 0.3.0-alpha binary started against a copy of a 0.2.0-alpha database taken with <code>tentacron backup</code>; migrations apply, <code>/readyz</code> answers, a queued request completes. <span class="pill ok">Done 6 September with a binary built from the v0.2.0-alpha tag: the new binary's backup stayed at schema 7, its start migrated to 10, the queued request and the schedule survived, a new request completed, and the 0.2.0-alpha binary reopened the migrated file. It showed that a migrating start logged nothing, fixed in a follow-up commit.</span></li>
+      <li><strong>Provenance verified</strong> (when 3.1 shipped): <code>gh attestation verify</code> against the previous pre-release succeeds with the command as documented. <span class="pill neutral">Not applicable: 3.1 deferred to 0.4.0</span></li>
+      <li><strong>Changelog and citation</strong> carry the version and today's date; the <em>Upgrading</em> paragraph from 2.10 is present. <span class="pill ok">Done: 0.3.0-alpha, 2026-09-06, Upgrading names migrations 0008 to 0010</span></li>
     </ul>
   </div>
 
