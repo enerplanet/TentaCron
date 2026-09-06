@@ -64,7 +64,9 @@ original object under its `resolvent` key for traceability), leaves genuine
   persistence, the audit trail and retries; `{field}` URL templating fills
   path parameters such as ignis's `/calculate/{code}` from the payload.
 - **Durable & auditable** — every request, state transition and result is
-  persisted in SQLite; interrupted work resumes after a restart.
+  persisted in SQLite and survives a process crash; interrupted work
+  resumes after a restart (what a power loss can cost is stated under
+  Operations).
 - **Series cache** — identical resolvents within a TTL are served from cache
   instead of re-hitting resource APIs.
 - **Config-driven** — targets, resolvent types, credentials, poll behaviour

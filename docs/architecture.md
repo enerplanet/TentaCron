@@ -265,7 +265,10 @@ answer read only up to 1 KiB.
   never on the API's; `GET /version` and `/healthz` report the build.
   Structured logs and the `job_events` audit trail cover the rest.
 - **Backups** are `VACUUM INTO` snapshots taken by `tentacron backup` while
-  the service runs; the housekeeping sweep compacts the database file.
+  the service runs; the housekeeping sweep compacts the database file. The
+  store runs WAL with `synchronous` `NORMAL`: durable across process
+  crashes, with the commits since the last checkpoint at risk on a power
+  loss (Operations states the trade).
 - **The API contract** is the OpenAPI document under `docs/openapi`,
   embedded into the binary and served at `GET /openapi.yaml`; tests keep it
   true to the routes and to the golden corpus

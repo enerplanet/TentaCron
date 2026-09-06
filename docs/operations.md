@@ -333,6 +333,18 @@ service is writing — the WAL sidecar would be missing from the copy.
 Result files under `storage.results_dir` are not in the database; back up
 the directory alongside it if results must survive a restore.
 
+**Durability.** The store runs SQLite in WAL mode with `synchronous`
+set to `NORMAL`. Every committed transaction survives a crash of the
+process, and no crash can corrupt the file. What the setting gives up is
+the last commits on a power loss or an operating-system crash: transactions
+committed since the last WAL checkpoint (every housekeeping sweep, and
+whenever the WAL fills) can be lost then, though the file stays consistent.
+That is the trade the setting buys, one fsync per checkpoint instead of one
+per transaction, and it is the right one for a queue whose clients keep
+their request ids and can resubmit. A `storage.synchronous: full` switch
+for deployments that would rather pay per transaction is a possible later
+option; today the guarantee is durability across process crashes.
+
 **Upgrading.** Back up before installing a new release. `tentacron
 backup` never migrates the database it copies — with either binary the
 copy is of the schema that runs today — and refuses a database from a

@@ -7,7 +7,8 @@ info:
     Submit a model payload that still contains resolvent objects; tentacron
     resolves them through the configured resource APIs, forwards the completed
     payload to the target and, for asynchronous targets, polls the target's job
-    to completion. Every request is durable and auditable.
+    to completion. Every request is persisted, auditable, and survives a
+    restart of the service.
 
     Authenticate every `/v1` call with the `X-API-Key` header. A key's role
     decides whether it reads only its own requests (`client`) or every request

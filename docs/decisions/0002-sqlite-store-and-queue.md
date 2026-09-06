@@ -1,6 +1,6 @@
 # ADR-0002: SQLite is the store and the job queue; one instance
 
-- **Status:** accepted
+- **Status:** accepted, amended 2026-09-07
 - **Date:** 2026-08-29
 
 ## Context
@@ -30,3 +30,16 @@ workers never deadlock. TentaCron runs as exactly one instance.
   statement, one writer at a time); housekeeping works in batches.
 - The database file is the source of truth and is safe to inspect with the
   `sqlite3` CLI while the service runs.
+
+## Amendments
+
+**2026-09-07.** The record said every accepted request must survive a
+restart; the setting the store runs with makes the guarantee precise. The
+database runs in WAL mode with `synchronous` `NORMAL`: every committed
+transaction survives a process crash and the file can never be corrupted
+by one, while the commits since the last WAL checkpoint can be lost on a
+power loss or an operating-system crash. The trade — one fsync per
+checkpoint instead of one per transaction — is accepted for a queue whose
+clients keep their request ids and can resubmit; the operations page
+states it, and a `storage.synchronous: full` option is the shape a
+stricter deployment would take.
