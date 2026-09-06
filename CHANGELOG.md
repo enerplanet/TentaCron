@@ -27,6 +27,11 @@ under "Changed" with the keys or fields concerned.
 
 ### Fixed
 
+- A reload that emptied `callbacks.allowed_hosts` stopped the deliverer
+  entirely and left every pending delivery `pending` forever. Attempts now
+  re-check the allow-list, record the reason, and follow the backoff, so
+  the delivery goes out once the host is restored or fails when the budget
+  runs out.
 - A reload neither applied a changed `upstream.max_response_bytes` nor
   reported it as needing a restart; the cap now follows the reload.
 - A shutdown was held open by long-polls: a wait of up to 25 seconds

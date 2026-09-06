@@ -111,11 +111,13 @@ func (d *Deliverer) Run(ctx context.Context) {
 	}
 }
 
-// deliverDue attempts every due delivery once, in due order.
+// deliverDue attempts every due delivery once, in due order. Each attempt
+// re-checks the URL against the allow-list in force: a reload that removed
+// the host, or disabled callbacks, turns the attempt into a failed one with
+// the reason, so the delivery keeps its backoff schedule — reversible by
+// restoring the host — and is given up only when the attempt budget runs
+// out, never left pending forever.
 func (d *Deliverer) deliverDue(ctx context.Context) {
-	if !d.config().Callbacks.Enabled() {
-		return
-	}
 	due, err := d.store.DueDeliveries(ctx, d.now(), dueBatch)
 	if err != nil {
 		if ctx.Err() == nil {
@@ -123,12 +125,30 @@ func (d *Deliverer) deliverDue(ctx context.Context) {
 		}
 		return
 	}
+	cfg := d.config()
 	for _, del := range due {
 		if ctx.Err() != nil {
 			return
 		}
+		if err := Check(cfg.Callbacks, del.URL); err != nil {
+			d.refuse(ctx, del, err)
+			continue
+		}
 		d.attempt(ctx, del)
 	}
+}
+
+// refuse records an attempt that was not made because the allow-list in
+// force no longer covers the URL.
+func (d *Deliverer) refuse(ctx context.Context, del *store.Delivery, reason error) {
+	outcome, next := d.classify(del.Attempts+1, 0, reason)
+	if err := d.store.RecordAttempt(ctx, del.JobID, del.Attempts, nil, reason.Error(), false, next); err != nil {
+		d.logger.Error("record callback attempt failed", "job_id", del.JobID, "error", err)
+		return
+	}
+	d.metrics.CallbackDelivery(outcome)
+	d.logger.Warn("callback not sent: the allow-list no longer covers its host",
+		"job_id", del.JobID, "event", del.Event, "attempt", del.Attempts+1, "outcome", outcome, "error", reason)
 }
 
 // attempt performs one delivery and records its outcome.

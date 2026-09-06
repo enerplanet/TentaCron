@@ -246,7 +246,12 @@ outcome repeats that one attempt, which is why receivers should treat
 `X-Tentacron-Request-Id` as an idempotency key. Delivery rows are deleted
 with their request under `storage.retention`. Outcomes are counted by
 `tentacron_callback_deliveries_total{outcome=delivered|retry|failed}` and
-logged per attempt (`callback delivered`, `callback attempt failed`).
+logged per attempt (`callback delivered`, `callback attempt failed`). A
+reload that removes a host from `callbacks.allowed_hosts`, or empties the
+list, does not strand pending deliveries: every attempt re-checks the
+list, records the reason as `last_error`, and keeps the backoff schedule,
+so restoring the host lets the delivery go out and the attempt budget
+otherwise ends it as `failed`.
 
 ## Backups and storage growth
 

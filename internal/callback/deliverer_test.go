@@ -195,3 +195,63 @@ func TestCheckAllowList(t *testing.T) {
 		t.Errorf("disabled: %v", err)
 	}
 }
+
+// Callbacks disabled by a reload do not strand deliveries: the attempt is
+// recorded with the reason and retried on the backoff, and once callbacks
+// are back the delivery goes out.
+func TestDeliveryWaitsOutADisabledAllowListAndThenGoesOut(t *testing.T) {
+	srv, got := receiver(t, 200)
+	d, st, cfg := setup(t, srv)
+	allowed := cfg.Callbacks.AllowedHosts
+	cfg.Callbacks.AllowedHosts = nil // a reload emptied the list
+	terminalJob(t, st, srv.URL+"/hook", "j1", false)
+	ctx := context.Background()
+	d.deliverDue(ctx)
+	del, err := st.GetDelivery(ctx, "j1")
+	if err != nil || del.State() != store.DeliveryPending || del.Attempts != 1 || !strings.Contains(del.LastError, "not enabled") {
+		t.Fatalf("after the refused attempt: %+v err=%v", del, err)
+	}
+	if len(got()) != 0 {
+		t.Fatal("nothing must have been sent while callbacks were disabled")
+	}
+	cfg.Callbacks.AllowedHosts = allowed // the operator restored the list
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		d.deliverDue(ctx)
+		if del, _ := st.GetDelivery(ctx, "j1"); del.State() == store.DeliveryDelivered {
+			break
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	if del, _ := st.GetDelivery(ctx, "j1"); del.State() != store.DeliveryDelivered || del.Attempts != 2 {
+		t.Fatalf("after restoring the list: %+v", del)
+	}
+	if len(got()) != 1 {
+		t.Fatalf("receiver got %d deliveries, want 1", len(got()))
+	}
+}
+
+// A host removed for good exhausts the attempt budget with the reason and
+// ends failed; nothing is ever sent to it.
+func TestDeliveryToARemovedHostFailsAfterTheBudget(t *testing.T) {
+	srv, got := receiver(t, 200)
+	d, st, cfg := setup(t, srv)
+	cfg.Callbacks.AllowedHosts = []string{"other.example"}
+	terminalJob(t, st, srv.URL+"/hook", "j1", false)
+	ctx := context.Background()
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		d.deliverDue(ctx)
+		if del, _ := st.GetDelivery(ctx, "j1"); del.State() == store.DeliveryFailed {
+			break
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	del, _ := st.GetDelivery(ctx, "j1")
+	if del.State() != store.DeliveryFailed || del.Attempts != cfg.Callbacks.MaxAttempts || !strings.Contains(del.LastError, "not allow-listed") {
+		t.Fatalf("delivery = %+v", del)
+	}
+	if len(got()) != 0 {
+		t.Fatalf("receiver got %d deliveries, want none", len(got()))
+	}
+}
