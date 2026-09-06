@@ -21,6 +21,7 @@ import (
 	"strings"
 	"sync"
 	"syscall"
+	"time"
 	_ "time/tzdata" // schedules name IANA zones; the distroless image has no zoneinfo
 
 	"github.com/enerplanet/tentacron/internal/api"
@@ -39,6 +40,7 @@ const usage = `Usage:
   tentacron [serve] [-config FILE]        start the service (default command)
   tentacron validate [-config FILE]       load, interpolate and validate a configuration
   tentacron backup [-config FILE] DEST    write a consistent copy of the database to DEST
+  tentacron healthcheck [-addr HOST:PORT] exit 0 when the service at HOST:PORT is ready
   tentacron version                       print build information
 
 FILE defaults to config.yaml. Exit codes: 0 ok, 1 invalid configuration or
@@ -63,6 +65,8 @@ func run(args []string, stdout, stderr io.Writer) int {
 		return runValidate(rest, stdout, stderr)
 	case "backup":
 		return runBackup(rest, stdout, stderr)
+	case "healthcheck":
+		return runHealthcheck(rest, stdout, stderr)
 	case "version":
 		fmt.Fprintf(stdout, "tentacron %s %s %s/%s\n", version, runtime.Version(), runtime.GOOS, runtime.GOARCH)
 		return 0
@@ -126,6 +130,47 @@ func runBackup(args []string, stdout, stderr io.Writer) int {
 		return 1
 	}
 	fmt.Fprintf(stdout, "backup written: %s (%d bytes)\n", rest[0], info.Size())
+	return 0
+}
+
+// runHealthcheck asks the service at -addr whether it is ready and exits 0
+// when it is. It exists for the release image, which has no shell and no
+// curl for a Docker HEALTHCHECK to run; a Kubernetes probe reads /readyz
+// directly.
+func runHealthcheck(args []string, stdout, stderr io.Writer) int {
+	fs := flag.NewFlagSet("tentacron healthcheck", flag.ContinueOnError)
+	fs.SetOutput(stderr)
+	addr := fs.String("addr", "127.0.0.1:8080", "host:port the service listens on")
+	timeout := fs.Duration("timeout", 5*time.Second, "how long to wait for the answer")
+	if err := fs.Parse(args); err != nil {
+		if errors.Is(err, flag.ErrHelp) {
+			fmt.Fprint(stdout, usage)
+			return 0
+		}
+		return 2
+	}
+	if strings.HasPrefix(*addr, ":") {
+		*addr = "127.0.0.1" + *addr
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), *timeout)
+	defer cancel()
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, "http://"+*addr+"/readyz", http.NoBody)
+	if err != nil {
+		fmt.Fprintf(stderr, "not ready: %v\n", err)
+		return 1
+	}
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		fmt.Fprintf(stderr, "not ready: %v\n", err)
+		return 1
+	}
+	defer func() { _ = resp.Body.Close() }()
+	_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 1024))
+	if resp.StatusCode != http.StatusOK {
+		fmt.Fprintf(stderr, "not ready: /readyz answered %d\n", resp.StatusCode)
+		return 1
+	}
+	fmt.Fprintln(stdout, "ready")
 	return 0
 }
 

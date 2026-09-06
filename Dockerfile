@@ -8,6 +8,7 @@
 #
 #   docker build --build-arg VERSION=$(git describe --tags --always) -t tentacron .
 #   docker run --rm tentacron validate -config /etc/tentacron/config.yaml   # pre-deploy check
+#   docker exec <container> tentacron healthcheck                            # what HEALTHCHECK runs
 #   docker run --rm -p 8080:8080 \
 #     -v "$PWD/config.yaml:/etc/tentacron/config.yaml:ro" \
 #     -v tentacron-data:/data \
@@ -43,5 +44,9 @@ VOLUME ["/data"]
 EXPOSE 8080
 # Numeric ids: Kubernetes runAsNonRoot rejects a symbolic user it cannot resolve.
 USER 65532:65532
+# No shell and no curl in the image: the binary probes its own readiness.
+# Kubernetes ignores this and reads /readyz directly.
+HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
+  CMD ["/usr/local/bin/tentacron", "healthcheck"]
 ENTRYPOINT ["/usr/local/bin/tentacron"]
 CMD ["-config", "/etc/tentacron/config.yaml"]

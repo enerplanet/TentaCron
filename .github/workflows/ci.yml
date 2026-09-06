@@ -92,6 +92,27 @@ jobs:
             -e TENTACRON_KEY_FRONTEND -e TENTACRON_KEY_BATCH -e MEME_API_KEY -e BUEM_API_KEY \
             -e PV1_API_KEY -e WIND_API_KEY -e WEATHER_API_KEY -e IGNIS_API_KEY \
             tentacron:ci validate -config /etc/tentacron/config.yaml
+      - name: The running image answers its own healthcheck
+        env:
+          TENTACRON_KEY_FRONTEND: ci
+          TENTACRON_KEY_BATCH: ci
+          MEME_API_KEY: ci
+          BUEM_API_KEY: ci
+          PV1_API_KEY: ci
+          WIND_API_KEY: ci
+          WEATHER_API_KEY: ci
+          IGNIS_API_KEY: ci
+        run: |
+          docker run -d --name tentacron-ci -v "$PWD/config.example.yaml:/etc/tentacron/config.yaml:ro" \
+            -e TENTACRON_KEY_FRONTEND -e TENTACRON_KEY_BATCH -e MEME_API_KEY -e BUEM_API_KEY \
+            -e PV1_API_KEY -e WIND_API_KEY -e WEATHER_API_KEY -e IGNIS_API_KEY \
+            tentacron:ci
+          for i in $(seq 1 30); do
+            docker exec tentacron-ci /usr/local/bin/tentacron healthcheck && break
+            sleep 1
+          done
+          docker exec tentacron-ci /usr/local/bin/tentacron healthcheck
+          docker rm -f tentacron-ci
 
   vuln:
     runs-on: ubuntu-latest

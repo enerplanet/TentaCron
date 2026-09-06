@@ -75,6 +75,7 @@ invalid, 2 usage error. CI runs it against both reference configs.
 | `tentacron [serve] -config FILE` | Start the service; `serve` is the default, so `tentacron -config FILE` still works. |
 | `tentacron validate -config FILE` | Load and validate a configuration without starting anything. |
 | `tentacron backup -config FILE DEST` | Write a consistent, compacted copy of the database to `DEST` (safe while the service runs; refuses to overwrite). |
+| `tentacron healthcheck [-addr HOST:PORT]` | Exit 0 when the service is ready (`/readyz` answers `200`), 1 otherwise; the probe the shell-less image runs. |
 | `tentacron version` | Print the build version and Go version. |
 
 ## Health and readiness
@@ -83,6 +84,10 @@ invalid, 2 usage error. CI runs it against both reference configs.
 - `GET /readyz` — database reachable and migrations applied. Wire this into
   your orchestrator's readiness probe.
 - `GET /version` — which build answers (version, Go version, VCS revision).
+- `tentacron healthcheck [-addr HOST:PORT]` — exit 0 when `/readyz` answers
+  `200`. The release image has no shell and no curl, so its Docker
+  `HEALTHCHECK` runs this command, and the Compose release service declares
+  the same probe; Kubernetes reads `/readyz` directly.
 
 ## Logs
 

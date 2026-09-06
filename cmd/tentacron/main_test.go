@@ -2,6 +2,9 @@ package main
 
 import (
 	"bytes"
+	"io"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
@@ -108,5 +111,31 @@ func TestDefaultCommandIsServe(t *testing.T) {
 	}
 	if code, out, _ := runCLI(t, "serve", "-h"); code != 0 || !strings.Contains(out, "Usage:") {
 		t.Errorf("serve -h: exit %d, out %q", code, out)
+	}
+}
+
+// healthcheck exits 0 only when the service's readiness answers 200.
+func TestHealthcheckSubcommand(t *testing.T) {
+	ready := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/readyz" {
+			w.WriteHeader(http.StatusNotFound)
+			return
+		}
+		_, _ = io.WriteString(w, `{"status":"ready"}`)
+	}))
+	defer ready.Close()
+	notReady := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusServiceUnavailable) }))
+	defer notReady.Close()
+	if code, out, _ := runCLI(t, "healthcheck", "-addr", strings.TrimPrefix(ready.URL, "http://")); code != 0 || !strings.Contains(out, "ready") {
+		t.Fatalf("ready service: exit %d out %q", code, out)
+	}
+	if code, _, errOut := runCLI(t, "healthcheck", "-addr", strings.TrimPrefix(notReady.URL, "http://")); code != 1 || !strings.Contains(errOut, "answered 503") {
+		t.Fatalf("not-ready service: exit %d err %q", code, errOut)
+	}
+	if code, _, errOut := runCLI(t, "healthcheck", "-addr", "127.0.0.1:1", "-timeout", "1s"); code != 1 || !strings.Contains(errOut, "not ready") {
+		t.Fatalf("no service: exit %d err %q", code, errOut)
+	}
+	if code, out, _ := runCLI(t, "healthcheck", "-h"); code != 0 || !strings.Contains(out, "healthcheck") {
+		t.Fatalf("help: exit %d out %q", code, out)
 	}
 }

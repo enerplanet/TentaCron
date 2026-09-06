@@ -17,6 +17,10 @@ under "Changed" with the keys or fields concerned.
 
 ### Added
 
+- `tentacron healthcheck [-addr HOST:PORT]` exits 0 when `/readyz` answers,
+  so the shell-less release image can probe itself: the Dockerfile
+  declares a `HEALTHCHECK` with it and the Compose release service the
+  same probe; CI starts the built image and runs the check.
 - `POST /v1/schedules` honours `Idempotency-Key` like `POST /v1/requests`:
   a retried creation replays the stored schedule instead of doubling the
   run cadence, and a different schedule under the same key answers

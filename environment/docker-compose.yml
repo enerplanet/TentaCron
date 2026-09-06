@@ -63,6 +63,11 @@ services:
       - tentacron-data:/data
     ports:
       - "${HOST_PORT:-8080}:${PORT:-8080}"
+    healthcheck:
+      test: ["CMD", "/usr/local/bin/tentacron", "healthcheck", "-addr", "127.0.0.1:${PORT:-8080}"]
+      interval: 30s
+      timeout: 5s
+      start_period: 10s
     restart: unless-stopped
 
   # One-shot: validate the config the api service would load, with the same
