@@ -283,11 +283,17 @@ func TestCORSRequestLogNamesDeniedOriginsAndDebugsPreflights(t *testing.T) {
 	e.do(t, http.MethodGet, "/v1/requests", "", withOrigin(foreignOrigin, auth))
 	e.do(t, http.MethodGet, "/v1/requests", "", withOrigin(allowedOrigin, auth))
 	e.do(t, http.MethodOptions, "/v1/requests", "", withOrigin(allowedOrigin, map[string]string{"Access-Control-Request-Method": "POST"}))
+	e.do(t, http.MethodOptions, "/v1/requests", "", withOrigin(foreignOrigin, map[string]string{"Access-Control-Request-Method": "POST"}))
 	lines := strings.Split(strings.TrimSpace(buf.String()), "\n")
-	if len(lines) != 3 {
-		t.Fatalf("want three request lines, got %d:\n%s", len(lines), buf.String())
+	if len(lines) != 4 {
+		t.Fatalf("want four request lines, got %d:\n%s", len(lines), buf.String())
 	}
-	denied, allowed, preflight := lines[0], lines[1], lines[2]
+	denied, allowed, preflight, refusedPreflight := lines[0], lines[1], lines[2], lines[3]
+	// A refused preflight is the only trace of a frontend whose origin is
+	// not configured, since the browser sends nothing after it.
+	if !strings.Contains(refusedPreflight, `"level":"INFO"`) || !strings.Contains(refusedPreflight, `"cors":"denied"`) || !strings.Contains(refusedPreflight, `"status":204`) {
+		t.Errorf("refused preflight line: %s", refusedPreflight)
+	}
 	if !strings.Contains(denied, `"origin":"`+foreignOrigin+`"`) || !strings.Contains(denied, `"cors":"denied"`) || !strings.Contains(denied, `"level":"INFO"`) {
 		t.Errorf("denied origin line: %s", denied)
 	}

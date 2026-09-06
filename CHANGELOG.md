@@ -25,9 +25,10 @@ under "Changed" with the keys or fields concerned.
   `Content-Disposition`, cancelling, and what a key in a page means.
   Every snippet is the code of the example browser client.
 - The request log names a browser's `origin` and carries `cors: denied`
-  when the policy refused it; CORS preflights log at `debug` like the
-  health probes. The start-up and reload log lines print the browser
-  policy in one line.
+  when the policy refused it; answered CORS preflights log at `debug`
+  like the health probes, a refused one at `info`, since the browser
+  sends nothing after it. The start-up and reload log lines print the
+  browser policy in one line.
 - `server.cors` gains the knobs meme's browser policy has, opt-in and
   validated by the Fetch rules: `allow_credentials` (the response then
   always echoes the specific origin, and the `*` origin is refused),

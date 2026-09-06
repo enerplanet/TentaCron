@@ -59,12 +59,6 @@ func (s *Server) withRequestLog(next http.Handler) http.Handler {
 		rec := &statusRecorder{ResponseWriter: w, status: http.StatusOK}
 		start := time.Now()
 		next.ServeHTTP(rec, r)
-		level := slog.LevelInfo
-		if probePaths[r.URL.Path] || isPreflight(r) {
-			// Probes and preflights arrive every few seconds; at info
-			// they would drown the log.
-			level = slog.LevelDebug
-		}
 		attrs := []any{
 			"request_id", reqID,
 			"method", r.Method,
@@ -75,11 +69,21 @@ func (s *Server) withRequestLog(next http.Handler) http.Handler {
 		}
 		// A browser's origin, and whether the policy refused it, so one
 		// grep answers "is my frontend's origin configured".
+		denied := false
 		if origin := r.Header.Get("Origin"); origin != "" {
 			attrs = append(attrs, "origin", origin)
 			if h := s.cors.Load(); h != nil && h.Enabled() && !h.Allows(origin) {
+				denied = true
 				attrs = append(attrs, "cors", "denied")
 			}
+		}
+		level := slog.LevelInfo
+		if probePaths[r.URL.Path] || (isPreflight(r) && !denied) {
+			// Probes and preflights arrive every few seconds; at info they
+			// would drown the log. A refused preflight stays at info: the
+			// browser sends no actual request after it, so this line is
+			// the only trace of a frontend whose origin is not configured.
+			level = slog.LevelDebug
 		}
 		s.logger.Log(r.Context(), level, "request", attrs...)
 	})

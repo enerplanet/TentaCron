@@ -169,9 +169,11 @@ duplicate outcomes). One line per HTTP request
 (`request_id` echoed from/into `X-Request-ID`, `method`, `path`, `status`,
 `duration_ms`; `origin` when a browser sent one and `cors: denied` when
 the policy refused it, so one grep answers whether a frontend's origin is
-configured; probes of `/healthz`, `/readyz` and `/version` and CORS
-preflights at `debug` so an orchestrator or a page does not drown the
-log; a request that panicked with its `500`) and one per job transition (`job_id`, `target`, `attempt`,
+configured; probes of `/healthz`, `/readyz` and `/version` and answered
+CORS preflights at `debug` so an orchestrator or a page does not drown
+the log, while a refused preflight stays at `info` because the browser
+sends nothing after it; a request that panicked with its `500`) and one
+per job transition (`job_id`, `target`, `attempt`,
 `client` — the name of the API key used — `error`). Substitution warnings
 (e.g. a series without `"type": "time-series"`) are logged at `WARN` and do
 not fail the job. API keys are never logged; upstream error bodies have every
