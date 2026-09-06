@@ -16,12 +16,17 @@ import (
 
 // Defaults applied when the corresponding Config list is empty. The methods
 // are every method this API serves, cancellation and schedule deletion
-// included; the exposed headers let browser JS read a result's filename,
-// its ranges and the request id.
+// included. The allowed request headers are every header the handlers
+// read, plus Authorization for an authenticating proxy in front of the
+// API; the exposed response headers are every header the handlers set
+// that the Fetch specification does not safelist, so browser JS can read
+// a result's filename and ranges, the request id, the Allow list of a 405
+// and the Retry-After of a 429. A test in internal/api scans the handlers
+// and fails when a header is added to them but not here.
 var (
 	DefaultAllowedMethods = []string{http.MethodGet, http.MethodHead, http.MethodPost, http.MethodDelete, http.MethodOptions}
-	DefaultAllowedHeaders = []string{"Content-Type", "X-API-Key", "Idempotency-Key", "X-Request-ID", "Range"}
-	DefaultExposeHeaders  = []string{"X-Request-ID", "Allow", "Content-Disposition", "Content-Length", "Content-Range", "Accept-Ranges"}
+	DefaultAllowedHeaders = []string{"Content-Type", "X-API-Key", "Idempotency-Key", "X-Request-ID", "Range", "Authorization"}
+	DefaultExposeHeaders  = []string{"X-Request-ID", "Allow", "Retry-After", "Content-Disposition", "Content-Length", "Content-Range", "Accept-Ranges"}
 )
 
 // defaultMaxAge caps preflight caching. Ten minutes is Chromium's upper

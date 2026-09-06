@@ -18,6 +18,14 @@ under "Changed" with the keys or fields concerned.
   when `*` is set. The policy lives in a package of its own,
   `internal/cors`, with a fuzz target on the origin matcher.
 
+### Fixed
+
+- Browser clients can read `Retry-After` on a `429 queue_full`: the header
+  is exposed, as are all headers the handlers set that the Fetch
+  specification does not safelist. Preflights allow `Authorization`, so a
+  page behind an authenticating proxy is not blocked. A test scans the
+  handlers and fails when a header is added to them but not to the sets.
+
 ### Changed
 
 - A CORS preflight from an origin that is not allowed answers `204` with

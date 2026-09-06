@@ -66,7 +66,7 @@ func TestCORSPreflight(t *testing.T) {
 	h := rec.Header()
 	assertHeader(t, h, "Access-Control-Allow-Origin", allowedOrigin)
 	assertHeader(t, h, "Access-Control-Allow-Methods", "GET, HEAD, POST, DELETE, OPTIONS")
-	assertHeader(t, h, "Access-Control-Allow-Headers", "Content-Type, X-API-Key, Idempotency-Key, X-Request-ID, Range")
+	assertHeader(t, h, "Access-Control-Allow-Headers", "Content-Type, X-API-Key, Idempotency-Key, X-Request-ID, Range, Authorization")
 	assertHeader(t, h, "Access-Control-Max-Age", "600")
 	if got := strings.Join(h.Values("Vary"), ", "); got != "Origin, Access-Control-Request-Method, Access-Control-Request-Headers" {
 		t.Errorf("Vary = %q", got)
@@ -213,12 +213,12 @@ func TestCORSHeadersOnAuthAndSizeErrors(t *testing.T) {
 	}
 }
 
-// The exposed set today. Retry-After is missing from it, so a page cannot
-// read when to retry a 429; item 1.3 adds it.
+// The exposed set: every non-safelisted header the handlers set, Retry-After
+// included so a page can read when to retry a 429.
 func TestCORSExposeHeaders(t *testing.T) {
 	e := corsEnv(t, allowedOrigin)
 	rec := e.do(t, http.MethodGet, "/healthz", "", withOrigin(allowedOrigin, nil))
-	assertHeader(t, rec.Header(), "Access-Control-Expose-Headers", "X-Request-ID, Allow, Content-Disposition, Content-Length, Content-Range, Accept-Ranges")
+	assertHeader(t, rec.Header(), "Access-Control-Expose-Headers", "X-Request-ID, Allow, Retry-After, Content-Disposition, Content-Length, Content-Range, Accept-Ranges")
 }
 
 // Preflights carry no key and are answered before authentication.

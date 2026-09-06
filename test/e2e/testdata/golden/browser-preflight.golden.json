@@ -1,7 +1,7 @@
 [
   {
     "headers": {
-      "Access-Control-Allow-Headers": "Content-Type, X-API-Key, Idempotency-Key, X-Request-ID, Range",
+      "Access-Control-Allow-Headers": "Content-Type, X-API-Key, Idempotency-Key, X-Request-ID, Range, Authorization",
       "Access-Control-Allow-Methods": "GET, HEAD, POST, DELETE, OPTIONS",
       "Access-Control-Allow-Origin": "https://app.example.org",
       "Access-Control-Max-Age": "600",
@@ -16,7 +16,7 @@
   {
     "headers": {
       "Access-Control-Allow-Origin": "https://app.example.org",
-      "Access-Control-Expose-Headers": "X-Request-ID, Allow, Content-Disposition, Content-Length, Content-Range, Accept-Ranges",
+      "Access-Control-Expose-Headers": "X-Request-ID, Allow, Retry-After, Content-Disposition, Content-Length, Content-Range, Accept-Ranges",
       "Vary": "Origin"
     },
     "request": "POST /v1/requests",
@@ -32,7 +32,7 @@
   },
   {
     "headers": {
-      "Access-Control-Allow-Headers": "Content-Type, X-API-Key, Idempotency-Key, X-Request-ID, Range",
+      "Access-Control-Allow-Headers": "Content-Type, X-API-Key, Idempotency-Key, X-Request-ID, Range, Authorization",
       "Access-Control-Allow-Methods": "GET, HEAD, POST, DELETE, OPTIONS",
       "Access-Control-Allow-Origin": "https://app.example.org",
       "Access-Control-Max-Age": "600",
@@ -46,7 +46,7 @@
   },
   {
     "headers": {
-      "Access-Control-Allow-Headers": "Content-Type, X-API-Key, Idempotency-Key, X-Request-ID, Range",
+      "Access-Control-Allow-Headers": "Content-Type, X-API-Key, Idempotency-Key, X-Request-ID, Range, Authorization",
       "Access-Control-Allow-Methods": "GET, HEAD, POST, DELETE, OPTIONS",
       "Access-Control-Allow-Origin": "https://app.example.org",
       "Access-Control-Max-Age": "600",
@@ -60,7 +60,7 @@
   },
   {
     "headers": {
-      "Access-Control-Allow-Headers": "Content-Type, X-API-Key, Idempotency-Key, X-Request-ID, Range",
+      "Access-Control-Allow-Headers": "Content-Type, X-API-Key, Idempotency-Key, X-Request-ID, Range, Authorization",
       "Access-Control-Allow-Methods": "GET, HEAD, POST, DELETE, OPTIONS",
       "Access-Control-Allow-Origin": "https://app.example.org",
       "Access-Control-Max-Age": "600",
@@ -96,7 +96,7 @@
   {
     "headers": {
       "Access-Control-Allow-Origin": "https://app.example.org",
-      "Access-Control-Expose-Headers": "X-Request-ID, Allow, Content-Disposition, Content-Length, Content-Range, Accept-Ranges",
+      "Access-Control-Expose-Headers": "X-Request-ID, Allow, Retry-After, Content-Disposition, Content-Length, Content-Range, Accept-Ranges",
       "Vary": "Origin"
     },
     "request": "GET /v1/requests/«job-1»",
