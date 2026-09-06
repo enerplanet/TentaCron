@@ -28,8 +28,10 @@ TLS termination, rate limiting per address or per key, connection limits,
 network allow-lists and any request-size limit beyond the body cap are the
 reverse proxy's job. TentaCron keeps what needs its own knowledge:
 authentication, the per-key ceilings (`max_concurrent`, `max_priority`,
-`max_schedules`, `max_queued`), the body and response caps, and the poll
-and result timeouts.
+`max_schedules`, `max_queued`), the body and response caps, the poll
+and result timeouts, and the browser policy (CORS), since only the
+service knows which headers its handlers set and read
+([ADR-0009](0009-browser-access-policy.md)).
 
 The operations page carries working proxy configurations for Caddy and
 nginx, including the one rule a proxy must follow for this service: its

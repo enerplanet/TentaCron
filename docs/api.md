@@ -47,21 +47,20 @@ reads every request. The key's name identifies the client in logs
 answers `400 invalid_parameter`); an `X-Request-ID` longer than 128
 characters is replaced by a generated id.
 
-**Browsers.** A frontend may call the API directly from the origins listed
+**Browsers.** A page may call the API directly from the origins listed
 under `server.cors.allowed_origins` (exact origins, `*`, or subdomain
-wildcards such as `https://*.example.org`, matched case-insensitively): preflights
-are answered for every method the API has, cancellation and schedule
-deletion included, allowing the request headers `Content-Type`,
-`X-API-Key`, `Idempotency-Key`, `X-Request-ID`, `Range` and, for an
-authenticating proxy in front, `Authorization`; the responses expose
-`X-Request-ID`, `Allow`, `Retry-After`, `Content-Disposition`,
-`Content-Length`, `Content-Range` and `Accept-Ranges`, every header the
-API sets that a page could not otherwise read. A preflight from any other origin is answered `204`
-with only the `Vary` headers, so the browser blocks the request itself,
-and its actual requests receive no CORS headers; an `OPTIONS` without
-`Access-Control-Request-Method` is no preflight and answers `405` with
-`Allow`. A key embedded in a browser is visible to its users; a
-backend-for-frontend keeps it server-side where that matters.
+wildcards such as `https://*.example.org`, matched case-insensitively).
+Preflights are answered before authentication for every method the API
+has, cancellation and schedule deletion included, allowing the request
+headers `Content-Type`, `X-API-Key`, `Idempotency-Key`, `X-Request-ID`,
+`Range` and `Authorization`; responses expose `X-Request-ID`, `Allow`,
+`Retry-After`, `Content-Disposition`, `Content-Length`, `Content-Range`
+and `Accept-Ranges`, every header the API sets that a page could not
+otherwise read. A preflight from any other origin is answered `204` with
+only the `Vary` headers, so the browser blocks the request itself; an
+`OPTIONS` without `Access-Control-Request-Method` is no preflight and
+answers `405` with `Allow`. The [Browser clients](browser-clients.md) page
+walks through a page with `fetch` and what a key in a page means.
 
 Every response carries an `X-Request-ID` header — echoed from the request
 when supplied, generated otherwise — which is also the `request_id` field of

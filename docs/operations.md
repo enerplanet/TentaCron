@@ -81,12 +81,23 @@ timeout must exceed `server.write_timeout`** (30 seconds by default),
 because a long-poll (`?wait=`) answers up to five seconds before that
 timeout and a shorter proxy timeout cuts it off first.
 
+A second rule applies when pages call the API: **the browser policy stays
+in the service**, by decision
+([ADR-0009](decisions/0009-browser-access-policy.md)). The proxy forwards
+`OPTIONS` requests and the `Origin` header untouched and adds no
+`Access-Control-*` header of its own, because only the service knows
+which headers its handlers set and read; a CORS snippet copied into the
+proxy either duplicates a header, which browsers reject, or grants what
+the service refused. Caches in front must honour `Vary`. Both
+configurations below already do this: neither answers `OPTIONS` itself
+and neither adds a header.
+
 Caddy, with the [rate-limit module](https://github.com/mholt/caddy-ratelimit)
 compiled in, limiting per API key:
 
 ```caddyfile
 tentacron.example.org {
-    reverse_proxy tentacron:8080 {
+    reverse_proxy tentacron:8080 {   # OPTIONS and Origin pass through; no CORS headers here
         transport http {
             read_timeout 60s   # above server.write_timeout
         }
@@ -119,7 +130,7 @@ server {
     location / {
         limit_req  zone=tentacron_req burst=20 nodelay;
         limit_conn tentacron_conn 20;
-        proxy_pass         http://tentacron:8080;
+        proxy_pass         http://tentacron:8080;   # OPTIONS and Origin pass through; no add_header Access-Control-*
         proxy_read_timeout 60s;           # above server.write_timeout
         proxy_set_header   X-Request-ID $request_id;
     }

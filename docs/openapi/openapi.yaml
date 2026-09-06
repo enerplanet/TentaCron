@@ -15,6 +15,13 @@ info:
     (`admin`). The API changes only additively within `/v1`; clients must ignore
     fields they do not know.
 
+    Pages on the origins a deployment allows (`server.cors.allowed_origins`)
+    may call the API directly: CORS preflights are answered for every
+    operation before authentication and are not listed here, and the
+    responses expose `X-Request-ID`, `Allow`, `Retry-After`,
+    `Content-Disposition`, `Content-Length`, `Content-Range` and
+    `Accept-Ranges` to browser JavaScript.
+
     `info.version` is the contract version, the major of the `/v1` prefix; the
     service release is independent of it and reported by `GET /version`.
   license:
