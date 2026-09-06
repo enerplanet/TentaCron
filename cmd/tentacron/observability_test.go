@@ -1,12 +1,18 @@
 package main
 
 import (
+	"fmt"
+	"io"
+	"log/slog"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/enerplanet/tentacron/internal/config"
 	"github.com/enerplanet/tentacron/internal/metrics"
+	"github.com/enerplanet/tentacron/internal/upstream"
 )
 
 func TestMetricsServerOnlyWhenConfigured(t *testing.T) {
@@ -35,5 +41,27 @@ func TestBuildInfoCarriesVersionAndGo(t *testing.T) {
 	b := buildInfo()
 	if b.Version != version || !strings.HasPrefix(b.Go, "go") {
 		t.Errorf("buildInfo = %+v", b)
+	}
+}
+
+// A reload applies the response cap to the outbound client, next to the
+// log level and the redaction list.
+func TestReloadAppliesTheResponseCap(t *testing.T) {
+	dir := t.TempDir()
+	cfgText := func(cap int) string {
+		return fmt.Sprintf("auth:\n  api_keys: [{name: t, key: k}]\nstorage:\n  path: %q\nupstream:\n  max_response_bytes: %d\ntargets:\n  demo:\n    url: \"https://demo.example.org/run\"\n", filepath.Join(dir, "t.db"), cap)
+	}
+	path := writeConfig(t, cfgText(1000))
+	provider, err := config.NewProvider(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	client := upstream.New(provider.Current().Upstream.MaxResponseBytes, nil)
+	if err := os.WriteFile(path, []byte(cfgText(2000)), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	reloadConfig(provider, slog.New(slog.NewTextHandler(io.Discard, nil)), new(slog.LevelVar), client)
+	if client.MaxBody() != 2000 {
+		t.Fatalf("cap after reload = %d, want 2000", client.MaxBody())
 	}
 }

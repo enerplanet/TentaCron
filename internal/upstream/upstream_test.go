@@ -614,3 +614,24 @@ func TestFetchResultTotalBoundNamesResultTimeout(t *testing.T) {
 		t.Fatalf("total bound took %s, want about result_timeout", elapsed)
 	}
 }
+
+// The response cap can be changed on a live client; the next call reads
+// under the new limit.
+func TestSetMaxBodyAppliesToTheNextCall(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(`{"payload":"` + strings.Repeat("x", 100) + `"}`))
+	}))
+	defer srv.Close()
+	c := testClient(64)
+	rcfg := config.Resolvent{URL: srv.URL, Method: "POST", Timeout: dur(time.Second)}
+	if _, err := c.ResolveResolvent(context.Background(), "resolvent-x", rcfg, map[string]any{}); err == nil {
+		t.Fatal("a 110-byte body must exceed a 64-byte cap")
+	}
+	c.SetMaxBody(1 << 20)
+	if c.MaxBody() != 1<<20 {
+		t.Fatalf("cap = %d", c.MaxBody())
+	}
+	if _, err := c.ResolveResolvent(context.Background(), "resolvent-x", rcfg, map[string]any{}); err != nil {
+		t.Fatalf("after raising the cap: %v", err)
+	}
+}

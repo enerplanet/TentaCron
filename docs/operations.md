@@ -116,7 +116,8 @@ be matched to a file revision.
 
 Hot, effective for the next request or job: `auth` (keys, roles, limits),
 `targets`, `resolvents` (including cache TTLs and ignore fields),
-`callbacks`, `cache.default_ttl`, `server.log_level`. A job already in
+`callbacks`, `cache.default_ttl`, `upstream.max_response_bytes`,
+`server.log_level`. A job already in
 flight keeps the configuration it started with. Read once at startup, so a
 change is logged under `restart_required` and needs a restart: `server`
 (address, timeouts, body limit, CORS, metrics address), `storage`,

@@ -18,6 +18,8 @@ under "Changed" with the keys or fields concerned.
 
 ### Fixed
 
+- A reload neither applied a changed `upstream.max_response_bytes` nor
+  reported it as needing a restart; the cap now follows the reload.
 - A shutdown was held open by long-polls: a wait of up to 25 seconds
   outlasted the 20-second grace window, and a second interrupt did nothing
   while the drain hung. Long-polls now answer with the current state the

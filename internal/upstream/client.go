@@ -59,7 +59,7 @@ const errBodyExcerpt = 512
 // Client is the shared outbound HTTP client.
 type Client struct {
 	http    *http.Client
-	maxBody int64
+	maxBody atomic.Int64
 	secrets atomic.Pointer[[]string]
 	metrics *metrics.Metrics // nil-safe: a nil receiver records nothing
 }
@@ -70,6 +70,13 @@ func (c *Client) SetSecrets(secrets []string) {
 	list := append([]string(nil), secrets...)
 	c.secrets.Store(&list)
 }
+
+// SetMaxBody replaces the response-body cap for every call from now on,
+// e.g. after a configuration reload changed upstream.max_response_bytes.
+func (c *Client) SetMaxBody(n int64) { c.maxBody.Store(n) }
+
+// MaxBody reports the response-body cap in force.
+func (c *Client) MaxBody() int64 { return c.maxBody.Load() }
 
 // WithMetrics records latency and status class of every outbound call.
 func (c *Client) WithMetrics(m *metrics.Metrics) *Client {
@@ -100,8 +107,8 @@ func New(maxBody int64, secrets []string) *Client {
 				return http.ErrUseLastResponse
 			},
 		},
-		maxBody: maxBody,
 	}
+	c.SetMaxBody(maxBody)
 	c.SetSecrets(secrets)
 	return c
 }
@@ -174,12 +181,13 @@ func (c *Client) call(ctx context.Context, op, method, url string, body []byte, 
 // readCapped reads a response body up to the configured cap. Over-cap
 // failures wrap errBodyTooLarge; other errors are plain read failures.
 func (c *Client) readCapped(r io.Reader) ([]byte, error) {
-	body, err := io.ReadAll(io.LimitReader(r, c.maxBody+1))
+	limit := c.MaxBody()
+	body, err := io.ReadAll(io.LimitReader(r, limit+1))
 	if err != nil {
 		return nil, fmt.Errorf("read response: %w", err)
 	}
-	if int64(len(body)) > c.maxBody {
-		return nil, fmt.Errorf("response exceeds the %d byte limit: %w", c.maxBody, errBodyTooLarge)
+	if int64(len(body)) > limit {
+		return nil, fmt.Errorf("response exceeds the %d byte limit: %w", limit, errBodyTooLarge)
 	}
 	return body, nil
 }

@@ -251,8 +251,8 @@ func serveFromConfig(path string, logger *slog.Logger, level *slog.LevelVar) err
 
 // reloadConfig re-reads the configuration on SIGHUP. A file that fails to
 // parse or validate is reported and the running configuration kept; a good
-// one is swapped in, the log level and redaction list follow it, and the
-// settings that still need a restart are named.
+// one is swapped in, the log level, the redaction list and the response cap
+// follow it, and the settings that still need a restart are named.
 func reloadConfig(provider *config.Provider, logger *slog.Logger, level *slog.LevelVar, client *upstream.Client) {
 	res, err := provider.Reload()
 	if err != nil {
@@ -262,6 +262,7 @@ func reloadConfig(provider *config.Provider, logger *slog.Logger, level *slog.Le
 	cfg := provider.Current()
 	level.Set(cfg.Server.SlogLevel())
 	client.SetSecrets(cfg.UpstreamSecrets())
+	client.SetMaxBody(cfg.Upstream.MaxResponseBytes)
 	attrs := []any{"hash", res.Hash[:12], "changed", res.Changed,
 		"targets", len(cfg.Targets), "resolvents", len(cfg.Resolvents), "keys", len(cfg.Auth.APIKeys)}
 	if len(res.RestartRequired) > 0 {
