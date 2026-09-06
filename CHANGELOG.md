@@ -21,6 +21,10 @@ under "Changed" with the keys or fields concerned.
 
 ### Changed
 
+- Outbound calls use a connection pool of their own, sized to the worker
+  count times the resolvent fan-out, and the callback deliverer has its
+  own; both used to share Go's default transport and its two idle
+  connections per host.
 - Retention scans run over a new index on terminal jobs by completion
   time (migration 0008) instead of walking every terminal row each sweep.
 - Requests to `/healthz`, `/readyz` and `/version` are logged at `debug`;

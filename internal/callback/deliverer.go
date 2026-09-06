@@ -25,6 +25,7 @@ import (
 	"github.com/enerplanet/tentacron/internal/metrics"
 	"github.com/enerplanet/tentacron/internal/notify"
 	"github.com/enerplanet/tentacron/internal/store"
+	"github.com/enerplanet/tentacron/internal/upstream"
 )
 
 // Delivery headers.
@@ -50,12 +51,13 @@ type Deliverer struct {
 	now      func() time.Time
 }
 
-// New builds a deliverer with a client that times out per attempt and
+// New builds a deliverer with a client of its own — its own connection
+// pool, not Go's shared default transport — that times out per attempt and
 // never follows redirects (a redirect could move the signed document to a
 // host that was never allow-listed).
 func New(cfg *config.Provider, st *store.Store, logger *slog.Logger) *Deliverer {
 	d := &Deliverer{cfgp: cfg, store: st, logger: logger, now: time.Now}
-	d.WithHTTPClient(&http.Client{})
+	d.WithHTTPClient(&http.Client{Transport: upstream.NewTransport(4)})
 	return d
 }
 

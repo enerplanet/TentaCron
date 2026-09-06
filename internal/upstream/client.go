@@ -91,12 +91,29 @@ func (c *Client) observe(op string, status int, err error, d time.Duration) {
 	c.metrics.ObserveUpstream(kind, name, status, err, d)
 }
 
+// defaultPoolSize is the idle-connection pool per host before
+// WithConnectionPool sizes it to the deployment.
+const defaultPoolSize = 8
+
+// NewTransport builds a transport of our own — never Go's shared default,
+// whose two idle connections per host would be churned by a worker pool
+// fanning out to the same resource API — with idlePerHost idle connections
+// kept per host. Deadlines stay per call: a transport-wide header timeout
+// would cut off targets whose configured timeout is longer than it.
+func NewTransport(idlePerHost int) *http.Transport {
+	t := http.DefaultTransport.(*http.Transport).Clone()
+	t.MaxIdleConnsPerHost = max(idlePerHost, 2)
+	t.MaxIdleConns = 4 * t.MaxIdleConnsPerHost
+	return t
+}
+
 // New builds a Client. maxBody caps every upstream response body; secrets
 // lists credential values (target/resource API keys) that must never appear
 // in error excerpts — upstream error bodies often echo the request back.
 func New(maxBody int64, secrets []string) *Client {
 	c := &Client{
 		http: &http.Client{
+			Transport: NewTransport(defaultPoolSize),
 			// Per-call deadlines come from contexts; the transport-level
 			// timeout is a safety net against connections that hang forever.
 			Timeout: 10 * time.Minute,
@@ -112,6 +129,18 @@ func New(maxBody int64, secrets []string) *Client {
 	c.SetSecrets(secrets)
 	return c
 }
+
+// WithConnectionPool sizes the idle-connection pool per host to the number
+// of calls the deployment can have in flight against one host — the worker
+// count times the resolvent fan-out — so connections are reused instead of
+// churned.
+func (c *Client) WithConnectionPool(size int) *Client {
+	c.http.Transport = NewTransport(size)
+	return c
+}
+
+// Transport exposes the client's transport, for tests.
+func (c *Client) Transport() *http.Transport { return c.http.Transport.(*http.Transport) }
 
 // send builds and performs one HTTP request, classifying transport-level
 // failures (request build = permanent, network = transient). The caller owns

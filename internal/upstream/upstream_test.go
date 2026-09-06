@@ -635,3 +635,22 @@ func TestSetMaxBodyAppliesToTheNextCall(t *testing.T) {
 		t.Fatalf("after raising the cap: %v", err)
 	}
 }
+
+// The client never shares Go's default transport, and its pool follows the
+// deployment's fan-out.
+func TestClientHasItsOwnSizedTransport(t *testing.T) {
+	c := New(1<<20, nil)
+	if c.Transport() == http.DefaultTransport {
+		t.Fatal("the client must not use the shared default transport")
+	}
+	if got := c.Transport().MaxIdleConnsPerHost; got != defaultPoolSize {
+		t.Fatalf("default pool = %d, want %d", got, defaultPoolSize)
+	}
+	c.WithConnectionPool(4 * 4)
+	if got := c.Transport(); got.MaxIdleConnsPerHost != 16 || got.MaxIdleConns != 64 {
+		t.Fatalf("sized pool = %d/%d, want 16/64", got.MaxIdleConnsPerHost, got.MaxIdleConns)
+	}
+	if got := NewTransport(1).MaxIdleConnsPerHost; got != 2 {
+		t.Fatalf("pool floor = %d, want 2", got)
+	}
+}

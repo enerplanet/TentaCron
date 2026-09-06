@@ -205,7 +205,8 @@ func newProcess(path string, logger *slog.Logger, level *slog.LevelVar) (*proces
 	m := metrics.New(st)
 	hub := notify.New()
 	nudge := make(chan struct{}, 1)
-	client := upstream.New(cfg.Upstream.MaxResponseBytes, cfg.UpstreamSecrets()).WithMetrics(m)
+	client := upstream.New(cfg.Upstream.MaxResponseBytes, cfg.UpstreamSecrets()).
+		WithConnectionPool(cfg.Worker.Count * cfg.Worker.ResolventConcurrency).WithMetrics(m)
 	pool := worker.New(provider, st, client, logger, nudge).WithMetrics(m).WithNotifier(hub)
 	deliverer := callback.New(provider, st, logger).WithMetrics(m).WithNotifier(hub)
 	apiServer := api.New(provider, st, logger, nudge).WithUpstream(client).WithNotifier(hub)

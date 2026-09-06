@@ -255,3 +255,11 @@ func TestDeliveryToARemovedHostFailsAfterTheBudget(t *testing.T) {
 		t.Fatalf("receiver got %d deliveries, want none", len(got()))
 	}
 }
+
+// The deliverer's client has a transport of its own.
+func TestDelivererDoesNotShareTheDefaultTransport(t *testing.T) {
+	d := New(config.Static(&config.Config{}), nil, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	if d.client.Transport == nil || d.client.Transport == http.DefaultTransport {
+		t.Fatal("the deliverer must have its own transport")
+	}
+}
