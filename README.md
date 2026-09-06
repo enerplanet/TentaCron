@@ -46,9 +46,10 @@ Client ──GET /v1/requests/id─    ▼  │
    hands the payload through untouched — tentacron still contributes auth,
    persistence, the audit trail and retries.
 5. `GET /v1/requests/{id}` reports the state machine
-   (`received → resolving → forwarding → awaiting_target → completed|failed`),
-   the result (inline JSON or a downloadable file), and any error. Every
-   transition is kept as an audit event.
+   (`received → resolving → forwarding → awaiting_target → completed|failed`,
+   or `cancelled` after a `DELETE`), the result (inline JSON or a
+   downloadable file), and any error. Every transition is kept as an audit
+   event.
 
 Failed upstream calls retry with exponential backoff; interrupted jobs are
 recovered on restart; polling resumes without re-submitting the target job.
@@ -141,6 +142,7 @@ docker run -d -p 8080:8080 \
 | `POST /v1/requests/validate` | Dry run: which resolvents the payload contains (paths, cache state) and what would fail, without submitting. |
 | `GET /v1/targets`, `GET /v1/resolvents` | Discovery: configured targets and resolvent types, no URLs or credentials. |
 | `GET /v1/requests/{id}` | State, attempts, result (inline JSON or `result.href`), error. `?wait=25s` long-polls until terminal. |
+| `DELETE /v1/requests/{id}` | Cancel a queued request or one awaiting its target; the target is told to stop its job when it offers a cancel URL. |
 | `GET /v1/requests/{id}/result` | Streams a stored result (inline JSON or a result file such as a MEME bundle). |
 | `GET /v1/requests/{id}/events` | The request's audit trail: every state transition with its detail. |
 | `POST /v1/schedules`, `GET /v1/schedules[/{id}]`, `DELETE /v1/schedules/{id}`, `GET /v1/schedules/{id}/runs` | Recurring submissions on a cron expression in a time zone; every due time becomes an ordinary request. |
@@ -170,6 +172,7 @@ make fuzz           # every fuzz target for 20s (FUZZTIME=…); seeds run in mak
 make stress         # race detector, shuffled, repeated (STRESS_COUNT=…)
 make live           # one real request through real upstreams (env-gated)
 make lint           # go vet + golangci-lint
+make lint-openapi   # Redocly lint of docs/openapi/openapi.yaml (needs Node)
 make run            # build and run with config.example.yaml
 make validate       # build and validate config.example.yaml (CONFIG=… for another file)
 ```
