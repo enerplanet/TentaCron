@@ -145,6 +145,12 @@ under "Changed" with the keys or fields concerned.
 
 ### Changed
 
+- The docs site is published through the GitHub Pages actions — a build
+  job that lints the OpenAPI description and builds the site strictly, then
+  a deploy from the artifact — on pushes that touch `docs/` or `mkdocs.yml`
+  and on demand, as the sibling services do; `mkdocs gh-deploy` no longer
+  pushes a `gh-pages` branch. The repository's Pages source must be set to
+  *GitHub Actions* once.
 - CI lints the OpenAPI description with Redocly under its recommended
   ruleset, the linter the sibling services use, in place of the structural
   check by openapi-spec-validator; the docs workflow runs the same lint

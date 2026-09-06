@@ -1,5 +1,9 @@
 # Tentacron
 
+[![CI](https://github.com/enerplanet/tentacron/actions/workflows/ci.yml/badge.svg)](https://github.com/enerplanet/tentacron/actions/workflows/ci.yml)
+[![MkDocs](https://github.com/enerplanet/tentacron/actions/workflows/docs.yml/badge.svg)](https://enerplanet.github.io/tentacron)
+[![Release](https://img.shields.io/github/v/release/enerplanet/tentacron?include_prereleases&label=release&logo=github)](https://github.com/enerplanet/tentacron/releases)
+
 Tentacron is an orchestration and *resolvent* API for renewable-energy modelling
 workflows. It accepts a model payload that still contains **resolvent objects**
 (placeholders such as `"type": "resolvent-pv1"` describing a PV plant, a wind

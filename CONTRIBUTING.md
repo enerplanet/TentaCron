@@ -130,8 +130,10 @@ suite, the build, and the branch/commit linters.
 
 ## Documentation Contributions
 
-Documentation lives in [docs/](docs/), published with MkDocs Material
-through `.github/workflows/docs.yml` (build it locally with
+Documentation lives in [docs/](docs/), published with MkDocs Material to
+[GitHub Pages](https://enerplanet.github.io/tentacron) through
+`.github/workflows/docs.yml` on every push to `main` that touches `docs/`
+or `mkdocs.yml` (build it locally with
 `pip install -r docs/requirements.txt && mkdocs serve`), plus the folder
 READMEs. Keep wording clear and practical, prefer short
 examples, check links and commands, and match the style of the existing
