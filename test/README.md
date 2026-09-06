@@ -69,7 +69,12 @@ freezes everything observable into one transcript per scenario under
 
 Volatile values are normalized (`«job-N»`, `«ts»`, `retrying in «dur»`), so
 goldens compare byte-for-byte and stay deterministic — the suite is verified
-over repeated and race-detector runs.
+over repeated and race-detector runs. Timing is deterministic by rule, not
+by luck: the poll-mode fake ticks every 10 ms, and a scripted status or
+result delay must stay either below half of that or at least twice above
+it (`goldenPollInterval` in the harness enforces the band), because a delay
+near the interval turns a tick count into a race, and a racing count would
+be "fixed" by accepting whichever diff appears.
 
 The corpus covers the edge cases end to end: resolvent dedup and cache reuse,
 retry/backoff for transient resource *and* target failures, attempt

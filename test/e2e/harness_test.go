@@ -81,7 +81,17 @@ type fakes struct {
 	calculate   func(call int64) reply              // POST <target>/api/v1/calculate/{code} (ignis; the proxy-target exemplar)
 	callback    func(call int64) reply              // POST <callbacks>/hook (the client's completion-callback receiver)
 	directDelay func(call int64) time.Duration      // latency before the demo target answers a given call (deadline and scheduling scenarios)
+	statusDelay func(call int64) time.Duration      // latency before a status poll answers; outside the poll-interval band, see pollDelay
+	resultDelay func(call int64) time.Duration      // latency before the result fetch answers; same rule
 }
+
+// goldenPollInterval is the poll cadence of the corpus's poll-mode target.
+// A scripted status or result delay must stay far from it — below half or
+// at least twice above — because a delay near the interval makes the number
+// of ticks a race between the tick and the fake, and a racing count would
+// be "fixed" by accepting whichever golden diff appears. pollDelay enforces
+// the rule.
+const goldenPollInterval = 10 * time.Millisecond
 
 const weatherBody = `{"index":["2018-01-01T00:30:00Z","2018-01-01T01:30:00Z"],"variables":{"T":[1.0,1.2],"GHI":[0.0,12.5]}}`
 
@@ -325,11 +335,17 @@ func (h *harness) startTargetFake(f fakes) *httptest.Server {
 	mux.HandleFunc("POST /api/v1/buem/buildings", h.capturing("buem", &h.gatewayCalls, f.gateway, nil))
 	mux.HandleFunc("POST /api/v1/buem/building", h.capturing("buem-building", &h.buildingCalls, f.building, nil))
 	mux.HandleFunc("POST /api/v1/calculate/{code}", h.capturing("ignis-calculate", &h.calculateCalls, f.calculate, nil))
-	mux.HandleFunc("GET /jobs/{id}/status", func(w http.ResponseWriter, _ *http.Request) {
-		writeReply(w, f.status(h.statusCalls.Add(1)))
+	mux.HandleFunc("GET /jobs/{id}/status", func(w http.ResponseWriter, r *http.Request) {
+		call := h.statusCalls.Add(1)
+		if h.pollDelay(w, r, "status", f.statusDelay, call) {
+			writeReply(w, f.status(call))
+		}
 	})
-	mux.HandleFunc("GET /jobs/{id}", func(w http.ResponseWriter, _ *http.Request) {
-		writeReply(w, f.result(h.resultCalls.Add(1)))
+	mux.HandleFunc("GET /jobs/{id}", func(w http.ResponseWriter, r *http.Request) {
+		call := h.resultCalls.Add(1)
+		if h.pollDelay(w, r, "result", f.resultDelay, call) {
+			writeReply(w, f.result(call))
+		}
 	})
 	mux.HandleFunc("DELETE /jobs/{id}", func(w http.ResponseWriter, _ *http.Request) {
 		h.cancelCalls.Add(1)
@@ -374,6 +390,33 @@ func (h *harness) capturing(endpoint string, calls *atomic.Int64, replyFor func(
 			}
 		}
 		writeReply(w, replyFor(call))
+	}
+}
+
+// pollDelay waits out a scripted status or result latency after checking
+// it lies outside the band around goldenPollInterval in which a tick count
+// would be a race (see the constant). A delay inside the band fails the
+// test and answers 500, so the offending scenario cannot record a golden.
+// It reports whether the reply should still be written.
+func (h *harness) pollDelay(w http.ResponseWriter, r *http.Request, endpoint string, delayFor func(int64) time.Duration, call int64) bool {
+	if delayFor == nil {
+		return true
+	}
+	d := delayFor(call)
+	if d <= 0 {
+		return true
+	}
+	if lo, hi := goldenPollInterval/2, 2*goldenPollInterval; d > lo && d < hi {
+		h.t.Errorf("%s delay %s on call %d lies inside the poll-interval band (%s..%s): the tick count would be a race",
+			endpoint, d, call, lo, hi)
+		w.WriteHeader(http.StatusInternalServerError)
+		return false
+	}
+	select {
+	case <-time.After(d):
+		return true
+	case <-r.Context().Done():
+		return false
 	}
 }
 
@@ -471,7 +514,7 @@ func goldenTargets(base string) map[string]config.Target {
 				ResultURLTemplate: base + "/jobs/{id}",
 				CancelURLTemplate: base + "/jobs/{id}",
 				StatusJSONPath:    "state", DoneValues: []string{"succeeded"}, FailedValues: []string{"failed"},
-				Interval: dur(10 * time.Millisecond), Timeout: dur(2 * time.Second),
+				Interval: dur(goldenPollInterval), Timeout: dur(2 * time.Second),
 			}},
 		},
 	}
