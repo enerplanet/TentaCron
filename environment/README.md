@@ -91,6 +91,13 @@ volume at `/data` for the SQLite store and result files:
 make -C environment run-release ENV=prod   # RELEASE_IMAGE from .env.prod
 ```
 
+A frontend served from your machine, say Vite on port 5173, calls the
+compose service across origins: list it under `server.cors.allowed_origins`
+in `config.yaml` (`["http://localhost:5173"]`) and restart or send
+`SIGHUP` to the container (`docker compose -f environment/docker-compose.yml
+kill -s HUP api`). The [browser client example](../examples/browser/) is a
+page to try it with.
+
 Pin `RELEASE_IMAGE` to a version tag (`ghcr.io/enerplanet/tentacron:0.3.0-alpha`)
 rather than `latest` in production, and keep `environment/config.yaml`'s
 storage paths under `/data` (the defaults already resolve there). See

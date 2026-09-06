@@ -156,6 +156,28 @@ docker run -d -p 8080:8080 \
 All `/v1` endpoints authenticate with the `X-API-Key` header; a key's `role`
 (`client` or `admin`) decides whether it sees only its own requests or all.
 
+**Browsers.** Off by default: with no origin listed, no `Access-Control-*`
+header is sent and cross-origin calls from pages stay blocked. List the
+page's origin under `server.cors.allowed_origins` — exact origins
+(`https://app.example.org`), subdomain wildcards
+(`https://*.preview.example.org`) or `*` — and the service answers
+preflight `OPTIONS` on every route (`204`, before authentication:
+preflights carry no key), echoes the allowed origin on responses, and
+exposes `Content-Disposition`, `Retry-After` and the range headers so a
+page can name a downloaded result and back off on a `429`. A reload
+(`SIGHUP`) applies a changed list without a restart; credentials, the
+preflight max-age and Chrome's private-network preflights are opt-in
+knobs. A key embedded in a page is visible to its users and bounded by
+that key's ceilings; [docs/browser-clients.md](docs/browser-clients.md)
+walks through a page with `fetch`, and
+[examples/browser/](examples/browser/) is one you can run.
+
+```bash
+curl -si -X OPTIONS localhost:8080/v1/requests \
+  -H 'Origin: https://app.example.org' -H 'Access-Control-Request-Method: POST'
+# HTTP/1.1 204 No Content, Access-Control-Allow-Origin: https://app.example.org, …
+```
+
 See [docs/api.md](docs/api.md) for the full reference (the OpenAPI
 description is [docs/openapi/openapi.yaml](docs/openapi/openapi.yaml),
 rendered by [docs/openapi/index.html](docs/openapi/index.html)),
@@ -189,7 +211,9 @@ the test pyramid is documented in [test/README.md](test/README.md).
 
 Report vulnerabilities privately through GitHub's advisory form; see
 [SECURITY.md](SECURITY.md) for scope, response times and what is already in
-place. Design decisions are recorded under [docs/decisions/](docs/decisions/).
+place. CORS is browser policy, not access control: a client that is not a
+browser ignores it, and the API key remains the authentication. Design
+decisions are recorded under [docs/decisions/](docs/decisions/).
 
 ## License
 
