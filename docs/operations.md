@@ -12,7 +12,9 @@ distroless base, a non-root user, and `/data` as the only writable path.
   gates that would trigger it, and its shape, are recorded in
   [ADR-0006](decisions/0006-postgres-decision-gate.md).
 - **TLS at the proxy.** TentaCron listens on plain HTTP; put it behind a
-  reverse proxy (Caddy, nginx, Traefik) for TLS and rate limiting.
+  reverse proxy (Caddy, nginx, Traefik) for TLS, rate limiting and
+  connection limits — see [Reverse proxy](#reverse-proxy) for working
+  configurations and the one timeout rule the proxy must follow.
 - **Secrets via environment.** The YAML config references `${VARS}`; supply
   them through your orchestrator's secret mechanism. Startup fails fast if a
   referenced variable is unset, and the reference config needs
@@ -67,6 +69,65 @@ docker run --rm -v /etc/tentacron/config.yaml:/etc/tentacron/config.yaml:ro \
 rule, printing a summary of targets and resolvents (never credentials) on
 success and every problem at once on failure. Exit codes: 0 valid, 1
 invalid, 2 usage error. CI runs it against both reference configs.
+
+## Reverse proxy
+
+TLS, rate limiting per address or per key, connection limits and network
+allow-lists are the proxy's job, by decision
+([ADR-0008](decisions/0008-reverse-proxy-boundary.md)); the service keeps
+the limits that need its own knowledge, the per-key ceilings and the body
+cap. One rule binds every proxy in front of TentaCron: **its upstream read
+timeout must exceed `server.write_timeout`** (30 seconds by default),
+because a long-poll (`?wait=`) answers up to five seconds before that
+timeout and a shorter proxy timeout cuts it off first.
+
+Caddy, with the [rate-limit module](https://github.com/mholt/caddy-ratelimit)
+compiled in, limiting per API key:
+
+```caddyfile
+tentacron.example.org {
+    reverse_proxy tentacron:8080 {
+        transport http {
+            read_timeout 60s   # above server.write_timeout
+        }
+    }
+    request_body {
+        max_size 10MB          # the same cap as server.max_body_bytes
+    }
+    rate_limit {
+        zone per_key {
+            key    {http.request.header.X-API-Key}
+            events 120
+            window 1m
+        }
+    }
+}
+```
+
+nginx, limiting requests and connections per API key:
+
+```nginx
+limit_req_zone  $http_x_api_key zone=tentacron_req:10m rate=2r/s;
+limit_conn_zone $http_x_api_key zone=tentacron_conn:10m;
+
+server {
+    listen 443 ssl;
+    server_name tentacron.example.org;
+    # ssl_certificate ...; ssl_certificate_key ...;
+
+    client_max_body_size 10m;           # the same cap as server.max_body_bytes
+    location / {
+        limit_req  zone=tentacron_req burst=20 nodelay;
+        limit_conn tentacron_conn 20;
+        proxy_pass         http://tentacron:8080;
+        proxy_read_timeout 60s;           # above server.write_timeout
+        proxy_set_header   X-Request-ID $request_id;
+    }
+}
+```
+
+The metrics listener (`server.metrics_addr`) is not proxied: keep it on a
+private address and scrape it from inside the network.
 
 ## Command line
 

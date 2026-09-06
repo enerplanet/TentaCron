@@ -17,6 +17,11 @@ under "Changed" with the keys or fields concerned.
 
 ### Added
 
+- ADR-0008 records that TLS, rate limiting, connection limits and network
+  allow-lists belong to the reverse proxy while the service keeps the
+  limits that need its own knowledge; the operations page carries working
+  Caddy and nginx configurations and the timeout rule a proxy must follow
+  for long-polls.
 - `tentacron healthcheck [-addr HOST:PORT]` exits 0 when `/readyz` answers,
   so the shell-less release image can probe itself: the Dockerfile
   declares a `HEALTHCHECK` with it and the Compose release service the
