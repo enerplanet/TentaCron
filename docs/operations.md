@@ -8,8 +8,9 @@ checksums on the GitHub release and a multi-architecture image at
 distroless base, a non-root user, and `/data` as the only writable path.
 
 - **Single instance.** SQLite doubles as the job queue, so run exactly one
-  replica. Horizontal scaling would require moving to Postgres/a broker —
-  out of scope for v1.
+  replica. Horizontal scaling would mean moving to Postgres; the measured
+  gates that would trigger it, and its shape, are recorded in
+  [ADR-0006](decisions/0006-postgres-decision-gate.md).
 - **TLS at the proxy.** Tentacron listens on plain HTTP; put it behind a
   reverse proxy (Caddy, nginx, Traefik) for TLS and rate limiting.
 - **Secrets via environment.** The YAML config references `${VARS}`; supply
@@ -78,6 +79,7 @@ invalid, 2 usage error. CI runs it against both reference configs.
 - `GET /healthz` — process liveness.
 - `GET /readyz` — database reachable and migrations applied. Wire this into
   your orchestrator's readiness probe.
+- `GET /version` — which build answers (version, Go version, VCS revision).
 
 ## Logs
 
@@ -139,6 +141,8 @@ time) without authentication, and `/healthz` carries the version too.
 | `tentacron_upstream_requests_total` | `kind`, `name`, `class` | Outbound calls by kind (`resource`, `target`, `poll`, `result`), target or resolvent name, and status class (`2xx`…`5xx`, `error` for transport failures). |
 | `tentacron_upstream_request_duration_seconds` | `kind`, `name` | Outbound call latency histogram. |
 | `tentacron_series_cache_lookups_total` | `result` | Series cache `hit` / `miss`. |
+| `tentacron_schedule_runs_total` | `target` | Runs materialised from schedules. |
+| `tentacron_callback_deliveries_total` | `outcome` | Completion-callback attempts: `delivered`, `retry`, `failed`. |
 | `tentacron_metrics_scrape_errors_total` | – | Scrapes on which the queue depth could not be read. |
 
 Plus the standard Go runtime and process collectors. A minimal scrape
