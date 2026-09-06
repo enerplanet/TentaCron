@@ -186,36 +186,46 @@ func New(cfg Config, next http.Handler) *Handler {
 	return &Handler{policy: newPolicy(cfg), next: next}
 }
 
-// ServeHTTP answers a preflight from an allowed origin itself and marks
-// every other response for its origin. Every response varies on Origin,
-// so a shared cache never serves one origin's headers to another.
+// ServeHTTP answers every preflight itself and marks the actual request's
+// response for its origin. Every response varies on Origin, so a shared
+// cache never serves one origin's headers to another.
 func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	p := h.policy
-	hdr := w.Header()
-	hdr.Add("Vary", "Origin")
 	origin := r.Header.Get("Origin")
-	if origin == "" || !p.originAllowed(origin) {
-		// A denied preflight falls through to the mux today, which answers
-		// 405; item 1.2 of the 0.4.0-alpha plan answers it here.
-		h.next.ServeHTTP(w, r)
+	if r.Method == http.MethodOptions && r.Header.Get("Access-Control-Request-Method") != "" {
+		h.preflight(w, p, origin)
 		return
 	}
-	hdr.Set("Access-Control-Allow-Origin", p.allowOriginValue(origin))
-	hdr.Set("Access-Control-Expose-Headers", p.expose)
-	if r.Method == http.MethodOptions && r.Header.Get("Access-Control-Request-Method") != "" {
-		h.preflight(w, p)
-		return
+
+	// Actual request (a non-preflight OPTIONS falls through to the mux and
+	// keeps its 405). Headers are set before the handler runs so that every
+	// outcome carries them: error envelopes, 413s, the streamed result.
+	hdr := w.Header()
+	hdr.Add("Vary", "Origin")
+	if origin != "" && p.originAllowed(origin) {
+		hdr.Set("Access-Control-Allow-Origin", p.allowOriginValue(origin))
+		hdr.Set("Access-Control-Expose-Headers", p.expose)
 	}
 	h.next.ServeHTTP(w, r)
 }
 
 // preflight answers without consulting the mux (whose method-scoped
 // patterns would 405 it) or authentication: preflights carry no key, the
-// browser sends the credentialless OPTIONS on its own.
-func (h *Handler) preflight(w http.ResponseWriter, p *policy) {
+// browser sends the credentialless OPTIONS on its own. A denied origin
+// gets the Vary headers and nothing else; the browser then blocks the
+// actual request. The method and header lists are emitted as-is: the
+// Fetch specification has the browser compare the request against them
+// and fail the fetch itself.
+func (h *Handler) preflight(w http.ResponseWriter, p *policy, origin string) {
 	hdr := w.Header()
-	hdr.Set("Access-Control-Allow-Methods", p.methods)
-	hdr.Set("Access-Control-Allow-Headers", p.headers)
-	hdr.Set("Access-Control-Max-Age", p.maxAge)
+	hdr.Add("Vary", "Origin")
+	hdr.Add("Vary", "Access-Control-Request-Method")
+	hdr.Add("Vary", "Access-Control-Request-Headers")
+	if origin != "" && p.originAllowed(origin) {
+		hdr.Set("Access-Control-Allow-Origin", p.allowOriginValue(origin))
+		hdr.Set("Access-Control-Allow-Methods", p.methods)
+		hdr.Set("Access-Control-Allow-Headers", p.headers)
+		hdr.Set("Access-Control-Max-Age", p.maxAge)
+	}
 	w.WriteHeader(http.StatusNoContent)
 }

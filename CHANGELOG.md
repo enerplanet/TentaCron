@@ -20,6 +20,13 @@ under "Changed" with the keys or fields concerned.
 
 ### Changed
 
+- A CORS preflight from an origin that is not allowed answers `204` with
+  only the `Vary` headers instead of the mux's `405` and its `Allow`
+  list, so the browser reports a blocked origin rather than a method
+  error and a refused page learns nothing about the API. Preflights vary
+  on `Access-Control-Request-Method` and `Access-Control-Request-Headers`
+  as well as `Origin`. An `OPTIONS` without a request method is no
+  preflight and keeps its `405`.
 - The 0.2.0 rule that browser origins must be exact is lifted: a key held
   in a page is bounded by that key's `max_queued`, `max_concurrent` and
   `max_priority` ceilings and can be revoked on its own, so wildcards are

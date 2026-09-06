@@ -995,7 +995,8 @@ var apiContractScenarios = []scenario{
 		// What a browser gets: preflights answered before the mux and before
 		// authentication for every method, the allow-origin and the exposed
 		// headers on the actual request, nothing but Vary for a foreign
-		// origin, and the mux's 405 for an OPTIONS that is no preflight.
+		// origin (its preflight is a bare 204), and the mux's 405 for an
+		// OPTIONS that is no preflight.
 		name: "browser-preflight",
 		mod: func(cfg *config.Config) {
 			cfg.Server.CORS.AllowedOrigins = []string{"https://app.example.org"}

@@ -68,8 +68,9 @@ func TestCORSPreflight(t *testing.T) {
 	assertHeader(t, h, "Access-Control-Allow-Methods", "GET, HEAD, POST, DELETE, OPTIONS")
 	assertHeader(t, h, "Access-Control-Allow-Headers", "Content-Type, X-API-Key, Idempotency-Key, X-Request-ID, Range")
 	assertHeader(t, h, "Access-Control-Max-Age", "600")
-	// Item 1.2 adds Access-Control-Request-Method and -Headers to Vary.
-	assertHeader(t, h, "Vary", "Origin")
+	if got := strings.Join(h.Values("Vary"), ", "); got != "Origin, Access-Control-Request-Method, Access-Control-Request-Headers" {
+		t.Errorf("Vary = %q", got)
+	}
 	// A browser cancelling a request preflights DELETE on the request URL;
 	// the answer must allow it, or the frontend can never cancel.
 	rec = e.do(t, http.MethodOptions, "/v1/requests/0123456789abcdef0123456789abcdef", "", withOrigin(allowedOrigin, map[string]string{"Access-Control-Request-Method": "DELETE"}))
@@ -78,20 +79,20 @@ func TestCORSPreflight(t *testing.T) {
 	}
 }
 
-// A preflight from an origin that is not allowed falls through to the mux
-// today, which answers 405 with its Allow list. Item 1.2 changes this to a
-// 204 that carries the Vary set and nothing else.
+// A preflight from an origin that is not allowed is answered 204 with the
+// Vary set and nothing else: the browser blocks the request on its own,
+// and the mux's Allow list is not handed to a page that was refused.
 func TestCORSPreflightDeniedOrigin(t *testing.T) {
 	e := corsEnv(t, allowedOrigin)
 	rec := e.do(t, http.MethodOptions, "/v1/requests", "", withOrigin(foreignOrigin, map[string]string{"Access-Control-Request-Method": "POST"}))
-	if rec.Code != http.StatusMethodNotAllowed {
-		t.Fatalf("status %d, want 405 (today's behaviour)", rec.Code)
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("status %d, want 204", rec.Code)
 	}
-	assertHeader(t, rec.Header(), "Access-Control-Allow-Origin", "")
-	assertHeader(t, rec.Header(), "Access-Control-Allow-Methods", "")
-	assertHeader(t, rec.Header(), "Vary", "Origin")
-	if rec.Header().Get("Allow") == "" {
-		t.Errorf("the mux's Allow list is handed to the refused origin today: %v", rec.Header())
+	for _, name := range []string{"Access-Control-Allow-Origin", "Access-Control-Allow-Methods", "Access-Control-Allow-Headers", "Allow"} {
+		assertHeader(t, rec.Header(), name, "")
+	}
+	if got := strings.Join(rec.Header().Values("Vary"), ", "); got != "Origin, Access-Control-Request-Method, Access-Control-Request-Headers" {
+		t.Errorf("Vary = %q", got)
 	}
 }
 

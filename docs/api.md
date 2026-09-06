@@ -52,9 +52,12 @@ under `server.cors.allowed_origins` (exact origins, `*`, or subdomain
 wildcards such as `https://*.example.org`, matched case-insensitively): preflights
 are answered for every method the API has, cancellation and schedule
 deletion included, and `X-Request-ID`, `Content-Disposition` and the range
-headers are exposed. Any other origin receives no CORS headers. A key embedded in a
-browser is visible to its users; a backend-for-frontend keeps it server-side
-where that matters.
+headers are exposed. A preflight from any other origin is answered `204`
+with only the `Vary` headers, so the browser blocks the request itself,
+and its actual requests receive no CORS headers; an `OPTIONS` without
+`Access-Control-Request-Method` is no preflight and answers `405` with
+`Allow`. A key embedded in a browser is visible to its users; a
+backend-for-frontend keeps it server-side where that matters.
 
 Every response carries an `X-Request-ID` header — echoed from the request
 when supplied, generated otherwise — which is also the `request_id` field of

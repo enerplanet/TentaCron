@@ -113,6 +113,67 @@ func TestValidate(t *testing.T) {
 	}
 }
 
+const preflightVary = "Origin, Access-Control-Request-Method, Access-Control-Request-Headers"
+
+func vary(rec *httptest.ResponseRecorder) string {
+	return strings.Join(rec.Header().Values("Vary"), ", ")
+}
+
+// A preflight from an allowed origin is answered here, never by the next
+// handler, with the allow headers and the full Vary set.
+func TestPreflight(t *testing.T) {
+	rec := serve(t, Config{AllowedOrigins: []string{"https://app.example.org"}}, http.MethodOptions, "https://app.example.org",
+		map[string]string{"Access-Control-Request-Method": "DELETE"})
+	if rec.Code != http.StatusNoContent || rec.Header().Get("Allow") != "" {
+		t.Fatalf("preflight reached the next handler: %d %v", rec.Code, rec.Header())
+	}
+	h := rec.Header()
+	for name, want := range map[string]string{
+		"Access-Control-Allow-Origin":   "https://app.example.org",
+		"Access-Control-Allow-Methods":  strings.Join(DefaultAllowedMethods, ", "),
+		"Access-Control-Allow-Headers":  strings.Join(DefaultAllowedHeaders, ", "),
+		"Access-Control-Max-Age":        "600",
+		"Access-Control-Expose-Headers": "",
+	} {
+		if got := h.Get(name); got != want {
+			t.Errorf("%s = %q, want %q", name, got, want)
+		}
+	}
+	if got := vary(rec); got != preflightVary {
+		t.Errorf("Vary = %q, want %q", got, preflightVary)
+	}
+}
+
+// A denied preflight is answered 204 with the Vary set and nothing else:
+// no allow header for the page, no Allow list from the mux.
+func TestPreflightDeniedOrigin(t *testing.T) {
+	rec := serve(t, Config{AllowedOrigins: []string{"https://app.example.org"}}, http.MethodOptions, "https://evil.example.org",
+		map[string]string{"Access-Control-Request-Method": "POST"})
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("status %d, want 204", rec.Code)
+	}
+	for _, name := range []string{"Access-Control-Allow-Origin", "Access-Control-Allow-Methods", "Access-Control-Allow-Headers", "Access-Control-Max-Age", "Allow"} {
+		if got := rec.Header().Get(name); got != "" {
+			t.Errorf("%s = %q on a denied preflight", name, got)
+		}
+	}
+	if got := vary(rec); got != preflightVary {
+		t.Errorf("Vary = %q, want %q", got, preflightVary)
+	}
+}
+
+// An OPTIONS without Access-Control-Request-Method is no preflight: it
+// reaches the next handler with the origin marked.
+func TestNonPreflightOptions(t *testing.T) {
+	rec := serve(t, Config{AllowedOrigins: []string{"https://app.example.org"}}, http.MethodOptions, "https://app.example.org", nil)
+	if rec.Code != http.StatusMethodNotAllowed || rec.Header().Get("Allow") == "" {
+		t.Errorf("plain OPTIONS: %d %v, want the next handler's 405 with Allow", rec.Code, rec.Header())
+	}
+	if rec.Header().Get("Access-Control-Allow-Origin") != "https://app.example.org" || vary(rec) != "Origin" {
+		t.Errorf("actual-request headers: %v", rec.Header())
+	}
+}
+
 func TestWildcardsAndAllowsAny(t *testing.T) {
 	cfg := Config{AllowedOrigins: []string{"https://app.example.org", "https://*.preview.example.org", "*"}}
 	if cfg.Wildcards() != 2 || !cfg.AllowsAny() {

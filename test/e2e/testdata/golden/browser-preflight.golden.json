@@ -6,7 +6,7 @@
       "Access-Control-Allow-Origin": "https://app.example.org",
       "Access-Control-Max-Age": "600",
       "Allow": null,
-      "Vary": "Origin"
+      "Vary": "Origin, Access-Control-Request-Method, Access-Control-Request-Headers"
     },
     "request": "OPTIONS /v1/requests",
     "response": "",
@@ -37,7 +37,7 @@
       "Access-Control-Allow-Origin": "https://app.example.org",
       "Access-Control-Max-Age": "600",
       "Allow": null,
-      "Vary": "Origin"
+      "Vary": "Origin, Access-Control-Request-Method, Access-Control-Request-Headers"
     },
     "request": "OPTIONS /v1/requests/«job-1»",
     "response": "",
@@ -51,7 +51,7 @@
       "Access-Control-Allow-Origin": "https://app.example.org",
       "Access-Control-Max-Age": "600",
       "Allow": null,
-      "Vary": "Origin"
+      "Vary": "Origin, Access-Control-Request-Method, Access-Control-Request-Headers"
     },
     "request": "OPTIONS /v1/schedules/0123456789abcdef0123456789abcdef",
     "response": "",
@@ -65,7 +65,7 @@
       "Access-Control-Allow-Origin": "https://app.example.org",
       "Access-Control-Max-Age": "600",
       "Allow": null,
-      "Vary": "Origin"
+      "Vary": "Origin, Access-Control-Request-Method, Access-Control-Request-Headers"
     },
     "request": "OPTIONS /v1/requests/«job-1»/result",
     "response": "",
@@ -125,17 +125,12 @@
       "Access-Control-Allow-Methods": null,
       "Access-Control-Allow-Origin": null,
       "Access-Control-Max-Age": null,
-      "Allow": "GET, HEAD, POST",
-      "Vary": "Origin"
+      "Allow": null,
+      "Vary": "Origin, Access-Control-Request-Method, Access-Control-Request-Headers"
     },
     "request": "OPTIONS /v1/requests",
-    "response": {
-      "error": {
-        "code": "method_not_allowed",
-        "message": "method OPTIONS is not allowed for this route"
-      }
-    },
-    "status": 405,
+    "response": "",
+    "status": 204,
     "step": "preflight from a foreign origin"
   },
   {
