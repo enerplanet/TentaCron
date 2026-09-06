@@ -115,6 +115,10 @@ job as `invalid_payload` before any call. See
 - `422 callback_not_allowed` — `callback_url` is not https, carries
   credentials, or names a host outside `callbacks.allowed_hosts` (or
   callbacks are not enabled)
+- `429 queue_full` — the key already holds as many queued or running
+  requests as its `max_queued` allows; `Retry-After` names the seconds
+  until one of them can have ended. A replay under an `Idempotency-Key`
+  is never refused, since it adds nothing to the queue.
 
 Validation happens in that order: an unknown target is only reported once
 the key has been accepted.
@@ -167,7 +171,7 @@ one result per item, in order:
 same `items` when none was; an empty list or more than 100 items answer
 `400 invalid_parameter` without items. Item errors use the single
 endpoint's codes (`invalid_json`, `missing_field`, `unknown_target`,
-`invalid_parameter`, `idempotency_conflict`).
+`invalid_parameter`, `idempotency_conflict`, `queue_full`).
 
 ## GET /v1/targets and GET /v1/resolvents
 

@@ -1226,7 +1226,7 @@ func TestCacheModesDriveReadsAndWrites(t *testing.T) {
 	payload := `{"time-series":[{"type":"resolvent-pv1","lat":48.8}]}`
 	submit := func(mode string) *store.Job {
 		id, _ := store.NewID()
-		if _, _, err := st.CreateJob(context.Background(), &store.Job{ID: id, Target: "demo", MaxAttempts: 3, Payload: []byte(payload), Options: store.JobOptions{Cache: mode}}); err != nil {
+		if _, _, err := st.CreateJob(context.Background(), &store.Job{ID: id, Target: "demo", MaxAttempts: 3, Payload: []byte(payload), Options: store.JobOptions{Cache: mode}}, 0); err != nil {
 			t.Fatal(err)
 		}
 		return waitForTerminal(t, st, id)

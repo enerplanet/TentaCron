@@ -20,6 +20,7 @@ const (
 	CodeCallbackNotAllowed   = "callback_not_allowed"
 	CodeInvalidParameter     = "invalid_parameter"
 	CodeScheduleLimit        = "schedule_limit"
+	CodeQueueFull            = "queue_full"
 	CodeInternal             = "internal"
 )
 
@@ -30,7 +31,7 @@ func ErrorCodes() []string {
 	return []string{
 		CodeInvalidJSON, CodeMissingField, CodeUnauthorized, CodeUnknownTarget, CodeIdempotencyConflict,
 		CodePayloadTooLarge, CodeUnsupportedMediaType, CodeNotFound, CodeMethodNotAllowed,
-		CodeNotCancellable, CodeCallbackNotAllowed, CodeInvalidParameter, CodeScheduleLimit, CodeInternal,
+		CodeNotCancellable, CodeCallbackNotAllowed, CodeInvalidParameter, CodeScheduleLimit, CodeQueueFull, CodeInternal,
 	}
 }
 

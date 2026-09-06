@@ -483,6 +483,7 @@ func TestNumericAndDurationValidation(t *testing.T) {
 		{"negative resolvent concurrency", "worker:\n  resolvent_concurrency: -2\n", "worker.resolvent_concurrency: must be a positive integer"},
 		{"negative max attempts", "worker:\n  max_attempts: -1\n", "worker.max_attempts: must be a positive integer"},
 		{"negative body limit", "server:\n  max_body_bytes: -1\n", "server.max_body_bytes: must be a positive integer"},
+		{"negative queue cap", "auth:\n  api_keys: [{name: t, key: k, max_queued: -1}]\n", "auth.api_keys[0] (t): max_queued must not be negative (got -1)"},
 		{"negative job timeout", "worker:\n  job_timeout: -5s\n", "worker.job_timeout: must be a positive duration (got -5s)"},
 		{"negative poll interval", "worker:\n  poll_interval: -1s\n", "worker.poll_interval: must be a positive duration"},
 		{"negative read timeout", "server:\n  read_timeout: -1s\n", "server.read_timeout: must be a positive duration"},

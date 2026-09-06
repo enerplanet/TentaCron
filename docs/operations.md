@@ -218,7 +218,7 @@ time) without authentication, and `/healthz` carries the version too.
 | `tentacron_metrics_scrape_errors_total` | – | Scrapes on which the queue depth could not be read. |
 
 Plus the standard Go runtime and process collectors. A minimal scrape
-configuration and three alerts worth having:
+configuration and four alerts worth having:
 
 ```yaml
 scrape_configs:
@@ -229,6 +229,10 @@ scrape_configs:
 - **Failure rate:** `sum(rate(tentacron_jobs_total{outcome="failed"}[15m])) / sum(rate(tentacron_jobs_total[15m])) > 0.1`
 - **Queue not draining:** `tentacron_jobs_in_state{state="received"} > 50` for 15 minutes
 - **Targets timing out:** `increase(tentacron_job_failures_total{code="target_timeout"}[1h]) > 0`
+- **A key at its cap:** a submission refused with `429 queue_full` is one
+  request-log line with the client's name and status; alert on it from the
+  log pipeline, since nothing is exported per client. Either the key's
+  `max_queued` is too small for its burst, or its requests are not ending.
 
 ## Inspecting state
 

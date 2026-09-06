@@ -84,7 +84,7 @@ func createJob(t *testing.T, st *store.Store, target string, payload string, max
 	}
 	created, _, err := st.CreateJob(context.Background(), &store.Job{
 		ID: id, Target: target, MaxAttempts: maxAttempts, Payload: []byte(payload),
-	})
+	}, 0)
 	if err != nil || !created {
 		t.Fatalf("CreateJob: created=%v err=%v", created, err)
 	}

@@ -174,6 +174,12 @@ SQLite *is* the queue — no external broker:
   turns a deadline hit on its forward into a permanent `target_timeout`, so
   an expensive synchronous simulation is never submitted twice; per-target
   `job_timeout` and `max_attempts` override the worker defaults.
+- A key's `max_queued` caps how many of its requests may be waiting or in
+  flight at once. The count runs inside the insert's own transaction, so
+  concurrent submissions cannot overshoot the cap together; the one past it
+  answers `429 queue_full` with a `Retry-After` of one poll interval. A
+  replay under an idempotency key is never refused, and runs materialised
+  from schedules do not count, so a cap never silences a schedule.
 - Workers wake on a nudge from the API when a job is accepted and otherwise
   every `worker.poll_interval` to pick up scheduled retries and poll ticks.
 

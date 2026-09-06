@@ -20,7 +20,7 @@ func TestBackupSubcommand(t *testing.T) {
 		t.Fatal(err)
 	}
 	id, _ := store.NewID()
-	if _, _, err := st.CreateJob(context.Background(), &store.Job{ID: id, Client: "frontend", Target: "demo", MaxAttempts: 1, Payload: []byte(`{}`)}); err != nil {
+	if _, _, err := st.CreateJob(context.Background(), &store.Job{ID: id, Client: "frontend", Target: "demo", MaxAttempts: 1, Payload: []byte(`{}`)}, 0); err != nil {
 		t.Fatal(err)
 	}
 	_ = st.Close()

@@ -90,7 +90,7 @@ func (p *Pool) materialize(ctx context.Context, sc *store.Schedule, now time.Tim
 		Target: sc.Target, MaxAttempts: p.config().MaxAttemptsFor(sc.Target),
 		Payload: sc.Payload, Priority: sc.Priority, Options: options,
 	}
-	created, stored, err := p.store.CreateJob(ctx, job)
+	created, stored, err := p.store.CreateJob(ctx, job, 0)
 	if err != nil {
 		p.logger.Error("materialise schedule failed", "schedule_id", sc.ID, "error", err)
 		return

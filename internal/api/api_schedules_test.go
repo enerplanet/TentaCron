@@ -63,7 +63,7 @@ func TestScheduleCRUDAndScoping(t *testing.T) {
 	due := time.Date(2026, 9, 6, 4, 30, 0, 0, time.UTC)
 	for _, d := range []time.Time{due, due.Add(24 * time.Hour)} {
 		id, _ := store.NewID()
-		if _, _, err := e.store.CreateJob(context.Background(), &store.Job{ID: id, Client: stored.Client, IdempotencyKey: store.RunKey(sc.ID, d), Target: "meme", MaxAttempts: 1, Payload: []byte(`{"a":1}`)}); err != nil {
+		if _, _, err := e.store.CreateJob(context.Background(), &store.Job{ID: id, Client: stored.Client, IdempotencyKey: store.RunKey(sc.ID, d), Target: "meme", MaxAttempts: 1, Payload: []byte(`{"a":1}`)}, 0); err != nil {
 			t.Fatal(err)
 		}
 	}

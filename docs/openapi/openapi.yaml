@@ -47,7 +47,8 @@ paths:
         for progress. An `Idempotency-Key` (at most 255 bytes, scoped to the
         client) makes a resubmission of the identical request return the stored
         one instead of creating a duplicate; reusing the key with a different
-        target or payload answers `409`.
+        target or payload answers `409`. A key at its `max_queued` cap answers
+        `429` until one of its requests ends; a replay is never refused.
       operationId: createRequest
       parameters:
         - $ref: "#/components/parameters/IdempotencyKey"
@@ -99,6 +100,21 @@ paths:
                 callbackNotAllowed:
                   value:
                     error: { code: callback_not_allowed, message: callback_url host "evil.example" is not allow-listed }
+        "429":
+          description: The key already holds as many queued or running requests as `auth.api_keys[].max_queued` allows (`queue_full`); retry after one of them has ended.
+          headers:
+            Retry-After:
+              description: Seconds until a queued request can have ended — one worker poll interval.
+              schema:
+                type: integer
+                minimum: 1
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+              example:
+                error: { code: queue_full, message: this key already holds 200 queued or running requests; retry once one has ended }
+
     get:
       tags: [requests]
       summary: List requests
@@ -211,7 +227,8 @@ paths:
         replayed) request, or that item's error with the code the single
         endpoint would answer. `202` when at least one item was accepted,
         `400` when none was. An item's `idempotency_key` is scoped to the
-        client like the header on the single endpoint.
+        client like the header on the single endpoint, and a key at its
+        `max_queued` cap has each further item refused with `queue_full`.
       operationId: createRequests
       requestBody:
         required: true
@@ -799,8 +816,8 @@ components:
               description: "`invalid_payload`, `unknown_resolvent` and `target_error` are the dry-run problem codes, answered by `POST /v1/schedules` when every run would fail."
               enum: [invalid_json, missing_field, unauthorized, unknown_target, idempotency_conflict,
                      payload_too_large, unsupported_media_type, not_found, method_not_allowed,
-                     not_cancellable, callback_not_allowed, invalid_parameter, schedule_limit, internal,
-                     invalid_payload, unknown_resolvent, target_error]
+                     not_cancellable, callback_not_allowed, invalid_parameter, schedule_limit, queue_full,
+                     internal, invalid_payload, unknown_resolvent, target_error]
             message:
               type: string
     CreateRequest:

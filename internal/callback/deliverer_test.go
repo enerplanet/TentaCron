@@ -70,7 +70,7 @@ func setup(t *testing.T, srv *httptest.Server) (*Deliverer, *store.Store, *confi
 func terminalJob(t *testing.T, st *store.Store, url, id string, fail bool) {
 	t.Helper()
 	ctx := context.Background()
-	if _, _, err := st.CreateJob(ctx, &store.Job{ID: id, Client: "c", Target: "demo", MaxAttempts: 1, Payload: []byte(`{}`), CallbackURL: url}); err != nil {
+	if _, _, err := st.CreateJob(ctx, &store.Job{ID: id, Client: "c", Target: "demo", MaxAttempts: 1, Payload: []byte(`{}`), CallbackURL: url}, 0); err != nil {
 		t.Fatal(err)
 	}
 	var err error

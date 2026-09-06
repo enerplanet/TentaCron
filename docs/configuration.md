@@ -36,6 +36,7 @@ auth:
     - name: batch-runner
       key: "${TENTACRON_KEY_BATCH}"
       max_concurrent: 2         # at most two of its jobs in flight at once
+      max_queued: 200           # queued or running requests it may hold
       max_priority: 0           # may not jump the queue
     - name: ops
       key: "${TENTACRON_KEY_OPS}"
@@ -59,7 +60,12 @@ round-robin across clients (every client's first due job before any
 client's second, the least recently served client first), then age, so one
 client's batch never starves another's interactive requests. `max_concurrent` caps how many of a key's jobs may be
 in flight (resolving or forwarding) at once — further jobs wait while other
-clients' work proceeds; `0` (default) means no ceiling. `max_priority` caps
+clients' work proceeds; `0` (default) means no ceiling. `max_queued` caps
+how many requests a key may hold that have not ended yet — queued, delayed
+or in flight; the one past the cap answers `429 queue_full` with a
+`Retry-After` of one worker poll interval, and a batch has each further
+item refused the same way. `0` (default) means no cap; runs materialised
+from schedules never count against it. `max_priority` caps
 the `priority` a key may request (`-10`..`10`, default: the full range).
 `max_schedules` caps how many schedules a key may hold at once (default
 100, the size of one schedule listing; `0` lets the key create none); the

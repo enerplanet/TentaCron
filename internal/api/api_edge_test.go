@@ -59,7 +59,7 @@ func createJobDirect(t *testing.T, e *testEnv) string {
 	}
 	if _, _, err := e.store.CreateJob(context.Background(), &store.Job{
 		ID: id, Client: "test", Target: "meme", MaxAttempts: 1, Payload: []byte(`{}`),
-	}); err != nil {
+	}, 0); err != nil {
 		t.Fatal(err)
 	}
 	return id

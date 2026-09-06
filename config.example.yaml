@@ -23,6 +23,7 @@ auth:
     - name: batch-runner
       key: "${TENTACRON_KEY_BATCH}"
       max_concurrent: 2 # at most two batch jobs in flight; interactive clients keep a worker
+      max_queued: 200 # queued or running requests this key may hold (default 0: no cap)
       max_priority: 0 # a batch may not jump the queue with a positive priority
       # max_schedules: 100 # schedules this key may hold at once (default 100; 0 forbids)
 

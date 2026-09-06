@@ -121,7 +121,7 @@ func TestConcurrentCreateWithSameIdempotencyKey(t *testing.T) {
 		wg.Add(1)
 		go func(i int) {
 			defer wg.Done()
-			created, stored, err := s.CreateJob(context.Background(), jobs[i])
+			created, stored, err := s.CreateJob(context.Background(), jobs[i], 0)
 			results[i].created, results[i].err = created, err
 			if stored != nil {
 				results[i].id = stored.ID
@@ -572,7 +572,7 @@ func BenchmarkClaimNext(b *testing.B) {
 	ctx := context.Background()
 	for i := 0; i < b.N; i++ {
 		id, _ := NewID()
-		if _, _, err := s.CreateJob(ctx, &Job{ID: id, Target: "t", MaxAttempts: 1, Payload: []byte(`{}`)}); err != nil {
+		if _, _, err := s.CreateJob(ctx, &Job{ID: id, Target: "t", MaxAttempts: 1, Payload: []byte(`{}`)}, 0); err != nil {
 			b.Fatal(err)
 		}
 	}
@@ -1215,7 +1215,7 @@ func BenchmarkClaimNextDeepQueue(b *testing.B) {
 			for i := range 10000 {
 				id, _ := NewID()
 				j := &Job{ID: id, Client: "c" + strconv.Itoa(i%10), Target: "demo", MaxAttempts: 1 << 30, Payload: []byte(`{}`), Priority: i % 3}
-				if created, _, err := s.CreateJob(ctx, j); err != nil || !created {
+				if created, _, err := s.CreateJob(ctx, j, 0); err != nil || !created {
 					b.Fatal(err)
 				}
 			}

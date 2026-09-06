@@ -967,6 +967,31 @@ var apiContractScenarios = []scenario{
 		},
 	},
 	{
+		// A key holds at most max_queued requests that have not ended: the
+		// one past the cap answers 429, a batch has each item refused, a
+		// replay is never refused, and a cancelled request frees its place.
+		// not_before an hour ahead keeps the requests queued deterministically.
+		name: "queue-full",
+		mod: func(cfg *config.Config) {
+			cfg.Auth.APIKeys[0].MaxQueued = 2
+		},
+		run: func(t *testing.T, h *harness) {
+			auth := map[string]string{"X-API-Key": clientKey}
+			keyed := map[string]string{"X-API-Key": clientKey, "Idempotency-Key": "nightly"}
+			other := map[string]string{"X-API-Key": secondClientKey}
+			later := time.Now().Add(time.Hour).UTC().Format(time.RFC3339)
+			body := `{"target":"demo","payload":{"time-series":[]},"not_before":"` + later + `"}`
+			first := h.post("first queued request", body, keyed)
+			h.post("second queued request", body, auth)
+			h.post("the third is refused: the key holds two", body, auth)
+			h.postBatch("a batch has each item refused", `{"requests":[`+body+`,`+body+`]}`, auth)
+			h.post("a replay of a queued request is not refused", body, keyed)
+			h.post("another key has its own cap", body, other)
+			h.call("cancel the first", http.MethodDelete, "/v1/requests/"+first, "", auth)
+			h.post("room again", body, auth)
+		},
+	},
+	{
 		// A delayed run: not_before keeps the request in received until the
 		// time arrives, visible in the audit trail and echoed by GET for the
 		// job's whole life; the queue then runs it like any other request.

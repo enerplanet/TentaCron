@@ -43,6 +43,10 @@ var ErrTerminalState = errors.New("job is in a terminal state")
 // different target or payload than the stored request.
 var ErrIdempotencyConflict = errors.New("idempotency key reused with a different request")
 
+// ErrQueueFull is returned when a client already holds as many non-terminal
+// jobs as its key allows.
+var ErrQueueFull = errors.New("queue cap reached")
+
 // ErrNotCancellable is returned when a job is being processed right now
 // (resolving or forwarding): a worker holds it, and pulling it away would
 // leave the upstream call in flight with nobody to record its outcome.
@@ -232,12 +236,16 @@ func (row *jobRow) parseTimes(j *Job) error {
 // identical target and payload returns the stored job with created == false;
 // reusing it with a different request returns ErrIdempotencyConflict. On
 // creation the returned job is j itself with state and timestamps filled in.
-func (s *Store) CreateJob(ctx context.Context, j *Job) (created bool, stored *Job, err error) {
+// queueCap, when positive, is the client's ceiling on non-terminal jobs:
+// the insert is refused with ErrQueueFull once it is reached — counted in
+// the insert's own transaction, so concurrent submissions cannot overshoot
+// it together — while a replay is never refused, since it adds nothing.
+func (s *Store) CreateJob(ctx context.Context, j *Job, queueCap int) (created bool, stored *Job, err error) {
 	// The unique-violation fallback reads outside the failed transaction, so
 	// the stored job can vanish (retention prune) in between; retry the
 	// insert rather than failing a valid request.
 	for attempt := 0; attempt < 3; attempt++ {
-		created, stored, err = s.createJobOnce(ctx, j)
+		created, stored, err = s.createJobOnce(ctx, j, queueCap)
 		if !errors.Is(err, ErrNotFound) {
 			return created, stored, err
 		}
@@ -245,11 +253,40 @@ func (s *Store) CreateJob(ctx context.Context, j *Job) (created bool, stored *Jo
 	return false, nil, fmt.Errorf("create job %s: idempotency race did not settle", j.ID)
 }
 
-func (s *Store) createJobOnce(ctx context.Context, j *Job) (created bool, stored *Job, err error) {
+func (s *Store) createJobOnce(ctx context.Context, j *Job, queueCap int) (created bool, stored *Job, err error) {
 	now := time.Now()
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return false, nil, err
+	}
+	if queueCap > 0 {
+		if j.IdempotencyKey != "" {
+			// A replay adds nothing to the queue and must not be refused
+			// by the cap; look it up before counting — on this transaction's
+			// connection, since the pool is small and every other
+			// submission may be holding one while it waits for the lock.
+			var n int
+			err := tx.QueryRowContext(ctx, `SELECT count(*) FROM jobs WHERE client = ? AND idempotency_key = ?`,
+				j.Client, j.IdempotencyKey).Scan(&n)
+			if err != nil {
+				_ = tx.Rollback()
+				return false, nil, fmt.Errorf("look up idempotency key: %w", err)
+			}
+			if n > 0 {
+				_ = tx.Rollback()
+				return s.replayIdempotent(ctx, j)
+			}
+		}
+		var queued int
+		if err := tx.QueryRowContext(ctx, `SELECT count(*) FROM jobs WHERE client = ? AND state NOT IN (?, ?, ?)`,
+			j.Client, StateCompleted, StateFailed, StateCancelled).Scan(&queued); err != nil {
+			_ = tx.Rollback()
+			return false, nil, fmt.Errorf("count queued jobs: %w", err)
+		}
+		if queued >= queueCap {
+			_ = tx.Rollback()
+			return false, nil, fmt.Errorf("client %s holds %d of %d queued requests: %w", j.Client, queued, queueCap, ErrQueueFull)
+		}
 	}
 	if err := insertJob(ctx, tx, j, now); err != nil {
 		_ = tx.Rollback()

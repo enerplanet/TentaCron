@@ -31,7 +31,7 @@ func newJob(t *testing.T, target string) *Job {
 
 func mustCreate(t *testing.T, s *Store, j *Job) {
 	t.Helper()
-	created, _, err := s.CreateJob(context.Background(), j)
+	created, _, err := s.CreateJob(context.Background(), j, 0)
 	if err != nil || !created {
 		t.Fatalf("CreateJob: created=%v err=%v", created, err)
 	}
@@ -82,7 +82,7 @@ func TestIdempotencyReplay(t *testing.T) {
 
 	j2 := newJob(t, "meme")
 	j2.IdempotencyKey = "idem-1"
-	created, existing, err := s.CreateJob(context.Background(), j2)
+	created, existing, err := s.CreateJob(context.Background(), j2, 0)
 	if err != nil {
 		t.Fatalf("CreateJob replay: %v", err)
 	}
@@ -474,7 +474,7 @@ func TestIdempotencyScopedPerClient(t *testing.T) {
 	// A different client may use the same key: independent jobs.
 	j2 := newJob(t, "meme")
 	j2.Client, j2.IdempotencyKey = "batch", "shared-key"
-	created, stored, err := s.CreateJob(context.Background(), j2)
+	created, stored, err := s.CreateJob(context.Background(), j2, 0)
 	if err != nil || !created || stored.ID == j1.ID {
 		t.Fatalf("cross-client key must create a new job: created=%v id=%s err=%v", created, stored.ID, err)
 	}
@@ -489,14 +489,14 @@ func TestIdempotencyConflictOnDifferentRequest(t *testing.T) {
 	j2 := newJob(t, "meme")
 	j2.Client, j2.IdempotencyKey = "frontend", "key-1"
 	j2.Payload = []byte(`{"x":2}`) // different request, same key
-	_, _, err := s.CreateJob(context.Background(), j2)
+	_, _, err := s.CreateJob(context.Background(), j2, 0)
 	if !errors.Is(err, ErrIdempotencyConflict) {
 		t.Fatalf("err = %v, want ErrIdempotencyConflict", err)
 	}
 
 	j3 := newJob(t, "buem") // different target, same payload
 	j3.Client, j3.IdempotencyKey = "frontend", "key-1"
-	if _, _, err := s.CreateJob(context.Background(), j3); !errors.Is(err, ErrIdempotencyConflict) {
+	if _, _, err := s.CreateJob(context.Background(), j3, 0); !errors.Is(err, ErrIdempotencyConflict) {
 		t.Fatalf("different target: err = %v, want ErrIdempotencyConflict", err)
 	}
 }

@@ -72,7 +72,7 @@ func TestListJobsByIdempotencyPrefix(t *testing.T) {
 	due := time.Date(2026, 9, 6, 4, 30, 0, 0, time.UTC)
 	for i, key := range []string{RunKey("sched_a", due), RunKey("sched_a", due.Add(time.Hour)), RunKey("schedXa", due), "other"} {
 		id := "j" + string(rune('0'+i))
-		if _, _, err := s.CreateJob(ctx, &Job{ID: id, Client: "c", IdempotencyKey: key, Target: "t", MaxAttempts: 1, Payload: []byte(`{}`)}); err != nil {
+		if _, _, err := s.CreateJob(ctx, &Job{ID: id, Client: "c", IdempotencyKey: key, Target: "t", MaxAttempts: 1, Payload: []byte(`{}`)}, 0); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -96,7 +96,7 @@ func TestTerminalTransitionEnqueuesCallback(t *testing.T) {
 		if id == "cb" {
 			job.CallbackURL = "https://hooks.example.com/x"
 		}
-		if _, _, err := s.CreateJob(ctx, job); err != nil {
+		if _, _, err := s.CreateJob(ctx, job, 0); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -145,7 +145,7 @@ func TestTerminalTransitionEnqueuesCallback(t *testing.T) {
 		t.Errorf("delivery must be deleted with its job: %v", err)
 	}
 	// Giving up leaves a failed delivery.
-	if _, _, err := s.CreateJob(ctx, &Job{ID: "gone", Client: "c", Target: "t", MaxAttempts: 1, Payload: []byte(`{}`), CallbackURL: "https://hooks.example.com/y"}); err != nil {
+	if _, _, err := s.CreateJob(ctx, &Job{ID: "gone", Client: "c", Target: "t", MaxAttempts: 1, Payload: []byte(`{}`), CallbackURL: "https://hooks.example.com/y"}, 0); err != nil {
 		t.Fatal(err)
 	}
 	_ = s.MarkFailed(ctx, "gone", "target_error", "x")

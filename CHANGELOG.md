@@ -11,9 +11,10 @@ under "Changed" with the keys or fields concerned.
 ### Upgrading
 
 - Back up (`tentacron backup`) before installing this release; the command
-  never migrates the database it copies. Migrations 0008 (an index) and
-  0009 (a column and an index on schedules) apply on first start and are
-  additive: a 0.2.0-alpha binary can still open the migrated database.
+  never migrates the database it copies. Migrations 0008 (an index), 0009
+  (a column and an index on schedules) and 0010 (an index) apply on first
+  start and are additive: a 0.2.0-alpha binary can still open the migrated
+  database.
 
 ### Added
 
@@ -30,6 +31,12 @@ under "Changed" with the keys or fields concerned.
   a retried creation replays the stored schedule instead of doubling the
   run cadence, and a different schedule under the same key answers
   `409 idempotency_conflict` (migration 0009).
+- `auth.api_keys[].max_queued` caps how many requests a key may hold that
+  have not ended yet: the one past the cap answers `429 queue_full` with a
+  `Retry-After` of one worker poll interval, and a batch has each further
+  item refused individually. The count runs in the insert's own
+  transaction, so concurrent submissions cannot overshoot the cap together
+  (migration 0010, an index). `0`, the default, keeps the queue unbounded.
 - `auth.api_keys[].max_schedules` caps how many schedules a key may hold
   at once, 100 by default, the size of one schedule listing, so a key can
   always list everything it holds; `0` lets a key create none.

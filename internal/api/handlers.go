@@ -283,6 +283,10 @@ func (s *Server) acceptJob(w http.ResponseWriter, r *http.Request, req createReq
 			"Idempotency-Key was already used with a different target or payload")
 		return
 	}
+	if errors.Is(err, store.ErrQueueFull) {
+		s.writeQueueFull(w, client)
+		return
+	}
 	if err != nil {
 		s.internalError(w, "create job failed", err)
 		return
@@ -291,6 +295,15 @@ func (s *Server) acceptJob(w http.ResponseWriter, r *http.Request, req createReq
 		s.wakeWorkers()
 	}
 	writeJSON(w, http.StatusAccepted, accepted(stored))
+}
+
+// writeQueueFull answers 429 for a key at its queue cap, with a Retry-After
+// of one worker poll interval: the soonest a queued request can have ended.
+func (s *Server) writeQueueFull(w http.ResponseWriter, client string) {
+	cfg := s.cfg()
+	w.Header().Set("Retry-After", strconv.Itoa(max(1, int(cfg.Worker.PollInterval.Std().Seconds()))))
+	writeError(w, http.StatusTooManyRequests, CodeQueueFull,
+		fmt.Sprintf("this key already holds %d queued or running requests; retry once one has ended", cfg.MaxQueuedFor(client)))
 }
 
 // storeSubmission turns one validated submission into a stored job, or
@@ -318,7 +331,7 @@ func (s *Server) storeSubmission(ctx context.Context, req createRequest, client,
 		t, _ := time.Parse(time.RFC3339, req.NotBefore) // validated by validateSubmission
 		job.NotBefore = &t
 	}
-	created, stored, err = s.store.CreateJob(ctx, job)
+	created, stored, err = s.store.CreateJob(ctx, job, s.cfg().MaxQueuedFor(client))
 	if err != nil {
 		return nil, false, err
 	}
@@ -425,6 +438,8 @@ func (s *Server) submitBatchItem(ctx context.Context, item batchItem, id identit
 	switch {
 	case errors.Is(err, store.ErrIdempotencyConflict):
 		return batchResult{Error: &errorDetail{Code: CodeIdempotencyConflict, Message: "idempotency_key was already used with a different target or payload"}}
+	case errors.Is(err, store.ErrQueueFull):
+		return batchResult{Error: &errorDetail{Code: CodeQueueFull, Message: fmt.Sprintf("this key already holds %d queued or running requests; retry once one has ended", s.cfg().MaxQueuedFor(id.name))}}
 	case err != nil:
 		s.logger.Error("create job failed", "error", err)
 		return batchResult{Error: &errorDetail{Code: CodeInternal, Message: "internal server error"}}

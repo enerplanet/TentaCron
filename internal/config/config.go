@@ -109,6 +109,10 @@ type APIKey struct {
 	// (resolving or forwarding) at once; 0 means no ceiling. Further jobs
 	// wait in the queue while other clients' work proceeds.
 	MaxConcurrent int `yaml:"max_concurrent"`
+	// MaxQueued caps how many of this client's requests may be queued or in
+	// flight at once — every non-terminal request; 0 means no cap. The one
+	// past the cap answers 429 until a request ends.
+	MaxQueued int `yaml:"max_queued"`
 	// MaxSchedules caps how many schedules this client may hold at once;
 	// nil means DefaultMaxSchedules, the size of one schedule listing, and
 	// an explicit 0 lets the key create none.
@@ -268,6 +272,17 @@ type Target struct {
 }
 
 // MaxConcurrentFor returns the in-flight ceiling of a client key (0 = none).
+// MaxQueuedFor returns how many non-terminal requests a client may hold; 0
+// means no cap.
+func (c *Config) MaxQueuedFor(client string) int {
+	for _, k := range c.Auth.APIKeys {
+		if k.Name == client {
+			return k.MaxQueued
+		}
+	}
+	return 0
+}
+
 // DefaultMaxSchedules is how many schedules a key may hold unless its
 // max_schedules says otherwise: the size of one schedule listing, so a key
 // can always see everything it holds.
