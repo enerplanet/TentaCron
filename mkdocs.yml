@@ -136,6 +136,7 @@ nav:
       - ADR-0004 Poll targets to completion: decisions/0004-poll-async-targets-to-completion.md
       - ADR-0005 Per-target timeseries path: decisions/0005-per-target-timeseries-path.md
       - ADR-0006 Postgres decision gate: decisions/0006-postgres-decision-gate.md
+      - ADR-0007 OpenAPI contract: decisions/0007-openapi-contract.md
       - Template: decisions/0000-template.md
   - Contributing:
       - Branch Naming: getting-started/branch-naming.md

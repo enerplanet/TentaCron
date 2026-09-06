@@ -14,6 +14,7 @@ change it.
 | [0004](0004-poll-async-targets-to-completion.md) | Tentacron polls asynchronous targets to completion | accepted |
 | [0005](0005-per-target-timeseries-path.md) | Resolvent location and marker policy are per target | accepted |
 | [0006](0006-postgres-decision-gate.md) | Postgres is a gated option, revisited on measured limits, not a roadmap item | accepted |
+| [0007](0007-openapi-contract.md) | The API contract is a hand-written OpenAPI 3.1 document kept true by tests | accepted |
 
 ## Adding a record
 

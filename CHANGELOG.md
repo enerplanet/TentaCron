@@ -10,6 +10,10 @@ under "Changed" with the keys or fields concerned.
 
 ### Added
 
+- ADR-0007 records why the API contract is a hand-written OpenAPI 3.1
+  document kept true by tests — rather than generated from annotations
+  like the EnerPlanET backend's, or 3.0.3 like the sibling services' — and
+  what would make the choice revisited.
 - Every request and response in the OpenAPI description carries an example:
   the request examples are the shipped `examples/` files, the response
   examples come from the golden transcripts, and the lint checks each
