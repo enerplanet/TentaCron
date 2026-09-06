@@ -49,8 +49,9 @@ characters is replaced by a generated id.
 
 **Browsers.** A frontend may call the API directly from the origins listed
 under `server.cors.allowed_origins` (exact matches, no wildcards): preflights
-are answered, `X-Request-ID`, `Content-Disposition` and the range headers are
-exposed. Any other origin receives no CORS headers. A key embedded in a
+are answered for every method the API has, cancellation and schedule
+deletion included, and `X-Request-ID`, `Content-Disposition` and the range
+headers are exposed. Any other origin receives no CORS headers. A key embedded in a
 browser is visible to its users; a backend-for-frontend keeps it server-side
 where that matters.
 

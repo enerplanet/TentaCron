@@ -18,6 +18,9 @@ under "Changed" with the keys or fields concerned.
 
 ### Fixed
 
+- CORS preflights allowed GET, HEAD, POST and OPTIONS only, so a browser
+  frontend on an allowed origin could neither cancel a request nor delete
+  a schedule; DELETE is allowed now.
 - A result download ran under the target's per-call `timeout`, 60 seconds
   by default, and under the job's attempt deadline on top, so a bundle
   anywhere near the size cap could not finish: the failure counted as

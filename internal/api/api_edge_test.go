@@ -828,8 +828,14 @@ func TestCORSForConfiguredOriginsOnly(t *testing.T) {
 	}
 	rec = e.do(t, "OPTIONS", "/v1/requests", "", map[string]string{"Origin": "https://app.example.org", "Access-Control-Request-Method": "POST"})
 	if rec.Code != http.StatusNoContent || !strings.Contains(rec.Header().Get("Access-Control-Allow-Headers"), "X-API-Key") ||
-		!strings.Contains(rec.Header().Get("Access-Control-Allow-Methods"), "POST") || rec.Header().Get("Access-Control-Max-Age") != "600" {
+		rec.Header().Get("Access-Control-Allow-Methods") != "GET, HEAD, POST, DELETE, OPTIONS" || rec.Header().Get("Access-Control-Max-Age") != "600" {
 		t.Errorf("preflight: %d %v", rec.Code, rec.Header())
+	}
+	// A browser cancelling a request preflights DELETE on the request URL;
+	// the answer must allow it, or the frontend can never cancel.
+	rec = e.do(t, "OPTIONS", "/v1/requests/0123456789abcdef0123456789abcdef", "", map[string]string{"Origin": "https://app.example.org", "Access-Control-Request-Method": "DELETE"})
+	if rec.Code != http.StatusNoContent || !strings.Contains(rec.Header().Get("Access-Control-Allow-Methods"), "DELETE") {
+		t.Errorf("cancel preflight: %d %v", rec.Code, rec.Header())
 	}
 	rec = e.do(t, "GET", "/v1/requests", "", map[string]string{"X-API-Key": "valid-key", "Origin": "https://evil.example.org"})
 	if rec.Code != http.StatusOK || rec.Header().Get("Access-Control-Allow-Origin") != "" {
