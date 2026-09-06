@@ -16,6 +16,7 @@ change it.
 | [0006](0006-postgres-decision-gate.md) | Postgres is a gated option, revisited on measured limits, not a roadmap item | accepted |
 | [0007](0007-openapi-contract.md) | The API contract is a hand-written OpenAPI 3.1 document kept true by tests | accepted |
 | [0008](0008-reverse-proxy-boundary.md) | TLS, rate limiting and connection limits belong to the reverse proxy | accepted |
+| [0009](0009-browser-access-policy.md) | The browser access policy lives in the service, with meme's origin semantics | accepted |
 
 ## Adding a record
 

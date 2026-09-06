@@ -10,6 +10,10 @@ under "Changed" with the keys or fields concerned.
 
 ### Added
 
+- ADR-0009 records the browser access policy: CORS in the service with
+  meme's origin semantics, the header sets derived from the handlers, the
+  opt-in knobs, the reload, the lifted no-wildcard rule and the
+  alternatives considered.
 - A *Browser clients* page in the documentation: allowing an origin, one
   `fetch` helper that reads the error envelope and `Retry-After`,
   submitting once per click with an `Idempotency-Key`, waiting with a

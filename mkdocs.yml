@@ -139,6 +139,7 @@ nav:
       - ADR-0006 Postgres decision gate: decisions/0006-postgres-decision-gate.md
       - ADR-0007 OpenAPI contract: decisions/0007-openapi-contract.md
       - ADR-0008 Reverse-proxy boundary: decisions/0008-reverse-proxy-boundary.md
+      - ADR-0009 Browser access policy: decisions/0009-browser-access-policy.md
       - Template: decisions/0000-template.md
   - Contributing:
       - Branch Naming: getting-started/branch-naming.md
