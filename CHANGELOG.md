@@ -10,6 +10,10 @@ under "Changed" with the keys or fields concerned.
 
 ### Added
 
+- `examples/browser/`, a dependency-free page that submits, long-polls,
+  downloads, cancels and shows a `429`'s `Retry-After`; its README is the
+  manual browser check of every release, and a test keeps the Browser
+  clients page's snippets identical to its code.
 - ADR-0009 records the browser access policy: CORS in the service with
   meme's origin semantics, the header sets derived from the handlers, the
   opt-in knobs, the reload, the lifted no-wildcard rule and the

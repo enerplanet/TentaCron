@@ -39,7 +39,9 @@ curl -si -X OPTIONS localhost:8080/v1/requests \
 # Access-Control-Allow-Methods: GET, HEAD, POST, DELETE, OPTIONS
 # Access-Control-Allow-Headers: Content-Type, X-API-Key, Idempotency-Key, X-Request-ID, Range, Authorization
 # Access-Control-Max-Age: 600
-# Vary: Origin, Access-Control-Request-Method, Access-Control-Request-Headers
+# Vary: Origin
+# Vary: Access-Control-Request-Method
+# Vary: Access-Control-Request-Headers
 ```
 
 An origin that is not listed gets the same `204` without any

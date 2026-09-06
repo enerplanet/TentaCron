@@ -1,0 +1,157 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>TentaCron browser client</title>
+<!--
+  A minimal browser client for TentaCron: submit a request, wait for it
+  with a long-poll, download the result as a file, cancel it, and see what
+  a 429 tells a page. No build step and no dependency: serve this directory
+  with `python3 -m http.server 5173` and allow http://localhost:5173 under
+  server.cors.allowed_origins. The fetch code below is what the
+  "Browser clients" page of the documentation quotes.
+-->
+<style>
+  :root { color-scheme: light dark; font: 15px/1.45 system-ui, sans-serif; }
+  body { margin: 0 auto; max-width: 52rem; padding: 1.5rem; }
+  h1 { font-size: 1.4rem; margin: 0 0 1rem; }
+  form { display: grid; gap: .6rem; grid-template-columns: 9rem 1fr; align-items: center; }
+  label { font-weight: 600; }
+  input, textarea { font: inherit; padding: .35rem .5rem; width: 100%; box-sizing: border-box; }
+  textarea { font-family: ui-monospace, monospace; min-height: 5rem; }
+  .actions { grid-column: 1 / -1; display: flex; flex-wrap: wrap; gap: .5rem; }
+  button { font: inherit; padding: .4rem .9rem; cursor: pointer; }
+  button:disabled { cursor: default; opacity: .5; }
+  #state { grid-column: 1 / -1; font-weight: 600; }
+  #log { font-family: ui-monospace, monospace; font-size: .85rem; white-space: pre-wrap; border: 1px solid color-mix(in srgb, currentColor 30%, transparent); padding: .6rem; min-height: 8rem; margin-top: 1rem; }
+</style>
+</head>
+<body>
+<h1>TentaCron browser client</h1>
+<form id="client" onsubmit="return false">
+  <label for="base">API base</label><input id="base" value="http://localhost:8080">
+  <label for="key">API key</label><input id="key" type="password" autocomplete="off" placeholder="X-API-Key">
+  <label for="target">Target</label><input id="target" value="demo">
+  <label for="payload">Payload</label><textarea id="payload">{"time-series": []}</textarea>
+  <div class="actions">
+    <button id="submit">Submit</button>
+    <button id="wait" disabled>Wait for the result</button>
+    <button id="download" disabled>Download the result</button>
+    <button id="cancel" disabled>Cancel</button>
+  </div>
+  <div id="state">No request yet.</div>
+</form>
+<div id="log" aria-live="polite"></div>
+
+<script>
+// Every call carries the key in X-API-Key and reads the JSON error
+// envelope on failure; a 429 also tells us when to retry.
+async function api(base, key, method, path, body, headers = {}) {
+  const resp = await fetch(base + path, {
+    method,
+    headers: { "X-API-Key": key, ...(body ? { "Content-Type": "application/json" } : {}), ...headers },
+    body: body ? JSON.stringify(body) : undefined,
+  });
+  if (resp.status === 429) {
+    const retryAfter = Number(resp.headers.get("Retry-After") || 1);
+    const { error } = await resp.json();
+    throw new Error(`${error.code}: ${error.message} (retry in ${retryAfter}s)`);
+  }
+  if (!resp.ok && resp.status !== 202) {
+    const text = await resp.text();
+    let message = text;
+    try { message = JSON.parse(text).error.message; } catch {}
+    throw new Error(`${resp.status} ${message}`);
+  }
+  return resp;
+}
+
+// Submit once per user action: an Idempotency-Key makes a retry of the
+// same click return the same request instead of a duplicate.
+async function submit(base, key, target, payload) {
+  const resp = await api(base, key, "POST", "/v1/requests", { target, payload }, { "Idempotency-Key": crypto.randomUUID() });
+  return resp.json(); // { id, state, links }
+}
+
+// Wait with a long-poll: one call returns as soon as the request ends,
+// or after the wait window; loop until the state is terminal.
+async function waitForResult(base, key, id) {
+  for (;;) {
+    const resp = await api(base, key, "GET", `/v1/requests/${id}?wait=25s`);
+    const job = await resp.json();
+    if (["completed", "failed", "cancelled"].includes(job.state)) return job;
+  }
+}
+
+// The result as a file: the name comes from Content-Disposition, which
+// the service exposes to pages.
+async function downloadResult(base, key, id) {
+  const resp = await api(base, key, "GET", `/v1/requests/${id}/result`);
+  const disposition = resp.headers.get("Content-Disposition") || "";
+  const name = /filename="?([^";]+)"?/.exec(disposition)?.[1] || `${id}.bin`;
+  const url = URL.createObjectURL(await resp.blob());
+  const a = Object.assign(document.createElement("a"), { href: url, download: name });
+  a.click();
+  URL.revokeObjectURL(url);
+  return name;
+}
+
+// Cancel: 200 with the cancelled request, or 409 not_cancellable while a
+// worker is processing it.
+async function cancel(base, key, id) {
+  const resp = await api(base, key, "DELETE", `/v1/requests/${id}`);
+  return resp.json();
+}
+
+// ---- page wiring ------------------------------------------------------
+const $ = (id) => document.getElementById(id);
+const log = (line) => { $("log").textContent += `${new Date().toISOString().slice(11, 19)}  ${line}\n`; };
+let current = null;
+
+function settings() {
+  return { base: $("base").value.replace(/\/$/, ""), key: $("key").value, target: $("target").value };
+}
+function show(job) {
+  current = job.id;
+  $("state").textContent = `${job.id} — ${job.state}`;
+  const done = ["completed", "failed", "cancelled"].includes(job.state);
+  $("wait").disabled = done;
+  $("cancel").disabled = done;
+  $("download").disabled = job.state !== "completed";
+}
+async function run(label, fn) {
+  try {
+    log(label + " …");
+    const out = await fn();
+    if (out !== undefined) log("→ " + (typeof out === "string" ? out : JSON.stringify(out)));
+  } catch (err) {
+    log("✗ " + err.message);
+  }
+}
+
+$("submit").onclick = () => run("submit", async () => {
+  const { base, key, target } = settings();
+  const job = await submit(base, key, target, JSON.parse($("payload").value));
+  show(job);
+  return job;
+});
+$("wait").onclick = () => run("wait", async () => {
+  const { base, key } = settings();
+  const job = await waitForResult(base, key, current);
+  show(job);
+  return { state: job.state, attempts: job.attempts, error: job.error };
+});
+$("download").onclick = () => run("download", async () => {
+  const { base, key } = settings();
+  return "saved " + await downloadResult(base, key, current);
+});
+$("cancel").onclick = () => run("cancel", async () => {
+  const { base, key } = settings();
+  const job = await cancel(base, key, current);
+  show(job);
+  return { state: job.state };
+});
+</script>
+</body>
+</html>

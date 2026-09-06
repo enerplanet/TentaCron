@@ -36,3 +36,10 @@ the [OpenAPI description](../docs/openapi/openapi.yaml) — an example that
 drifts from the actual contract, or from its description, fails CI. The frozen transcripts (accept response, final state, the exact payload
 and requests the upstreams received, the audit trail) live under
 [`test/e2e/testdata/golden/example-*.golden.json`](../test/e2e/testdata/golden).
+
+## A browser client
+
+[`browser/`](browser/) is a dependency-free page that submits, long-polls,
+downloads, cancels and shows a `429`'s `Retry-After`; its README is the
+manual browser check of every release. See
+[Browser clients](../docs/browser-clients.md).
