@@ -31,7 +31,8 @@ Clients authenticate with a named key from `auth.api_keys`, sent in the
   still accepted as a fallback but **deprecated** (announced here; removal
   not before 1.0); when both are present the header wins. The key is
   compared in constant time, never stored and never forwarded.
-- Every `GET /v1/requests…` endpoint requires the header and answers
+- Every other `/v1` endpoint — reads, cancellation, the dry run, batch,
+  discovery and schedules — requires the header and answers
   `401 unauthorized` when it is missing or unknown.
 - Health and build endpoints are unauthenticated.
 
