@@ -249,6 +249,13 @@ func newProcess(path string, logger *slog.Logger, level *slog.LevelVar) (*proces
 		_ = st.Close()
 		return nil, err
 	}
+	schema, err := st.SchemaVersion(context.Background())
+	if err != nil {
+		_ = st.Close()
+		return nil, err
+	}
+	// An upgrade leaves its trace here: the migrations this start applied.
+	logger.Info("database opened", "path", cfg.Storage.Path, "schema", schema, "migrations_applied", st.MigrationsApplied())
 
 	m := metrics.New(st)
 	hub := notify.New()

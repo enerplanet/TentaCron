@@ -39,6 +39,7 @@ func (s *Store) migrate(ctx context.Context) error {
 		if err := s.applyMigration(ctx, name, version); err != nil {
 			return err
 		}
+		s.applied = append(s.applied, version)
 	}
 	return nil
 }

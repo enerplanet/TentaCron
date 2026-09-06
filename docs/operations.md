@@ -358,6 +358,8 @@ release newer than itself. Schema migrations apply on the new binary's
 first start and readiness waits for them; they are additive, so the
 previous release can still open a migrated database if a rollback is ever
 needed, but a backup taken beforehand is what a restore falls back to. The
+`database opened` log line on every start carries the schema version and
+the migrations that start applied, so an upgrade leaves a trace. The
 suite rehearses this upgrade over a database populated at the previous
 release's schema.
 

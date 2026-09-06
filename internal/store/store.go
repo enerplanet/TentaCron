@@ -10,6 +10,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"slices"
 	"time"
 
 	_ "modernc.org/sqlite" // database/sql driver
@@ -26,6 +27,8 @@ func parseTS(s string) (time.Time, error) { return time.Parse(timeLayout, s) }
 // Store wraps the SQLite database.
 type Store struct {
 	db *sql.DB
+	// applied lists the migration versions Open applied, oldest first.
+	applied []int
 }
 
 // Open opens (creating if needed) the database at path and applies pending
@@ -71,6 +74,13 @@ func OpenForBackup(path string) (*Store, error) {
 
 // recordedVersion is the highest migration the database has applied; a
 // database without the migrations table was never started by tentacron.
+// SchemaVersion is the highest migration recorded in the database.
+func (s *Store) SchemaVersion(ctx context.Context) (int, error) { return s.recordedVersion(ctx) }
+
+// MigrationsApplied lists the migration versions Open applied to bring the
+// database to this binary's schema, oldest first; empty when it was current.
+func (s *Store) MigrationsApplied() []int { return slices.Clone(s.applied) }
+
 func (s *Store) recordedVersion(ctx context.Context) (int, error) {
 	var exists int
 	if err := s.db.QueryRowContext(ctx, `SELECT count(*) FROM sqlite_master WHERE type = 'table' AND name = 'schema_migrations'`).Scan(&exists); err != nil {

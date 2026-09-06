@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -141,6 +142,29 @@ func TestUpgradeFromPreviousReleaseWithData(t *testing.T) {
 	if v := schemaVersion(t, s.db); v <= previousReleaseVersion {
 		t.Fatalf("no migration applied: still at %d", v)
 	}
+	// The store reports what it did, so the start-up log can say so.
+	latest, err := latestMigrationVersion()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var want []int
+	for v := previousReleaseVersion + 1; v <= latest; v++ {
+		want = append(want, v)
+	}
+	if got := s.MigrationsApplied(); !slices.Equal(got, want) {
+		t.Errorf("MigrationsApplied() = %v, want %v", got, want)
+	}
+	if v, err := s.SchemaVersion(ctx); err != nil || v != latest {
+		t.Errorf("SchemaVersion() = %d, %v; want %d", v, err, latest)
+	}
+	again, err := Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := again.MigrationsApplied(); len(got) != 0 {
+		t.Errorf("a current database reports applied migrations %v", got)
+	}
+	_ = again.Close()
 	// Additive: every old column is still there with its type.
 	for table, cols := range before {
 		now := columnsOf(t, s.db, table)

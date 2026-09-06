@@ -31,6 +31,9 @@ under "Changed" with the keys or fields concerned.
   a retried creation replays the stored schedule instead of doubling the
   run cadence, and a different schedule under the same key answers
   `409 idempotency_conflict` (migration 0009).
+- The `database opened` log line on every start carries the schema version
+  and the migrations that start applied, so an upgrade leaves a trace in
+  the log instead of happening silently.
 - Two gauges: `tentacron_long_polls`, the status reads waiting on `?wait=`
   right now, and `tentacron_build_info` with `version`, `revision` and `go`
   labels, so a dashboard can join every other series to a build.
