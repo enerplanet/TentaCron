@@ -199,7 +199,7 @@ recent failures, so most inspection needs no database access.
 | Panic or result file write failure | `internal`. |
 | Client `DELETE /v1/requests/{id}` | `received` and `awaiting_target` requests end `cancelled` (the target is told to stop when it offers a `cancel_url_template`); in-flight and finished requests answer `409`. |
 | Process restart | `resolving`/`forwarding` jobs are requeued and reprocessed from the original payload (series cache makes this cheap); `awaiting_target` jobs resume polling within one poll interval, spread over it, without re-submitting. |
-| Shutdown (SIGTERM) | HTTP drains within `server.shutdown_grace`; in-flight jobs park back to `received`. |
+| Shutdown (SIGTERM) | Long-polls answer at once with the current state, HTTP drains within `server.shutdown_grace`, in-flight jobs park back to `received`, pending target-cancel notifications are waited for. A second signal terminates the process immediately. |
 
 Failed jobs stay queryable until `storage.retention` expires. To re-run a
 failed request, resubmit it — identical resolvents within the cache TTL are

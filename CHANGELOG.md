@@ -18,6 +18,12 @@ under "Changed" with the keys or fields concerned.
 
 ### Fixed
 
+- A shutdown was held open by long-polls: a wait of up to 25 seconds
+  outlasted the 20-second grace window, and a second interrupt did nothing
+  while the drain hung. Long-polls now answer with the current state the
+  moment the drain begins, requests in flight still complete, target-cancel
+  notifications are waited for, and a second signal terminates the process
+  at once.
 - A poll tick was claimed by pushing the next poll forward by one interval
   only, so a tick that outlasted the interval — a result download, a slow
   status call — was claimed again by another worker and the download ran

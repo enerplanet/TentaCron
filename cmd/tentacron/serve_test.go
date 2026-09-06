@@ -55,7 +55,9 @@ func waitUntil(t *testing.T, what string, cond func() bool) {
 
 // The process lifecycle, driven the way runServe drives it: listen on a
 // free port, answer readiness, reload the configuration on request, serve
-// a long-poll, and stop in the documented order within the grace window.
+// a long-poll that waits longer than the grace window, and stop promptly
+// in the documented order: the long-poll answers with the current state
+// the moment the drain begins.
 func TestProcessLifecycle(t *testing.T) {
 	dir := t.TempDir()
 	path := writeConfig(t, lifecycleConfig(dir, "info"))
@@ -114,7 +116,7 @@ func TestProcessLifecycle(t *testing.T) {
 	}
 	waitDone := make(chan int, 1)
 	go func() {
-		resp, err := get(base+"/v1/requests/"+accepted.ID+"?wait=2s", "k")
+		resp, err := get(base+"/v1/requests/"+accepted.ID+"?wait=6s", "k")
 		if err != nil {
 			waitDone <- 0
 			return
@@ -134,8 +136,8 @@ func TestProcessLifecycle(t *testing.T) {
 	case <-time.After(6 * time.Second):
 		t.Fatal("the process did not stop")
 	}
-	if elapsed := time.Since(start); elapsed > 4*time.Second {
-		t.Fatalf("shutdown took %s, want within the grace window", elapsed)
+	if elapsed := time.Since(start); elapsed > 2*time.Second {
+		t.Fatalf("shutdown took %s: the parked long-poll (6s) must not hold the drain (grace 3s)", elapsed)
 	}
 	if code := <-waitDone; code != http.StatusOK {
 		t.Fatalf("the parked long-poll answered %d, want 200 with the current state", code)

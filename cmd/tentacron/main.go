@@ -174,6 +174,7 @@ type process struct {
 	store    *store.Store
 	logger   *slog.Logger
 	servers  []*http.Server
+	api      *api.Server
 	loops    []runner
 	reload   func()
 	// started is closed once every server listens; bound then holds their
@@ -214,7 +215,7 @@ func newProcess(path string, logger *slog.Logger, level *slog.LevelVar) (*proces
 		servers = append(servers, ms)
 	}
 	return &process{
-		cfg: cfg, provider: provider, store: st, logger: logger, servers: servers,
+		cfg: cfg, provider: provider, store: st, logger: logger, servers: servers, api: apiServer,
 		loops:   []runner{pool, deliverer},
 		reload:  func() { reloadConfig(provider, logger, level, client) },
 		started: make(chan struct{}),
@@ -230,6 +231,9 @@ func serveFromConfig(path string, logger *slog.Logger, level *slog.LevelVar) err
 	}
 	rootCtx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
+	// After the first signal, hand the signals back to Go's default
+	// handling, so a second one terminates a shutdown that hangs.
+	context.AfterFunc(rootCtx, stop)
 	hup := make(chan os.Signal, 1)
 	signal.Notify(hup, syscall.SIGHUP)
 	defer signal.Stop(hup)
@@ -316,8 +320,9 @@ func newHTTPServer(cfg *config.Config, handler http.Handler) *http.Server {
 }
 
 // run serves until ctx ends or a server fails, then stops in the documented
-// order: HTTP drains first, workers are cancelled afterwards. Every value on
-// reloads re-reads the configuration. The store is closed on return.
+// order: long-polls answer, HTTP drains, workers are cancelled, background
+// notifications are waited for. Every value on reloads re-reads the
+// configuration. The store is closed on return.
 func (p *process) run(ctx context.Context, reloads <-chan struct{}) error {
 	defer func() { _ = p.store.Close() }()
 	// workerCtx is deliberately not derived from ctx: on shutdown the
@@ -363,9 +368,13 @@ func (p *process) run(ctx context.Context, reloads <-chan struct{}) error {
 		}
 		break
 	}
+	// Long-polls answer now, so the drain is not held open by waits that
+	// may be longer than the grace window; every other request completes.
+	p.api.BeginDrain()
 	drainHTTP(p.cfg, p.logger, p.servers)
 	cancelWorkers()
 	<-poolDone
+	p.api.WaitBackground()
 	p.logger.Info("tentacron stopped")
 	return nil
 }

@@ -1254,3 +1254,25 @@ func TestCallbackURLAllowListAndStatus(t *testing.T) {
 		t.Errorf("disabled: %d %s", rec.Code, rec.Body.String())
 	}
 }
+
+// A long-poll ends when the server begins to drain, answering the current
+// state; the request itself is not aborted.
+func TestLongPollAnswersWhenTheServerDrains(t *testing.T) {
+	e := newEnv(t)
+	id := createJobDirect(t, e)
+	done := make(chan *httptest.ResponseRecorder, 1)
+	go func() {
+		done <- e.do(t, "GET", "/v1/requests/"+id+"?wait=10s", "", map[string]string{"X-API-Key": "valid-key"})
+	}()
+	time.Sleep(100 * time.Millisecond)
+	e.server.BeginDrain()
+	select {
+	case rec := <-done:
+		if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `"state":"received"`) {
+			t.Fatalf("drained long-poll: %d %s", rec.Code, rec.Body.String())
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("the long-poll did not answer when the drain began")
+	}
+	e.server.BeginDrain() // idempotent
+}

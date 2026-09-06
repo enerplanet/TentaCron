@@ -550,10 +550,11 @@ func waitParam(w http.ResponseWriter, r *http.Request, maxWait time.Duration) (t
 	return min(d, maxWait), true
 }
 
-// awaitTerminal blocks until the job is terminal, the wait elapses or the
-// client goes away, re-reading the job on every wake-up. The notifier is
-// registered before each read, so a transition in between cannot be missed;
-// a one-second fallback re-read covers a missing notifier.
+// awaitTerminal blocks until the job is terminal, the wait elapses, the
+// client goes away or the server begins to drain, re-reading the job on
+// every wake-up. The notifier is registered before each read, so a
+// transition in between cannot be missed; a one-second fallback re-read
+// covers a missing notifier.
 func (s *Server) awaitTerminal(ctx context.Context, job *store.Job, wait time.Duration) *store.Job {
 	deadline := time.NewTimer(wait)
 	defer deadline.Stop()
@@ -576,6 +577,9 @@ func (s *Server) awaitTerminal(ctx context.Context, job *store.Job, wait time.Du
 			s.notifier.Forget(job.ID, woke)
 			return job
 		case <-ctx.Done():
+			s.notifier.Forget(job.ID, woke)
+			return job
+		case <-s.draining:
 			s.notifier.Forget(job.ID, woke)
 			return job
 		}
@@ -816,7 +820,9 @@ func (s *Server) notifyTargetCancel(job *store.Job) {
 	if !ok || s.upstream == nil || tcfg.Response.Poll == nil || tcfg.Response.Poll.CancelURLTemplate == "" || job.TargetJobID == "" {
 		return
 	}
+	s.background.Add(1)
 	go func() {
+		defer s.background.Done()
 		ctx, cancel := context.WithTimeout(context.Background(), tcfg.Timeout.Std())
 		defer cancel()
 		if err := s.upstream.CancelTarget(ctx, job.Target, tcfg, job.TargetJobID); err != nil {

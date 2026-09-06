@@ -6,6 +6,7 @@ package api
 import (
 	"log/slog"
 	"net/http"
+	"sync"
 
 	"github.com/enerplanet/tentacron/internal/config"
 	"github.com/enerplanet/tentacron/internal/notify"
@@ -35,7 +36,25 @@ type Server struct {
 	// notifier wakes long-polling reads when a job ends; nil falls back to
 	// periodic re-reads.
 	notifier *notify.Hub
+	// draining is closed by BeginDrain: long-polls answer at once with the
+	// current state so the HTTP drain is not held open by waits that may
+	// exceed the grace window. Only long-polls listen to it; request
+	// contexts are never cancelled, so a request in flight completes.
+	draining  chan struct{}
+	drainOnce sync.Once
+	// background tracks fire-and-forget work (target cancel notifications)
+	// so a shutdown can wait for it.
+	background sync.WaitGroup
 }
+
+// BeginDrain tells waiting long-polls to answer now. Idempotent.
+func (s *Server) BeginDrain() {
+	s.drainOnce.Do(func() { close(s.draining) })
+}
+
+// WaitBackground blocks until the server's background notifications are
+// done; each is bounded by its target's timeout.
+func (s *Server) WaitBackground() { s.background.Wait() }
 
 // WithNotifier wakes long-polling reads on terminal transitions instead of
 // leaving them to the one-second fallback re-read.
@@ -53,7 +72,7 @@ func (s *Server) WithUpstream(c *upstream.Client) *Server {
 // New builds the API server. nudge is signalled (non-blocking) whenever a new
 // job is accepted so the worker pool wakes up immediately.
 func New(cfg *config.Provider, st *store.Store, logger *slog.Logger, nudge chan<- struct{}) *Server {
-	return &Server{cfgp: cfg, store: st, logger: logger, nudge: nudge}
+	return &Server{cfgp: cfg, store: st, logger: logger, nudge: nudge, draining: make(chan struct{})}
 }
 
 // cfg is the configuration current for this request. Handlers read it once
