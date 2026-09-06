@@ -10,6 +10,12 @@ under "Changed" with the keys or fields concerned.
 
 ### Added
 
+- A *Browser clients* page in the documentation: allowing an origin, one
+  `fetch` helper that reads the error envelope and `Retry-After`,
+  submitting once per click with an `Idempotency-Key`, waiting with a
+  long-poll, downloading a result as a file named from
+  `Content-Disposition`, cancelling, and what a key in a page means.
+  Every snippet is the code of the example browser client.
 - The request log names a browser's `origin` and carries `cors: denied`
   when the policy refused it; CORS preflights log at `debug` like the
   health probes. The start-up and reload log lines print the browser

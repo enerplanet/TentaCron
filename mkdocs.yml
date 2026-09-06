@@ -128,6 +128,7 @@ nav:
       - API Reference: api.md
       - Configuration: configuration.md
       - Operations: operations.md
+      - Browser clients: browser-clients.md
   - Decisions:
       - Overview: decisions/README.md
       - ADR-0001 Go single binary: decisions/0001-go-single-binary.md

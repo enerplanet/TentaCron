@@ -85,6 +85,7 @@ original object under its `resolvent` key for traceability), leaves genuine
 - [API Reference](api.md) — endpoints, error codes, examples
 - [Configuration](configuration.md) — every YAML key explained
 - [Operations](operations.md) — deployment, logs, failure handling
+- [Browser clients](browser-clients.md) — calling the API from a page: origins, long-polls, downloads, the key
 - [OpenAPI reference](openapi/index.html) — the contract, rendered
 - [Decisions](decisions/README.md) — why the service looks the way it does
 
