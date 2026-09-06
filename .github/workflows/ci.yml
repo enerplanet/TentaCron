@@ -67,7 +67,7 @@ jobs:
           python-version: "3.12"
       - run: pip install openapi-spec-validator
       - name: Validate the OpenAPI description
-        run: openapi-spec-validator internal/api/openapi.yaml
+        run: openapi-spec-validator docs/openapi/openapi.yaml
 
   vuln:
     runs-on: ubuntu-latest

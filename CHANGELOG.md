@@ -145,6 +145,14 @@ under "Changed" with the keys or fields concerned.
 
 ### Changed
 
+- The OpenAPI description lives at `docs/openapi/openapi.yaml`, the layout
+  the sibling services use, next to a standalone Swagger UI page
+  (`docs/openapi/index.html`) that renders it by relative path and so works
+  on the docs site, from a checkout and as a raw file alike; the former docs
+  page loaded the file from GitHub and stayed blank on in-site navigation.
+  The binary embeds and serves the same file at `GET /openapi.yaml` as
+  before. The description now lists the local development server and spells
+  out that `info.version` is the contract version, not the release.
 - The series-cache key leaves out a resolvent's `name` by default (set
   `cache_ignore_fields: []` on a type to restore the old behaviour); entries
   cached under the old keys expire with their TTL.

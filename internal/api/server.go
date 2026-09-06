@@ -61,8 +61,9 @@ func New(cfg *config.Provider, st *store.Store, logger *slog.Logger, nudge chan<
 // middleware chain and CORS are built once from the startup configuration.
 func (s *Server) cfg() *config.Config { return s.cfgp.Current() }
 
-// route is one endpoint of the API. The OpenAPI description in openapi.yaml
-// lists exactly these; a test keeps the two in lockstep.
+// route is one endpoint of the API. The OpenAPI description in
+// docs/openapi/openapi.yaml lists exactly these; a test keeps the two in
+// lockstep.
 type route struct {
 	method, pattern string
 	handler         http.HandlerFunc

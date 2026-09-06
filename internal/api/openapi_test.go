@@ -5,6 +5,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/enerplanet/tentacron/docs/openapi"
 	"gopkg.in/yaml.v3"
 )
 
@@ -17,7 +18,7 @@ func TestOpenAPIDescribesExactlyTheRoutes(t *testing.T) {
 		OpenAPI string                            `yaml:"openapi"`
 		Paths   map[string]map[string]interface{} `yaml:"paths"`
 	}
-	if err := yaml.Unmarshal(openAPISpec, &doc); err != nil {
+	if err := yaml.Unmarshal(openapi.Spec, &doc); err != nil {
 		t.Fatalf("openapi.yaml does not parse: %v", err)
 	}
 	if !strings.HasPrefix(doc.OpenAPI, "3.1") {

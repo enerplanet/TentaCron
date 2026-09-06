@@ -11,6 +11,12 @@ repo_name: enerplanet/tentacron
 repo_url: https://github.com/enerplanet/tentacron
 edit_uri: edit/main/docs/
 
+# docs/openapi/ holds the OpenAPI description, its standalone Swagger UI
+# page and the Go package that embeds the description into the binary; the
+# Go sources are not part of the site.
+exclude_docs: |
+  openapi/*.go
+
 # Theme configuration
 theme:
   name: material
@@ -120,7 +126,6 @@ nav:
   - Service:
       - Architecture: architecture.md
       - API Reference: api.md
-      - OpenAPI: openapi.md
       - Configuration: configuration.md
       - Operations: operations.md
   - Decisions:

@@ -13,11 +13,17 @@ info:
     decides whether it reads only its own requests (`client`) or every request
     (`admin`). The API changes only additively within `/v1`; clients must ignore
     fields they do not know.
+
+    `info.version` is the contract version, the major of the `/v1` prefix; the
+    service release is independent of it and reported by `GET /version`.
   license:
     name: MIT
     identifier: MIT
 servers:
   - url: /
+    description: The deployment this document was fetched from (`GET /openapi.yaml`).
+  - url: http://localhost:8080
+    description: Local development, the default `server.addr`.
 security:
   - ApiKeyAuth: []
 tags:

@@ -1,8 +1,12 @@
 # API Reference
 
-All requests and responses are JSON. The same contract is available as an
-[OpenAPI 3.1 document](openapi.md), served by the running service at
-`GET /openapi.yaml`. Errors always use one shape:
+All requests and responses are JSON. The interactive reference lives in its
+own standalone page, [`openapi/index.html`](openapi/index.html), so it can
+be opened directly without running `mkdocs serve`. It renders
+[`openapi/openapi.yaml`](openapi/openapi.yaml), the OpenAPI 3.1 document
+the running service also serves at `GET /openapi.yaml`; download that file
+to generate a client or import it into Postman (see
+[OpenAPI description](#openapi-description)). Errors always use one shape:
 
 ```json
 { "error": { "code": "unknown_target", "message": "target \"buem2\" is not configured" } }
@@ -415,3 +419,20 @@ Prometheus metrics are not on this listener; see
 Any other route answers `404 not_found` in the standard error shape; a known
 route with an unsupported method answers `405 method_not_allowed` with an
 `Allow` header listing the accepted methods.
+
+## OpenAPI description
+
+[`openapi/openapi.yaml`](openapi/openapi.yaml) is the single source of
+truth for this contract: the standalone
+[`openapi/index.html`](openapi/index.html) renders it, the binary embeds
+the same file and serves it at `GET /openapi.yaml`, and a test fails when
+the document and the registered routes disagree, so the description can
+neither describe a route the build does not serve nor miss one it does.
+
+Generate a client with any OpenAPI 3.1 tool, from the running service or
+from the file in the repository:
+
+```bash
+curl -s http://localhost:8080/openapi.yaml -o tentacron.yaml
+openapi-generator-cli generate -i tentacron.yaml -g python -o ./tentacron-client
+```

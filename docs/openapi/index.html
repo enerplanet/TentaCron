@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Tentacron API reference</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/swagger-ui-dist@5/swagger-ui.css" />
+    <style>
+      body { margin: 0; padding: 0; }
+    </style>
+  </head>
+  <body>
+    <!-- Swagger UI via CDN, deliberately unpinned: docs-only page, no build
+         step. Standalone so a dev can open this file directly without
+         running `mkdocs serve` first. "Try it out" is disabled: every /v1
+         call needs an API key, and a deployment admits the docs origin
+         through server.cors.allowed_origins only on purpose, so this page
+         is a reference; the runnable requests live in examples/ and
+         docs/api.md. Renders openapi.yaml directly, which stays the single
+         source of truth (the binary embeds the same file and serves it at
+         GET /openapi.yaml). Matches buem-gateway's and weather's docs
+         viewers for a consistent look across the enerplanet API docs. -->
+    <div id="swagger-ui"></div>
+    <script src="https://cdn.jsdelivr.net/npm/swagger-ui-dist@5/swagger-ui-bundle.js"></script>
+    <script>
+      window.onload = () => {
+        window.ui = SwaggerUIBundle({
+          url: "./openapi.yaml",
+          dom_id: "#swagger-ui",
+          deepLinking: true,
+          supportedSubmitMethods: [],
+        });
+      };
+    </script>
+  </body>
+</html>

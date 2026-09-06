@@ -147,8 +147,9 @@ docker run -d -p 8080:8080 \
 All `/v1` endpoints authenticate with the `X-API-Key` header; a key's `role`
 (`client` or `admin`) decides whether it sees only its own requests or all.
 
-See [docs/api.md](docs/api.md) for the full reference (also as
-[OpenAPI](docs/openapi.md)),
+See [docs/api.md](docs/api.md) for the full reference (the OpenAPI
+description is [docs/openapi/openapi.yaml](docs/openapi/openapi.yaml),
+rendered by [docs/openapi/index.html](docs/openapi/index.html)),
 [docs/configuration.md](docs/configuration.md) for every config key,
 [docs/architecture.md](docs/architecture.md) for the design and
 [docs/operations.md](docs/operations.md) for deployment and failure handling.

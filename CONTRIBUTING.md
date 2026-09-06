@@ -91,7 +91,10 @@ sync with the contract. The test pyramid is described in
 [test/README.md](test/README.md).
 
 Update the documentation (`README.md`, `docs/`, `config.example.yaml`,
-`CHANGELOG.md`) whenever your change affects usage or behaviour.
+`CHANGELOG.md`) whenever your change affects usage or behaviour. An API
+change also updates the OpenAPI description,
+[docs/openapi/openapi.yaml](docs/openapi/openapi.yaml); a test fails until
+it and the registered routes agree.
 
 ### 5) Commit your changes
 
