@@ -1,6 +1,7 @@
 # Build context for the production image (root Dockerfile): only what
 # `go build ./cmd/tentacron` needs. The embedded SQL migrations live under
-# internal/ and stay in.
+# internal/ and stay in; so does the OpenAPI description the binary embeds
+# from docs/openapi (the rest of docs/ is the site).
 .git
 .github
 .venv
@@ -13,6 +14,8 @@ site
 coverage.out
 *.db
 docs
+!docs/openapi/openapi.go
+!docs/openapi/openapi.yaml
 environment
 examples
 test
