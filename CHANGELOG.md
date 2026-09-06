@@ -209,6 +209,12 @@ under "Changed" with the keys or fields concerned.
 
 ### Fixed
 
+- The OpenAPI description omitted three things the service answers with:
+  the error codes `callback_not_allowed` (a refused `callback_url`) and the
+  dry-run problem codes `invalid_payload`, `unknown_resolvent` and
+  `target_error` (a schedule whose every run would fail), and the recorded
+  content type of a file result download, such as `application/zip` for a
+  MEME bundle.
 - A shutdown signal arriving in the instant after a worker's claim committed
   left that job orphaned in `resolving` (unclaimable until restart recovery)
   instead of parking it: the claimed job is now read back with a context

@@ -495,14 +495,18 @@ paths:
             type: string
       responses:
         "200":
-          description: The stored result.
+          description: The stored result. A file result carries the content type the target answered with — `application/zip` for a MEME bundle, `application/octet-stream` when the target named none — so any media type may appear.
           content:
             application/json: {}
+            application/zip: {}
             application/octet-stream: {}
+            "*/*": {}
         "206":
-          description: The requested byte range of a file result.
+          description: The requested byte range of a file result, in its recorded content type.
           content:
+            application/zip: {}
             application/octet-stream: {}
+            "*/*": {}
         "401":
           $ref: "#/components/responses/Unauthorized"
         "404":
@@ -677,9 +681,11 @@ components:
           properties:
             code:
               type: string
+              description: "`invalid_payload`, `unknown_resolvent` and `target_error` are the dry-run problem codes, answered by `POST /v1/schedules` when every run would fail."
               enum: [invalid_json, missing_field, unauthorized, unknown_target, idempotency_conflict,
                      payload_too_large, unsupported_media_type, not_found, method_not_allowed,
-                     not_cancellable, invalid_parameter, internal]
+                     not_cancellable, callback_not_allowed, invalid_parameter, internal,
+                     invalid_payload, unknown_resolvent, target_error]
             message:
               type: string
     CreateRequest:
