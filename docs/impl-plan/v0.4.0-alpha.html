@@ -1,0 +1,591 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<!-- Implementation plan for TentaCron 0.4.0-alpha, written 2026-09-06 from a
+     comparison of the browser (CORS) support in the sibling service meme with
+     TentaCron's at the 0.3.0-alpha tag. A standalone page like
+     docs/openapi/index.html: open it from a checkout or read it on the docs
+     site under impl-plan/. Fonts come from Google Fonts; everything else is in
+     this file. The plan is the source of truth for the release; when an item
+     lands, its status is updated here in the same commit. -->
+<title>TentaCron 0.4.0-alpha Plan</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Source+Serif+4:ital,opsz,wght@0,8..60,400;0,8..60,600;1,8..60,400&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+  :root {
+    --bg: #f4f4f8;
+    --surface: #ffffff;
+    --ink: #21232e;
+    --muted: #5b5c6b;
+    --faint: #8a8b9a;
+    --rule: #d9d9e3;
+    --rule-strong: #b9b9c8;
+    --accent: #5d5294;
+    --accent-soft: #ebe8f7;
+    --accent-ink: #3f3770;
+    --crit: #a8352e;
+    --crit-soft: #f6e3e1;
+    --warn: #8a5a0e;
+    --warn-soft: #f5ead3;
+    --info: #2f5f9e;
+    --info-soft: #e0e9f5;
+    --ok: #2f6f4e;
+    --ok-soft: #dfeee6;
+    --code-bg: #ededf3;
+    color-scheme: light;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #15141f;
+      --surface: #1d1c2a;
+      --ink: #e9e9ed;
+      --muted: #a9a9bb;
+      --faint: #7d7d90;
+      --rule: #2d2c3d;
+      --rule-strong: #43425a;
+      --accent: #9184d9;
+      --accent-soft: #272440;
+      --accent-ink: #b8aee8;
+      --crit: #e58a82;
+      --crit-soft: #3a2422;
+      --warn: #e2b258;
+      --warn-soft: #3a2f1a;
+      --info: #8cb4ea;
+      --info-soft: #1f2b3d;
+      --ok: #7fc59f;
+      --ok-soft: #1c2f26;
+      --code-bg: #24233a;
+      color-scheme: dark;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #15141f;
+    --surface: #1d1c2a;
+    --ink: #e9e9ed;
+    --muted: #a9a9bb;
+    --faint: #7d7d90;
+    --rule: #2d2c3d;
+    --rule-strong: #43425a;
+    --accent: #9184d9;
+    --accent-soft: #272440;
+    --accent-ink: #b8aee8;
+    --crit: #e58a82;
+    --crit-soft: #3a2422;
+    --warn: #e2b258;
+    --warn-soft: #3a2f1a;
+    --info: #8cb4ea;
+    --info-soft: #1f2b3d;
+    --ok: #7fc59f;
+    --ok-soft: #1c2f26;
+    --code-bg: #24233a;
+    color-scheme: dark;
+  }
+
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--ink);
+    font-family: "Source Serif 4", Georgia, "Times New Roman", serif;
+    font-size: 17px;
+    line-height: 1.55;
+    -webkit-font-smoothing: antialiased;
+  }
+  .page { max-width: 980px; margin: 0 auto; padding: 40px 28px 96px; }
+
+  /* masthead */
+  .mast { display: flex; align-items: center; gap: 18px; padding-bottom: 22px; border-bottom: 1px solid var(--rule-strong); }
+  .mast svg { width: 56px; height: 56px; flex: 0 0 auto; color: var(--accent); }
+  .mast .word { font-family: Inter, system-ui, sans-serif; font-weight: 500; font-size: 30px; letter-spacing: -0.01em; line-height: 1.1; }
+  .mast .sub { font-family: Inter, system-ui, sans-serif; font-size: 13px; color: var(--muted); letter-spacing: 0.06em; text-transform: uppercase; margin-top: 6px; }
+  .mast .tag { margin-left: auto; font-family: "IBM Plex Mono", ui-monospace, Menlo, monospace; font-size: 13px; color: var(--accent-ink); background: var(--accent-soft); padding: 6px 10px; border-radius: 4px; white-space: nowrap; }
+
+  h1 { font-family: Inter, system-ui, sans-serif; font-weight: 600; font-size: 34px; letter-spacing: -0.02em; line-height: 1.15; margin: 40px 0 12px; text-wrap: balance; }
+  h2 { font-family: Inter, system-ui, sans-serif; font-weight: 600; font-size: 22px; letter-spacing: -0.01em; margin: 56px 0 8px; text-wrap: balance; display: flex; align-items: baseline; gap: 14px; }
+  h2 .num { font-family: "IBM Plex Mono", ui-monospace, monospace; font-weight: 500; font-size: 14px; color: var(--accent-ink); background: var(--accent-soft); padding: 3px 8px; border-radius: 4px; letter-spacing: 0.04em; }
+  h3 { font-family: Inter, system-ui, sans-serif; font-weight: 600; font-size: 17px; margin: 0 0 6px; letter-spacing: -0.005em; }
+  p { max-width: 68ch; margin: 0 0 14px; }
+  .lead { font-size: 19px; color: var(--ink); max-width: 66ch; }
+  .phase-intro { color: var(--muted); max-width: 70ch; margin-bottom: 18px; }
+  a { color: var(--accent-ink); text-decoration-color: var(--rule-strong); text-underline-offset: 3px; }
+  a:focus-visible, button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  code, .mono { font-family: "IBM Plex Mono", ui-monospace, Menlo, monospace; font-size: 0.86em; }
+  code { background: var(--code-bg); padding: 1px 5px; border-radius: 3px; }
+  pre { background: var(--code-bg); padding: 12px 14px; border-radius: 4px; overflow-x: auto; font-size: 13.5px; line-height: 1.5; margin: 8px 0 14px; }
+  pre code { background: none; padding: 0; font-size: inherit; }
+
+  /* summary grid */
+  .facts { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 0; border-top: 1px solid var(--rule); border-bottom: 1px solid var(--rule); margin: 26px 0 10px; }
+  .fact { padding: 16px 18px 16px 0; border-right: 1px solid var(--rule); }
+  .fact:last-child { border-right: 0; }
+  .fact + .fact { padding-left: 18px; }
+  .fact .k { font-family: Inter, system-ui, sans-serif; font-size: 12px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--faint); }
+  .fact .v { font-family: Inter, system-ui, sans-serif; font-weight: 600; font-size: 22px; margin-top: 4px; font-variant-numeric: tabular-nums; }
+  .fact .d { font-size: 14px; color: var(--muted); margin-top: 2px; }
+
+  /* phase index */
+  table.index { width: 100%; border-collapse: collapse; margin: 18px 0 8px; font-size: 15px; }
+  table.index th { text-align: left; font-family: Inter, system-ui, sans-serif; font-size: 12px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--faint); font-weight: 500; padding: 0 12px 8px 0; border-bottom: 1px solid var(--rule-strong); }
+  table.index td { padding: 10px 12px 10px 0; border-bottom: 1px solid var(--rule); vertical-align: top; }
+  table.index td.n { font-family: "IBM Plex Mono", ui-monospace, monospace; font-size: 13px; color: var(--accent-ink); white-space: nowrap; }
+  table.index td.num { font-variant-numeric: tabular-nums; text-align: right; padding-right: 0; white-space: nowrap; }
+  .scroll { overflow-x: auto; }
+
+  /* work items */
+  .item { display: grid; grid-template-columns: 200px 1fr; gap: 0 28px; padding: 22px 0 24px; border-top: 1px solid var(--rule); }
+  .item:first-of-type { border-top: 1px solid var(--rule-strong); }
+  .item .meta { font-family: Inter, system-ui, sans-serif; font-size: 13px; color: var(--muted); }
+  .item .id { font-family: "IBM Plex Mono", ui-monospace, monospace; font-size: 13px; color: var(--accent-ink); font-weight: 500; }
+  .item .meta dl { margin: 12px 0 0; display: grid; grid-template-columns: max-content 1fr; gap: 5px 10px; }
+  .item .meta dt { color: var(--faint); font-size: 11.5px; letter-spacing: 0.06em; text-transform: uppercase; padding-top: 2px; }
+  .item .meta dd { margin: 0; }
+  .item .body p { margin-bottom: 10px; }
+  .item .body p:last-child { margin-bottom: 0; }
+  .item .body .lbl { font-family: Inter, system-ui, sans-serif; font-weight: 600; font-size: 12.5px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--faint); display: block; margin: 12px 0 3px; }
+  .item .body .lbl:first-child { margin-top: 0; }
+  .item ul { margin: 0 0 8px; padding-left: 20px; max-width: 70ch; }
+  .item li { margin-bottom: 4px; }
+  .commit { display: block; font-family: "IBM Plex Mono", ui-monospace, monospace; font-size: 12.5px; color: var(--ink); background: var(--code-bg); padding: 8px 10px; border-radius: 3px; margin-top: 12px; overflow-wrap: anywhere; }
+  .files { font-family: "IBM Plex Mono", ui-monospace, monospace; font-size: 12px; color: var(--muted); line-height: 1.6; overflow-wrap: anywhere; }
+
+  .pill { display: inline-block; font-family: Inter, system-ui, sans-serif; font-size: 11.5px; font-weight: 600; letter-spacing: 0.05em; text-transform: uppercase; padding: 3px 8px; border-radius: 3px; line-height: 1.3; }
+  .pill.crit { color: var(--crit); background: var(--crit-soft); }
+  .pill.warn { color: var(--warn); background: var(--warn-soft); }
+  .pill.info { color: var(--info); background: var(--info-soft); }
+  .pill.ok { color: var(--ok); background: var(--ok-soft); }
+  .pill.neutral { color: var(--muted); background: var(--code-bg); }
+
+  .rules { border: 1px solid var(--rule-strong); border-radius: 4px; padding: 18px 22px; margin: 22px 0; background: var(--surface); }
+  .rules h3 { margin-bottom: 8px; }
+  .rules ul { margin: 0; padding-left: 20px; max-width: 72ch; }
+  .rules li { margin-bottom: 6px; }
+
+  .risk { padding: 18px 0 20px; border-top: 1px solid var(--rule); }
+  .risk:first-of-type { border-top: 1px solid var(--rule-strong); }
+  .risk h3 { margin-bottom: 10px; }
+  .risk p { margin-bottom: 8px; max-width: 74ch; }
+  .risk .rk { font-family: Inter, system-ui, sans-serif; font-weight: 600; font-size: 12.5px; letter-spacing: 0.05em; text-transform: uppercase; color: var(--accent-ink); margin-right: 6px; }
+  .note { border-left: 3px solid var(--accent); padding: 4px 0 4px 16px; color: var(--muted); max-width: 70ch; margin: 14px 0 18px; }
+
+  @media (max-width: 720px) {
+    .item { grid-template-columns: 1fr; gap: 12px; }
+    .mast .tag { display: none; }
+    h1 { font-size: 28px; }
+  }
+  @media (prefers-reduced-motion: no-preference) { html { scroll-behavior: smooth; } }
+</style>
+<style>
+  /* Standalone page: paint the ground the artifact host used to provide. */
+  html { background: var(--bg); }
+</style>
+</head>
+<body>
+<div class="page">
+  <header class="mast">
+    <svg viewBox="24 20 76 76" role="img" aria-label="TentaCron icon">
+      <g fill="none" stroke="currentColor" stroke-width="5" stroke-linecap="round" stroke-linejoin="round">
+        <circle cx="62" cy="58" r="34"></circle>
+        <g stroke-width="3.6"><path d="M62 27.2 L62 33.2"></path><path d="M92.8 58 L86.8 58"></path><path d="M62 88.8 L62 82.8"></path><path d="M31.2 58 L37.2 58"></path></g>
+        <g stroke-width="2.2"><path d="M77.4 31.3 L75.8 34.1"></path><path d="M88.7 42.6 L85.9 44.2"></path><path d="M88.7 73.4 L85.9 71.8"></path><path d="M77.4 84.7 L75.8 81.9"></path><path d="M46.6 84.7 L48.2 81.9"></path><path d="M35.3 73.4 L38.1 71.8"></path><path d="M35.3 42.6 L38.1 44.2"></path><path d="M46.6 31.3 L48.2 34.1"></path></g>
+        <path d="M62 58 L39.5 45"></path><path d="M62 58 L76.7 49.5"></path>
+      </g>
+      <circle cx="62" cy="58" r="4" fill="currentColor"></circle><circle cx="49" cy="35" r="4" fill="currentColor"></circle><circle cx="75" cy="35" r="4" fill="currentColor"></circle>
+    </svg>
+    <div>
+      <div class="word">TentaCron</div>
+      <div class="sub">Implementation plan · 0.4.0-alpha</div>
+    </div>
+    <div class="tag">baseline 3e7eae8 · written 2026-09-06</div>
+  </header>
+
+  <h1>Browser clients, at parity with meme</h1>
+  <p class="lead">TentaCron answers browsers since 0.2.0: an exact-origin allow-list under <code>server.cors.allowed_origins</code>, preflights for every method, a fixed set of exposed headers. The sibling service <a href="https://github.com/enerplanet/meme">meme</a> goes further, and a frontend that talks to both meets two policies with different edges. This release brings TentaCron's browser policy to meme's semantics where they apply, keeps what TentaCron already does better, and adds what a browser client of a job queue needs that a stateless simulation API never did: a readable <code>Retry-After</code>, a reload without restart, and a guide with a working page. Nothing here touches the job pipeline; every item is in the HTTP layer, its configuration, its tests or its documentation.</p>
+
+  <div class="facts">
+    <div class="fact"><div class="k">Work items</div><div class="v">13</div><div class="d">in 4 phases, one commit each</div></div>
+    <div class="fact"><div class="k">Parity gaps closed</div><div class="v">11</div><div class="d">plus reload, tests and docs; see the comparison</div></div>
+    <div class="fact"><div class="k">Estimated effort</div><div class="v">5 days</div><div class="d">one developer, gate on every commit</div></div>
+    <div class="fact"><div class="k">Goldens that may change</div><div class="v">1 new</div><div class="d">no existing transcript moves</div></div>
+  </div>
+
+  <p class="phase-intro">Each item carries its status: <span class="pill neutral">Planned</span>, <span class="pill info">In progress</span>, <span class="pill ok">Done</span> or <span class="pill warn">Deferred</span> with the reason. The status changes in the commit that lands the item, so this page is always the state of the release. The plan waits for approval before the first commit.</p>
+
+  <h2><span class="num">Baseline</span>What each service does today</h2>
+  <p class="phase-intro">Read from meme's <code>internal/api/cors.go</code> and its seventeen tests, and from TentaCron's <code>withCORS</code> in <code>internal/api/middleware.go</code> at the 0.3.0-alpha tag. Where TentaCron is already ahead the row says so; a plan is not a copy.</p>
+  <div class="scroll">
+  <table class="index">
+    <thead><tr><th>Capability</th><th>meme</th><th>TentaCron 0.3.0-alpha</th><th>Plan</th></tr></thead>
+    <tbody>
+      <tr><td>Exact origins, off by default</td><td>yes</td><td>yes</td><td class="n">keep</td></tr>
+      <tr><td>The <code>*</code> origin</td><td>yes, refused with credentials</td><td>no, by decision in 0.2.0</td><td class="n"><a href="#i11">1.1</a></td></tr>
+      <tr><td>Subdomain wildcards, <code>https://*.example.org</code></td><td>yes, any depth, never the apex</td><td>no</td><td class="n"><a href="#i11">1.1</a></td></tr>
+      <tr><td>The literal <code>null</code> origin</td><td>only when listed</td><td>no</td><td class="n"><a href="#i11">1.1</a></td></tr>
+      <tr><td>Case-insensitive origin match</td><td>yes</td><td>no</td><td class="n"><a href="#i11">1.1</a></td></tr>
+      <tr><td>Preflight before authentication, on every path</td><td>yes</td><td>yes</td><td class="n">keep</td></tr>
+      <tr><td>Preflight from a denied origin</td><td>204 with the full <code>Vary</code> set, nothing else</td><td>405 from the mux, with an <code>Allow</code> list</td><td class="n"><a href="#i12">1.2</a></td></tr>
+      <tr><td><code>Vary</code> on a preflight</td><td><code>Origin</code>, <code>Access-Control-Request-Method</code>, <code>Access-Control-Request-Headers</code></td><td><code>Origin</code> only</td><td class="n"><a href="#i12">1.2</a></td></tr>
+      <tr><td>Allowed methods</td><td>GET, POST, OPTIONS; configurable</td><td>GET, HEAD, POST, DELETE, OPTIONS: every method the API has</td><td class="n">keep, already complete</td></tr>
+      <tr><td>Allowed request headers</td><td>Content-Type, Authorization; configurable, <code>*</code> echoes</td><td>Content-Type, X-API-Key, Idempotency-Key, X-Request-ID, Range</td><td class="n"><a href="#i13">1.3</a>, <a href="#i14">1.4</a></td></tr>
+      <tr><td>Exposed response headers</td><td>Content-Disposition; configurable</td><td>X-Request-ID, Allow, Content-Disposition, Content-Length, Content-Range, Accept-Ranges; <strong>not</strong> Retry-After</td><td class="n"><a href="#i13">1.3</a>, <a href="#i14">1.4</a></td></tr>
+      <tr><td>Credentials</td><td>opt-in, echoes the origin, never <code>*</code></td><td>no</td><td class="n"><a href="#i14">1.4</a></td></tr>
+      <tr><td>Preflight max-age</td><td>configurable, 10 minutes by default</td><td>fixed 600 s</td><td class="n"><a href="#i14">1.4</a></td></tr>
+      <tr><td>Private Network Access preflights</td><td>opt-in</td><td>no</td><td class="n"><a href="#i14">1.4</a></td></tr>
+      <tr><td>Validation at start</td><td>Fetch-spec rules: wildcards, credentials, malformed origins</td><td>exact-origin shape only</td><td class="n"><a href="#i11">1.1</a>, <a href="#i14">1.4</a></td></tr>
+      <tr><td>CORS headers on error envelopes (401, 413, 429)</td><td>yes</td><td>yes: the middleware wraps the fallback and the mux</td><td class="n">keep</td></tr>
+      <tr><td>Change the policy without a restart</td><td>not applicable, no reload</td><td>restart required, <code>server</code> is startup-only</td><td class="n"><a href="#i21">2.1</a></td></tr>
+      <tr><td>Tests</td><td>17 unit tests covering the matrix</td><td>1 unit test, no golden, no fuzz target</td><td class="n"><a href="#i01">0.1</a>, <a href="#i02">0.2</a>, <a href="#i11">1.1</a></td></tr>
+      <tr><td>Documentation</td><td>README section with a curl check, environment table</td><td>one paragraph in the API reference, one table row</td><td class="n"><a href="#i31">3.1</a> to <a href="#i35">3.5</a></td></tr>
+    </tbody>
+  </table>
+  </div>
+
+  <div class="rules">
+    <h3>Rules that apply to every item</h3>
+    <ul>
+      <li><strong>One item, one conventional commit</strong>, with its tests, its documentation and its <code>CHANGELOG.md</code> entry under <em>Unreleased</em> in the same commit. Subjects are given below; bodies explain the why, as the history does.</li>
+      <li><strong>The gate runs before every commit and must fail hard:</strong> <code>go build ./...</code>, <code>go vet ./...</code>, <code>go test -race -shuffle=on ./...</code>, <code>golangci-lint run</code>, <code>make lint-openapi</code>, <code>mkdocs build --strict</code>; the phase tip also passes the stress gate, <code>GOMAXPROCS=2 go test -race -shuffle=on -count=3 ./...</code>.</li>
+      <li><strong>Tests before behaviour.</strong> Phase 0 records what the middleware does today; each later item flips exactly the cases it changes and names them in its text. A new parser of untrusted input, the origin matcher, gets a fuzz target, as the pull-request template requires.</li>
+      <li><strong>Goldens change only for intended behaviour.</strong> One transcript is added; the header recording is opt-in per step, so no existing transcript moves. The regenerated file is read line by line before it is accepted.</li>
+      <li><strong>Documentation is part of the item, not a phase after it.</strong> Reference pages, README, configuration examples and the OpenAPI description move in the commit that changes what they describe; phase 3 holds only the documents that are deliverables in their own right.</li>
+      <li><strong>Work on a branch</strong> named after the phase (<code>test/phase-0-cors-baseline</code>, <code>feat/phase-1-cors-parity</code>, and so on), fast-forwarded onto <code>main</code> when the phase is green, as every earlier phase was.</li>
+    </ul>
+  </div>
+
+  <h2><span class="num">Order</span>Phases and their dependencies</h2>
+  <p class="phase-intro">Phase 0 first, so that every later change is measured against a recorded baseline. Inside phase 1, the matcher (1.1) lands before the preflight semantics (1.2) that use it, and the header sets (1.3) before the knobs (1.4) that extend them. Phase 2 needs the policy object from 1.1 to swap it atomically. Phase 3 documents the finished behaviour, so it comes last; its example page is what the release checklist runs in a browser.</p>
+  <div class="scroll">
+  <table class="index">
+    <thead><tr><th>Phase</th><th>Contents</th><th>Items</th><th>Size</th></tr></thead>
+    <tbody>
+      <tr><td class="n"><a href="#p0">0</a></td><td>Baseline: the test matrix from meme as characterisation tests, a golden that records CORS headers</td><td class="num">2</td><td class="num">1 day</td></tr>
+      <tr><td class="n"><a href="#p1">1</a></td><td>Parity: origin matcher with wildcards and a fuzz target, preflight semantics, complete header sets, the opt-in knobs with Fetch-spec validation</td><td class="num">4</td><td class="num">1½ days</td></tr>
+      <tr><td class="n"><a href="#p2">2</a></td><td>Operability: policy swap on SIGHUP, log lines an operator can act on</td><td class="num">2</td><td class="num">½ day</td></tr>
+      <tr><td class="n"><a href="#p3">3</a></td><td>Documentation: browser guide, README, reference and operations pages, ADR-0009, a working example page</td><td class="num">5</td><td class="num">1½ days</td></tr>
+      <tr><td class="n"><a href="#rel">Cut</a></td><td>Release 0.4.0-alpha per the contributing guide, behind a readiness checklist with a manual browser check</td><td class="num">1</td><td class="num">½ day</td></tr>
+    </tbody>
+  </table>
+  </div>
+
+  <!-- ============================================================ PHASE 0 -->
+  <h2 id="p0"><span class="num">Phase 0</span>Baseline</h2>
+  <p class="phase-intro">Two commits that change no behaviour. They give phase 1 a matrix to flip case by case, and the corpus a transcript that shows browsers what they will get.</p>
+
+  <div class="item" id="i01">
+    <div class="meta">
+      <div class="id">0.1</div>
+      <dl><dt>Status</dt><dd><span class="pill neutral" data-status>Planned</span></dd><dt>Kind</dt><dd><span class="pill neutral">Tests</span></dd><dt>Size</dt><dd>M</dd><dt>Files</dt><dd class="files">internal/api/cors_test.go</dd></dl>
+    </div>
+    <div class="body">
+      <h3>Characterise the CORS middleware with meme's test matrix</h3>
+      <span class="lbl">Problem</span>
+      <p>One test, <code>TestCORSForConfiguredOriginsOnly</code>, covers the whole middleware. meme has seventeen, one per rule of the Fetch specification it implements. Without the matrix, phase 1 cannot show which cases it changes and which it keeps.</p>
+      <span class="lbl">Change</span>
+      <p>A table-driven <code>cors_test.go</code> with meme's cases, named the same so a reviewer of both repositories reads one list: disabled by default (no header, OPTIONS keeps its 405), preflight for an allowed origin, preflight from a denied origin, the actual request, <code>Vary</code> without an <code>Origin</code>, CORS headers on 401, 413 and 429 envelopes, exposed headers, preflight before authentication, non-preflight OPTIONS, max-age. Cases whose outcome will change in phase 1 are recorded as they are today with a comment naming the item that flips them. The existing test is folded in.</p>
+      <span class="lbl">Tests</span><p>This item is tests. It passes on the current code by construction.</p>
+      <span class="lbl">Docs</span><p>None; CHANGELOG is not touched for a test-only commit.</p>
+      <code class="commit">test(api): characterise the CORS middleware case by case</code>
+    </div>
+  </div>
+
+  <div class="item" id="i02">
+    <div class="meta">
+      <div class="id">0.2</div>
+      <dl><dt>Status</dt><dd><span class="pill neutral" data-status>Planned</span></dd><dt>Kind</dt><dd><span class="pill neutral">Tests</span></dd><dt>Size</dt><dd>M</dd><dt>Files</dt><dd class="files">test/e2e/harness_test.go<br>test/e2e/golden_test.go<br>test/e2e/testdata/golden/browser-preflight.golden.json</dd></dl>
+    </div>
+    <div class="body">
+      <h3>Record CORS headers in a browser-preflight golden</h3>
+      <span class="lbl">Problem</span>
+      <p>The golden corpus records status and body, never headers, so the one contract a browser depends on is invisible in the transcripts that document the API's behaviour.</p>
+      <span class="lbl">Change</span>
+      <p>The harness gains <code>callRecording(label, method, path, body, hdr, headers ...string)</code>: like <code>call</code>, but the named response headers are written into a <code>headers</code> field of the step. Only the listed names are recorded, never <code>X-Request-ID</code> or dates, so the transcript stays deterministic. A scenario <code>browser-preflight</code> with the golden config's origin allowed: preflight for <code>POST /v1/requests</code>, for <code>DELETE</code> on a request and on a schedule, for <code>GET</code> on a result; the actual request from the allowed origin; a preflight and a request from a foreign origin; an OPTIONS without <code>Access-Control-Request-Method</code>. Existing transcripts do not change: the field is absent unless a step asks for it.</p>
+      <span class="lbl">Tests</span><p>The golden validates against the OpenAPI description like every other; the OpenAPI validator ignores response headers it does not know, and the 204 has no body to validate.</p>
+      <span class="lbl">Docs</span><p>The harness comment on the recorded-headers rule.</p>
+      <code class="commit">test(e2e): record CORS headers in a browser-preflight golden</code>
+    </div>
+  </div>
+
+  <!-- ============================================================ PHASE 1 -->
+  <h2 id="p1"><span class="num">Phase 1</span>Parity</h2>
+  <p class="phase-intro">The middleware moves into its own file, <code>internal/api/cors.go</code>, built once into a <code>corsPolicy</code> from the configuration, as meme normalises its lists at construction. Four commits, each flipping named cases of the phase 0 matrix.</p>
+
+  <div class="item" id="i11">
+    <div class="meta">
+      <div class="id">1.1</div>
+      <dl><dt>Status</dt><dd><span class="pill neutral" data-status>Planned</span></dd><dt>Kind</dt><dd><span class="pill ok">Feature</span></dd><dt>Size</dt><dd>M</dd><dt>Files</dt><dd class="files">internal/api/cors.go<br>internal/api/cors_test.go<br>internal/api/cors_fuzz_test.go<br>internal/config/validate.go<br>internal/config/config_edge_test.go<br>docs/configuration.md<br>config.example.yaml</dd></dl>
+    </div>
+    <div class="body">
+      <h3>Match wildcard and subdomain origins</h3>
+      <span class="lbl">Problem</span>
+      <p>An allow-list of exact origins cannot express "every preview deployment of the frontend" (<code>https://pr-123.app.example.org</code>) or "any origin" for a public read-only deployment behind a key with the ceilings 0.3.0 added. 0.2.0 refused wildcards so a key stays confined to its frontend; the per-key <code>max_queued</code>, <code>max_concurrent</code> and <code>max_priority</code> ceilings now bound what a leaked key can do, and meme took the other decision. The apex must never match a subdomain pattern, and <code>evil-example.org</code> must never match <code>*.example.org</code>.</p>
+      <span class="lbl">Change</span>
+      <p><code>allowed_origins</code> accepts, as meme does, exact origins, the single entry <code>*</code>, subdomain wildcards <code>scheme://*.host</code> matching any depth below the host and never the host itself, and the literal <code>null</code> only when listed. Matching is case-insensitive over lower-cased entries. The policy is built once: an exact set, a wildcard list of prefix and suffix, an allow-all flag. Validation: <code>*</code> only on its own, a wildcard only as the first label, no path or trailing slash, no empty entry; <code>tentacron validate</code> prints a warning line when <code>*</code> is set, because a key in a page on any origin is a key on every origin.</p>
+      <span class="lbl">Tests</span><p>The matrix cases <em>wildcard origin</em>, <em>subdomain wildcard</em> (depth two matches, apex and look-alike host do not), <em>null origin</em>, <em>case-insensitive</em>. <code>FuzzOriginAllowed</code> feeds random origins to a policy with a mixed list and checks the answer against a slow reference implementation; it must never panic and never allow what the reference refuses. Validation cases for each rejected shape.</p>
+      <span class="lbl">Docs</span><p>Configuration row for <code>allowed_origins</code> rewritten with the three shapes and the warning; config.example.yaml comment. CHANGELOG under Added, with a Changed line that the 0.2.0 no-wildcard rule is lifted.</p>
+      <code class="commit">feat(api): match wildcard and subdomain origins in CORS</code>
+    </div>
+  </div>
+
+  <div class="item" id="i12">
+    <div class="meta">
+      <div class="id">1.2</div>
+      <dl><dt>Status</dt><dd><span class="pill neutral" data-status>Planned</span></dd><dt>Kind</dt><dd><span class="pill warn">Fix</span></dd><dt>Size</dt><dd>S</dd><dt>Files</dt><dd class="files">internal/api/cors.go<br>internal/api/cors_test.go<br>test/e2e/testdata/golden/browser-preflight.golden.json<br>docs/api.md</dd></dl>
+    </div>
+    <div class="body">
+      <h3>Answer every preflight itself, with the full Vary set</h3>
+      <span class="lbl">Problem</span>
+      <p>A preflight from an origin that is not allowed falls through to the mux, which answers <code>405</code> with an <code>Allow</code> header: the browser reports a method error instead of a blocked origin, and the method list is handed to a page that was refused. Preflights vary only on <code>Origin</code>; a cache that keys on the requested method or headers can serve one preflight's answer to another.</p>
+      <span class="lbl">Change</span>
+      <p>The middleware answers every preflight (OPTIONS with <code>Access-Control-Request-Method</code>) before the mux and before authentication, as it already does for allowed origins: a denied origin gets <code>204</code> with <code>Vary: Origin, Access-Control-Request-Method, Access-Control-Request-Headers</code> and no <code>Access-Control-*</code> header, so the browser blocks the request on its own; an allowed origin gets the same <code>Vary</code> set plus the allow headers. <code>Access-Control-Allow-Origin</code> is the literal <code>*</code> only for allow-all without credentials, otherwise the echoed origin. An OPTIONS without the request-method header keeps its <code>405</code> and <code>Allow</code>, as in meme.</p>
+      <span class="lbl">Tests</span><p>Flips the matrix cases <em>preflight from a denied origin</em> and <em>Vary on a preflight</em>; the browser-preflight golden moves for exactly those two steps, named in the commit body.</p>
+      <span class="lbl">Docs</span><p>API reference, Browsers paragraph. CHANGELOG under Changed: a denied preflight answers 204 instead of 405.</p>
+      <code class="commit">fix(api): answer denied preflights with 204 and vary on the request headers</code>
+    </div>
+  </div>
+
+  <div class="item" id="i13">
+    <div class="meta">
+      <div class="id">1.3</div>
+      <dl><dt>Status</dt><dd><span class="pill neutral" data-status>Planned</span></dd><dt>Kind</dt><dd><span class="pill warn">Fix</span></dd><dt>Size</dt><dd>S</dd><dt>Files</dt><dd class="files">internal/api/cors.go<br>internal/api/cors_test.go<br>internal/api/openapi_test.go<br>docs/api.md<br>docs/openapi/openapi.yaml</dd></dl>
+    </div>
+    <div class="body">
+      <h3>Expose Retry-After and allow Authorization</h3>
+      <span class="lbl">Problem</span>
+      <p>0.3.0 added <code>429 queue_full</code> with a <code>Retry-After</code>; the header is not on the CORS safelist and not in the exposed set, so a browser client sees the 429 and cannot read when to retry. meme allows <code>Authorization</code> on preflights for an authenticating proxy in front of the API; TentaCron's ADR-0008 puts such a proxy in scope and its preflight would fail today.</p>
+      <span class="lbl">Change</span>
+      <p>The exposed set becomes <code>X-Request-ID, Allow, Retry-After, Content-Disposition, Content-Length, Content-Range, Accept-Ranges</code>; the allowed request headers become <code>Content-Type, X-API-Key, Idempotency-Key, X-Request-ID, Range, Authorization</code>. A test scans the package source like the literal-scan test from 0.3.0 does: every header name the handlers set with <code>Header().Set</code> is either CORS-safelisted or in the exposed set, and every header the handlers read is in the allowed set, so the next header added to a handler fails the build instead of silently being unreadable from a page.</p>
+      <span class="lbl">Tests</span><p>The scan test; matrix case <em>exposed headers</em> extended. The 429 response in the OpenAPI description already declares <code>Retry-After</code>.</p>
+      <span class="lbl">Docs</span><p>API reference, Browsers paragraph: the two sets, spelled out. CHANGELOG under Fixed.</p>
+      <code class="commit">fix(api): expose Retry-After and allow Authorization on preflights</code>
+    </div>
+  </div>
+
+  <div class="item" id="i14">
+    <div class="meta">
+      <div class="id">1.4</div>
+      <dl><dt>Status</dt><dd><span class="pill neutral" data-status>Planned</span></dd><dt>Kind</dt><dd><span class="pill ok">Feature</span></dd><dt>Size</dt><dd>M</dd><dt>Files</dt><dd class="files">internal/config/config.go<br>internal/config/validate.go<br>internal/config/config_edge_test.go<br>internal/api/cors.go<br>internal/api/cors_test.go<br>cmd/tentacron/main.go<br>docs/configuration.md<br>config.example.yaml<br>environment/config.yaml</dd></dl>
+    </div>
+    <div class="body">
+      <h3>The opt-in knobs: credentials, max-age, private network, extra headers</h3>
+      <span class="lbl">Problem</span>
+      <p>meme's <code>CORSConfig</code> offers credentials, a preflight max-age, Chrome's Private Network Access preflights and custom header lists; TentaCron hard-codes all four. A frontend behind a cookie-based SSO proxy needs credentials; a page on the public internet calling an instance on the institute's network needs the private-network answer; a proxy that adds its own header needs it allowed.</p>
+      <span class="lbl">Change</span>
+      <p>Under <code>server.cors</code>, with meme's names in YAML form and the same semantics: <code>allow_credentials</code> (default off; the response then always echoes the specific origin, never <code>*</code>), <code>max_age</code> (duration, default 10 minutes, Chromium's cap; <code>0s</code> omits the header), <code>allow_private_network</code> (default off; answers <code>Access-Control-Request-Private-Network</code> affirmatively when on), <code>allowed_headers</code> and <code>expose_headers</code> as additions to the built-in sets from 1.3, with the single entry <code>"*"</code> in <code>allowed_headers</code> meaning echo mode. No <code>allowed_methods</code>: the API's method set is known and complete. Validation per the Fetch specification, as meme's <code>Validate</code>: <code>*</code> origin with credentials refused, <code>*</code> in <code>expose_headers</code> with credentials refused, negative <code>max_age</code> refused. <code>tentacron validate</code> and the start-up log print one line: origins (and how many are wildcards), credentials, private network.</p>
+      <span class="lbl">Tests</span><p>Matrix cases <em>credentials</em> (echoed origin, the <code>Allow-Credentials</code> header on preflight and response), <em>max-age</em> (default, custom, omitted), <em>private network</em> (only when asked and enabled), <em>allowed headers wildcard</em> (echo of the requested list), validation cases for each refused combination. The config tests cover defaults and the YAML shape.</p>
+      <span class="lbl">Docs</span><p>Configuration table: one row per key. Both configuration examples. CHANGELOG under Added.</p>
+      <code class="commit">feat(config): credentials, max-age, private-network and header knobs for CORS</code>
+    </div>
+  </div>
+
+  <!-- ============================================================ PHASE 2 -->
+  <h2 id="p2"><span class="num">Phase 2</span>Operability</h2>
+  <p class="phase-intro">What an operator of a job queue needs that meme, a stateless service, does not: adding a frontend origin must not drain the queue for a restart, and the log must say what the policy is and what it refused.</p>
+
+  <div class="item" id="i21">
+    <div class="meta">
+      <div class="id">2.1</div>
+      <dl><dt>Status</dt><dd><span class="pill neutral" data-status>Planned</span></dd><dt>Kind</dt><dd><span class="pill ok">Feature</span></dd><dt>Size</dt><dd>M</dd><dt>Files</dt><dd class="files">internal/api/cors.go<br>internal/api/server.go<br>internal/config/provider.go<br>internal/config/provider_test.go<br>cmd/tentacron/main.go<br>cmd/tentacron/serve_test.go<br>docs/operations.md</dd></dl>
+    </div>
+    <div class="body">
+      <h3>Apply CORS changes on SIGHUP</h3>
+      <span class="lbl">Problem</span>
+      <p><code>server.*</code> is startup-only, so a new frontend origin means a restart, and a restart drains the queue and parks long-polls. The upstream response cap learned to swap on reload in 0.3.0; the CORS policy is the same shape of problem.</p>
+      <span class="lbl">Change</span>
+      <p>The middleware holds the policy in an <code>atomic.Pointer[corsPolicy]</code>; the reload hook in <code>main.go</code> builds a new policy from the reloaded configuration and swaps it, as it calls <code>SetMaxBody</code> today. <code>restartRequired</code> compares <code>server</code> without its <code>cors</code> field, so a CORS-only change reports nothing to restart. A policy that is disabled at start can be enabled by reload and vice versa: the middleware is always installed and a nil-equivalent policy is the no-op.</p>
+      <span class="lbl">Tests</span><p>The provider test: a CORS-only change is hot. The process lifecycle test from 0.3.0 gains a step: reload with a new origin, the next preflight from it answers 204 with the allow headers, without a restart. The stress gate on the phase tip, since the swap races requests.</p>
+      <span class="lbl">Docs</span><p>Operations, Reloading configuration: <code>server.cors</code> moves to the hot list. CHANGELOG under Changed.</p>
+      <code class="commit">feat(api): apply CORS changes on SIGHUP without a restart</code>
+    </div>
+  </div>
+
+  <div class="item" id="i22">
+    <div class="meta">
+      <div class="id">2.2</div>
+      <dl><dt>Status</dt><dd><span class="pill neutral" data-status>Planned</span></dd><dt>Kind</dt><dd><span class="pill neutral">Operations</span></dd><dt>Size</dt><dd>S</dd><dt>Files</dt><dd class="files">internal/api/middleware.go<br>internal/api/cors.go<br>internal/api/api_edge_test.go<br>docs/operations.md</dd></dl>
+    </div>
+    <div class="body">
+      <h3>Log the policy at start and preflights at debug</h3>
+      <span class="lbl">Problem</span>
+      <p>A browser page preflights every cross-origin call after the max-age expires; at info level those lines drown the log, as the health probes did before 0.3.0. When a page fails, the log does not say that the origin was refused, and the operator reads the browser console instead.</p>
+      <span class="lbl">Change</span>
+      <p>Preflights are logged at debug like the probe paths. The request line carries <code>origin</code> when the request had one and <code>cors=denied</code> when the policy refused it, so one grep answers "is my frontend's origin configured". The start-up and reload log print the policy summary from 1.4.</p>
+      <span class="lbl">Tests</span><p>The request-log test in the edge suite: a denied origin's line carries the field; a preflight is logged at debug.</p>
+      <span class="lbl">Docs</span><p>Operations, Logs: the two fields and the level. CHANGELOG under Added.</p>
+      <code class="commit">feat(api): log the CORS policy at start and denied origins per request</code>
+    </div>
+  </div>
+
+  <!-- ============================================================ PHASE 3 -->
+  <h2 id="p3"><span class="num">Phase 3</span>Documentation and a working example</h2>
+  <p class="phase-intro">meme documents browser access in its README with a curl check that anyone can paste; TentaCron has a paragraph. A job queue has more to explain than a simulation call: long-polling, downloading a result as a file, cancelling, backing off on 429, and where the key lives. Five deliverables, each a document a reader would look for by name.</p>
+
+  <div class="item" id="i31">
+    <div class="meta">
+      <div class="id">3.1</div>
+      <dl><dt>Status</dt><dd><span class="pill neutral" data-status>Planned</span></dd><dt>Kind</dt><dd><span class="pill neutral">Docs</span></dd><dt>Size</dt><dd>M</dd><dt>Files</dt><dd class="files">docs/browser-clients.md<br>mkdocs.yml<br>docs/index.md</dd></dl>
+    </div>
+    <div class="body">
+      <h3>A guide for browser clients</h3>
+      <span class="lbl">Problem</span>
+      <p>Nothing tells a frontend developer how to use the API from a page: which header carries the key, how to wait for a result without busy polling, how to turn a result download into a file with its name, or what to do with a 429.</p>
+      <span class="lbl">Change</span>
+      <p>A page <em>Browser clients</em> under Service in the navigation, written for a developer with <code>fetch</code> and no TentaCron knowledge: enabling the origin; submitting with <code>X-API-Key</code> and an <code>Idempotency-Key</code> per user action; waiting with <code>?wait=</code> in a loop that respects the cap; reading a result as a blob and its filename from <code>Content-Disposition</code>; cancelling with <code>DELETE</code>; reading <code>Retry-After</code> on 429 and the error envelope on anything else; the security section, honest about a key in a page (visible to its users, bounded by the key's ceilings, revocable per key, and the backend-for-frontend pattern where that is not enough); private network and credentials in two short paragraphs pointing at the configuration rows. Every snippet is the code from the example page of 3.5, so the guide cannot drift from what runs.</p>
+      <span class="lbl">Tests</span><p><code>mkdocs build --strict</code>; the snippets are the example page's code, which the release checklist runs.</p>
+      <span class="lbl">Docs</span><p>This item is documentation. Home page gains one line pointing at it. CHANGELOG under Added.</p>
+      <code class="commit">docs: guide for browser clients</code>
+    </div>
+  </div>
+
+  <div class="item" id="i32">
+    <div class="meta">
+      <div class="id">3.2</div>
+      <dl><dt>Status</dt><dd><span class="pill neutral" data-status>Planned</span></dd><dt>Kind</dt><dd><span class="pill neutral">Docs</span></dd><dt>Size</dt><dd>S</dd><dt>Files</dt><dd class="files">README.md<br>environment/README.md</dd></dl>
+    </div>
+    <div class="body">
+      <h3>README: call the API from a browser</h3>
+      <span class="lbl">Problem</span>
+      <p>meme's README has a CORS section with a curl preflight that shows the answer in three lines; TentaCron's README does not mention browsers, and its environment README does not say how to allow the local frontend origin in the compose setup.</p>
+      <span class="lbl">Change</span>
+      <p>A <em>Browsers</em> subsection under API in the README, shaped like meme's: what off-by-default means, the three origin shapes, the curl preflight check with its expected headers, one sentence on the key in a page, a link to the guide. The Security section gains the sentence that CORS is browser policy, not access control. The environment README documents allowing <code>http://localhost:5173</code> for a local frontend against the dev compose.</p>
+      <span class="lbl">Tests</span><p>The curl check is run against the dev compose and its output pasted as the example, as the meme README does.</p>
+      <span class="lbl">Docs</span><p>This item is documentation.</p>
+      <code class="commit">docs(readme): call the API from a browser</code>
+    </div>
+  </div>
+
+  <div class="item" id="i33">
+    <div class="meta">
+      <div class="id">3.3</div>
+      <dl><dt>Status</dt><dd><span class="pill neutral" data-status>Planned</span></dd><dt>Kind</dt><dd><span class="pill neutral">Docs</span></dd><dt>Size</dt><dd>S</dd><dt>Files</dt><dd class="files">docs/operations.md<br>docs/api.md<br>docs/openapi/openapi.yaml<br>docs/decisions/0008-reverse-proxy-boundary.md</dd></dl>
+    </div>
+    <div class="body">
+      <h3>Operations: CORS stays in the service, the proxy passes it through</h3>
+      <span class="lbl">Problem</span>
+      <p>The reverse-proxy page from 0.3.0 shows Caddy and nginx configurations that do not mention OPTIONS or <code>Origin</code>. A proxy that answers preflights itself, or strips <code>Vary</code>, silently breaks the policy; and an operator reading ADR-0008 cannot tell whose job CORS is.</p>
+      <span class="lbl">Change</span>
+      <p>Operations, Reverse proxy: a paragraph and one line per snippet stating that the proxy forwards OPTIONS and <code>Origin</code> untouched and adds no <code>Access-Control-*</code> header of its own, because only the service knows which headers its handlers set and read; and that caches in front must honour <code>Vary</code>. ADR-0008 gains the sentence in its list of what the service keeps. The API reference's Browsers paragraph becomes a short pointer to the guide with the preflight facts a reference should hold. The OpenAPI description's introduction gains two sentences on preflights and the exposed headers, since the description is what a generated client reads.</p>
+      <span class="lbl">Tests</span><p><code>mkdocs build --strict</code>, <code>make lint-openapi</code>.</p>
+      <span class="lbl">Docs</span><p>This item is documentation.</p>
+      <code class="commit">docs(operations): keep CORS in the service and pass it through the proxy</code>
+    </div>
+  </div>
+
+  <div class="item" id="i34">
+    <div class="meta">
+      <div class="id">3.4</div>
+      <dl><dt>Status</dt><dd><span class="pill neutral" data-status>Planned</span></dd><dt>Kind</dt><dd><span class="pill neutral">Docs</span></dd><dt>Size</dt><dd>S</dd><dt>Files</dt><dd class="files">docs/decisions/0009-browser-access-policy.md<br>docs/decisions/README.md<br>mkdocs.yml</dd></dl>
+    </div>
+    <div class="body">
+      <h3>ADR-0009: the browser access policy</h3>
+      <span class="lbl">Problem</span>
+      <p>0.2.0 decided against wildcards and recorded it only in a changelog line and a struct comment; 1.1 reverses it. A reversal without a decision record is the kind of thing the next review flags.</p>
+      <span class="lbl">Change</span>
+      <p>An ADR in the house format: context (two sibling services, one frontend, the ceilings that now bound a key), decision (CORS in the service with meme's origin semantics, credentials and private network opt-in, header sets derived from the handlers and enforced by a test, reload without restart), consequences (a key in a page is a supported deployment with named limits; <code>*</code> is allowed and warned about; the proxy passes CORS through), and the alternatives considered (CORS at the proxy; keeping exact origins only; a shared Go module with meme, rejected because the two APIs expose different headers and the module would need both repositories to release together).</p>
+      <span class="lbl">Tests</span><p><code>mkdocs build --strict</code>.</p>
+      <span class="lbl">Docs</span><p>Decisions overview and navigation. CHANGELOG under Added.</p>
+      <code class="commit">docs: record the browser access policy as ADR-0009</code>
+    </div>
+  </div>
+
+  <div class="item" id="i35">
+    <div class="meta">
+      <div class="id">3.5</div>
+      <dl><dt>Status</dt><dd><span class="pill neutral" data-status>Planned</span></dd><dt>Kind</dt><dd><span class="pill neutral">Docs</span></dd><dt>Size</dt><dd>M</dd><dt>Files</dt><dd class="files">examples/browser/index.html<br>examples/browser/README.md<br>docs/browser-clients.md</dd></dl>
+    </div>
+    <div class="body">
+      <h3>A minimal browser client as a runnable example</h3>
+      <span class="lbl">Problem</span>
+      <p>No automated test can open a browser here, and the release should not claim browser support on the strength of curl. A page that exercises the whole path is the manual check the checklist runs, and the source of the guide's snippets.</p>
+      <span class="lbl">Change</span>
+      <p>One dependency-free HTML file under <code>examples/</code>, next to the payload examples: fields for the API base, the key and a target; submit, wait with <code>?wait=</code>, show the state and the audit trail, download the result as a file named from <code>Content-Disposition</code>, cancel, and show a 429's <code>Retry-After</code>. Served with <code>python3 -m http.server 5173</code> from its directory, against a TentaCron whose <code>allowed_origins</code> lists <code>http://localhost:5173</code>. Its README is the checklist script: which browsers, which steps, what to see in the network panel (one preflight per method, then cached).</p>
+      <span class="lbl">Tests</span><p>The manual check in the release checklist, in two browser engines. The page's fetch code is what the guide quotes.</p>
+      <span class="lbl">Docs</span><p>The guide links the example; the examples README lists it. CHANGELOG under Added.</p>
+      <code class="commit">docs(examples): a minimal browser client</code>
+    </div>
+  </div>
+
+  <!-- ============================================================ CUT -->
+  <h2 id="rel"><span class="num">Cut</span>Release 0.4.0-alpha</h2>
+  <p class="phase-intro">Exactly the procedure in CONTRIBUTING: move the Unreleased entries under <code>## [0.4.0-alpha] - date</code>, bump CITATION.cff, commit as <code>chore(release): 0.4.0-alpha</code>, sign the tag on that commit, push branch then tag. No migration ships in this release, so the upgrade rehearsal reduces to a start on a 0.3.0-alpha database. Item 3.1 of the 0.3.0 plan, release provenance, was deferred to 0.4.0 while the repository is private; it joins this release only if the repository is public by then, otherwise it is deferred again with the same reason.</p>
+  <div class="rules">
+    <h3>Release readiness checklist, all items required before the tag</h3>
+    <ul>
+      <li><strong>Stress gate on the tip</strong>, <code>GOMAXPROCS=2 go test -race -shuffle=on -count=3 ./...</code>, green.</li>
+      <li><strong>CI green on the release commit</strong>, including the image job.</li>
+      <li><strong>Browser check</strong> with the example page of 3.5 against the dev compose, in Chromium and Firefox: the preflight is answered once per method and cached, submit and long-poll work, the download carries its filename, cancel works, a 429 shows its <code>Retry-After</code>, and a page on an origin that is not listed is blocked with the browser's CORS error and nothing in the service log above debug.</li>
+      <li><strong>Reload check</strong>: an origin added to the running dev compose by editing the configuration and sending SIGHUP is accepted without a restart.</li>
+      <li><strong>Start on a 0.3.0-alpha database</strong>: no migration, the <code>database opened</code> line reports schema 10 and nothing applied.</li>
+      <li><strong>Changelog and citation</strong> carry the version and the date; the Changed section names the two observable changes, the lifted no-wildcard rule and the 204 for denied preflights.</li>
+    </ul>
+  </div>
+
+  <h2><span class="num">Tracking</span>Issues and definition of done</h2>
+  <p>One GitHub issue per item, titled with its commit subject, in a milestone <em>v0.4.0-alpha</em>, labelled <code>tests</code>, <code>feature</code>, <code>fix</code>, <code>operations</code> or <code>docs</code> after its kind. An item is done when its commit is on the phase branch with the gate green, its tests exist and the matrix cases it flips are named in the commit body, every golden diff was read, the documentation and the CHANGELOG entry are in the commit, and the OpenAPI description passes the route, golden and lint checks. The phase is done when the stress gate passes on its tip and it is fast-forwarded onto <code>main</code>.</p>
+
+  <h2><span class="num">Risks</span>Each risk, analysed</h2>
+
+  <div class="risk">
+    <h3>The wildcard origin weakens the key-in-a-page stance</h3>
+    <p><span class="rk">Mechanism.</span> 0.2.0 refused wildcards so that a key embedded in a page could only be used from that page's origin. With <code>*</code> allowed, a key read out of a page works from any page.</p>
+    <p><span class="rk">Likelihood and impact.</span> Certain for a deployment that chooses <code>*</code>; the impact is bounded by what the key may do: its <code>max_queued</code>, <code>max_concurrent</code> and <code>max_priority</code> ceilings, its client scope for reads, and revocation per key.</p>
+    <p><span class="rk">Detection.</span> <code>tentacron validate</code> and the start-up line warn on <code>*</code>; the request log names the origin.</p>
+    <p><span class="rk">Mitigation.</span> The default stays off; exact origins and subdomain wildcards cover the real cases without <code>*</code>; the guide's security section and ADR-0009 state the trade-off in plain words and recommend a backend-for-frontend where the key must stay secret.</p>
+    <p><span class="rk">Residual.</span> An operator who sets <code>*</code> for a key with the admin role exposes every client's requests to any page that learns the key. Named in the guide; not prevented, because the same operator can revoke the key.</p>
+  </div>
+
+  <div class="risk">
+    <h3>A changed status for denied preflights</h3>
+    <p><span class="rk">Mechanism.</span> 1.2 turns the 405 a denied preflight gets today into a 204. A monitoring rule counting 405s, or a client that read the <code>Allow</code> header from a preflight, would see a change.</p>
+    <p><span class="rk">Likelihood and impact.</span> Low: browsers never surfaced the 405 usefully, and no documented client reads <code>Allow</code> from OPTIONS; the non-preflight OPTIONS keeps its 405.</p>
+    <p><span class="rk">Detection.</span> The phase 0 matrix and the golden record the old answer and move in 1.2 with the two steps named.</p>
+    <p><span class="rk">Mitigation.</span> A Changed line in the CHANGELOG under a heading of its own; the API reference states the new answer.</p>
+    <p><span class="rk">Residual.</span> None worth carrying.</p>
+  </div>
+
+  <div class="risk">
+    <h3>A proxy or cache in front undoes the policy</h3>
+    <p><span class="rk">Mechanism.</span> A reverse proxy that answers OPTIONS itself, adds its own <code>Access-Control-Allow-Origin: *</code>, or a cache that ignores <code>Vary</code>, serves one origin's headers to another or grants what the service refused.</p>
+    <p><span class="rk">Likelihood and impact.</span> Medium in real deployments, where a CORS snippet copied into nginx is common; the impact is a policy other than the configured one.</p>
+    <p><span class="rk">Detection.</span> The curl check in the README, run through the proxy, shows the headers as they arrive; the example page's network panel shows a doubled header.</p>
+    <p><span class="rk">Mitigation.</span> 3.3 states the rule in the operations page and in every proxy snippet; ADR-0008 and ADR-0009 assign CORS to the service.</p>
+    <p><span class="rk">Residual.</span> A proxy configured against the documentation. Accepted.</p>
+  </div>
+
+  <div class="risk">
+    <h3>The policy swap races requests</h3>
+    <p><span class="rk">Mechanism.</span> 2.1 replaces the policy while requests are in flight. A request that read the old pointer finishes with the old policy, which is correct; a bug in the swap could leave a nil policy for one request.</p>
+    <p><span class="rk">Likelihood and impact.</span> Low with an atomic pointer that is never nil; the impact would be one request answered without CORS headers.</p>
+    <p><span class="rk">Detection.</span> The lifecycle test reloads under concurrent preflights; the stress gate runs it under the race detector.</p>
+    <p><span class="rk">Mitigation.</span> The disabled state is a policy value, not a nil pointer, so there is no nil to read.</p>
+    <p><span class="rk">Residual.</span> None.</p>
+  </div>
+
+  <div class="risk">
+    <h3>Header recording makes goldens brittle</h3>
+    <p><span class="rk">Mechanism.</span> If 0.2 recorded every response header, request ids, dates and lengths would change on every run and every transcript would move.</p>
+    <p><span class="rk">Likelihood and impact.</span> Certain if done naively; the corpus would become unmaintainable.</p>
+    <p><span class="rk">Detection.</span> The first regeneration.</p>
+    <p><span class="rk">Mitigation.</span> Only the names a step lists are recorded, and the harness refuses <code>X-Request-ID</code>, <code>Date</code> and <code>Content-Length</code> in that list with a test failure that names the rule.</p>
+    <p><span class="rk">Residual.</span> None.</p>
+  </div>
+
+  <div class="risk">
+    <h3>The browser check cannot run in CI</h3>
+    <p><span class="rk">Mechanism.</span> Nothing in the gate opens a browser, and the project does not want a headless browser as a test dependency for one page.</p>
+    <p><span class="rk">Likelihood and impact.</span> Certain; a regression that only a browser shows, such as a header name the Fetch specification treats differently from curl, would pass the gate.</p>
+    <p><span class="rk">Detection.</span> The manual browser check in the release checklist, with the example page and its scripted steps.</p>
+    <p><span class="rk">Mitigation.</span> The unit matrix encodes the Fetch rules that matter (wildcard tokens with credentials, echo of the specific origin, the <code>Vary</code> set) so that most browser-visible mistakes fail as unit tests; the scan test of 1.3 keeps the header sets in step with the handlers.</p>
+    <p><span class="rk">Residual.</span> A browser-only regression between two releases. Accepted for an alpha, with the check on the list for every cut.</p>
+  </div>
+
+  <div class="risk">
+    <h3>Parity is mistaken for a shared implementation</h3>
+    <p><span class="rk">Mechanism.</span> The obvious shortcut is a Go module shared by meme and TentaCron. The two APIs expose different headers and methods, meme configures from flags and TentaCron from YAML with reload, and a shared module would make both repositories release together.</p>
+    <p><span class="rk">Likelihood and impact.</span> The shortcut is tempting once the code looks alike; the cost would be paid on every later change.</p>
+    <p><span class="rk">Detection.</span> A review that asks why two files exist.</p>
+    <p><span class="rk">Mitigation.</span> ADR-0009 records the alternative and the reason it was rejected; the test matrix shares names with meme's, so the two stay comparable without sharing code.</p>
+    <p><span class="rk">Residual.</span> Two implementations to keep in step by reading, which the matrix makes cheap.</p>
+  </div>
+</div>
+</body>
+</html>
