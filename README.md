@@ -1,3 +1,6 @@
+![TentaCron banner](docs/assets/logos/tentacron-banner-dark.png#gh-dark-mode-only)
+![TentaCron banner](docs/assets/logos/tentacron-banner-light.png#gh-light-mode-only)
+
 # TentaCron
 
 [![CI](https://github.com/enerplanet/tentacron/actions/workflows/ci.yml/badge.svg)](https://github.com/enerplanet/tentacron/actions/workflows/ci.yml)
@@ -130,7 +133,7 @@ built from the root [`Dockerfile`](Dockerfile) on every `v*` tag:
 ```bash
 docker run -d -p 8080:8080 \
   -v "$PWD/config.yaml:/etc/tentacron/config.yaml:ro" -v tentacron-data:/data \
-  --env-file secrets.env ghcr.io/enerplanet/tentacron:0.1.0
+  --env-file secrets.env ghcr.io/enerplanet/tentacron:0.2.0-alpha
 ```
 
 ## API

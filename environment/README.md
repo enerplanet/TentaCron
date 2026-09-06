@@ -91,7 +91,7 @@ volume at `/data` for the SQLite store and result files:
 make -C environment run-release ENV=prod   # RELEASE_IMAGE from .env.prod
 ```
 
-Pin `RELEASE_IMAGE` to a version tag (`ghcr.io/enerplanet/tentacron:0.1.0`)
+Pin `RELEASE_IMAGE` to a version tag (`ghcr.io/enerplanet/tentacron:0.2.0-alpha`)
 rather than `latest` in production, and keep `environment/config.yaml`'s
 storage paths under `/data` (the defaults already resolve there). See
 [operations](../docs/operations.md#deployment) for the plain `docker run`

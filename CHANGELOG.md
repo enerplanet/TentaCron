@@ -8,8 +8,13 @@ under "Changed" with the keys or fields concerned.
 
 ## [Unreleased]
 
+## [0.2.0-alpha] - 2026-09-06
+
 ### Added
 
+- The TentaCron identity: the banner on the README and the docs landing
+  page (light and dark), the mark as the docs logo and the icon as favicon;
+  the artwork lives under `docs/assets/logos/`.
 - CI builds the release image on every push and runs `validate` inside it
   against the reference configuration, so a build-context or image
   regression is caught before a tag, not by the release.
@@ -338,5 +343,6 @@ Initial release of the tentacron orchestration and resolvent API.
 - Containerized build/test environment (`environment/`, meme-style) and
   mkdocs documentation (architecture, API, configuration, operations).
 
-[Unreleased]: https://github.com/enerplanet/tentacron/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/enerplanet/tentacron/compare/v0.2.0-alpha...HEAD
+[0.2.0-alpha]: https://github.com/enerplanet/tentacron/compare/v0.1.0...v0.2.0-alpha
 [0.1.0]: https://github.com/enerplanet/tentacron/releases/tag/v0.1.0

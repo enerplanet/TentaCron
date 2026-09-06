@@ -406,7 +406,7 @@ printf 'sha256=%s' "$(openssl dgst -sha256 -hmac "$SECRET" -binary < body.json |
 ## Health and build
 
 - `GET /healthz` — liveness, always `200` while the process runs;
-  `{ "status": "ok", "version": "v0.2.0" }`.
+  `{ "status": "ok", "version": "v0.2.0-alpha" }`.
 - `GET /readyz` — `200` once migrations ran and the database answers,
   `503` otherwise.
 - `GET /version` — the running build: `version`, `go`, and `revision` /

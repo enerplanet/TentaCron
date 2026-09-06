@@ -1,3 +1,6 @@
+![TentaCron banner](assets/logos/tentacron-banner-dark.png#only-dark)
+![TentaCron banner](assets/logos/tentacron-banner-light.png#only-light)
+
 # TentaCron
 
 TentaCron is an orchestration and *resolvent* API for renewable-energy

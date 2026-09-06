@@ -20,8 +20,8 @@ exclude_docs: |
 # Theme configuration
 theme:
   name: material
-  favicon: assets/logos/favicon.svg
-  logo: assets/logos/spatialai-mark-blue-dark.svg
+  favicon: assets/logos/tentacron-icon-accent.svg # the kit's small-size fallback
+  logo: assets/logos/tentacron-mark-paper.svg # single-colour light: the header is dark in both schemes
   features:
     - announce.dismiss
     - content.action.edit
