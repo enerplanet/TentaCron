@@ -146,6 +146,7 @@ One entry per downstream workflow; the request's `target` field selects it.
 | `response.poll.failed_values` | – | Status values meaning failure; must not overlap `done_values`. |
 | `response.poll.interval` | `10s` | Time between status polls. |
 | `response.poll.timeout` | `30m` | Poll deadline → `target_timeout`. |
+| `response.poll.result_timeout` | `10m` | Total bound of one result download; at least the target's `timeout`, which bounds the wait between two reads of it, so a stalled download fails fast while a slow, moving one may finish. |
 
 An asynchronous target — the verified [meme](https://github.com/enerplanet/meme)
 contract (`202` + `{"id": …, "state": "queued"}`, states

@@ -23,8 +23,11 @@ distroless base, a non-root user, and `/data` as the only writable path.
   are read into memory under `upstream.max_response_bytes` (10 MiB). A
   poll-mode result (a MEME bundle) streams straight into `results_dir`
   under `storage.max_result_bytes` (1 GiB) and is served with range support,
-  so memory stays flat however large the bundle; the target's `timeout`
-  bounds the whole download.
+  so memory stays flat however large the bundle. The download has two
+  bounds: the target's `timeout` between two reads, so a stalled connection
+  fails as fast as any other call, and `response.poll.result_timeout` (10
+  minutes by default) for the whole of it. A poll tick is not a processing
+  attempt, so `job_timeout` never cuts a download off.
 - **Persistent storage** for `storage.path` and `storage.results_dir`. In
   the image both belong under `/data` — the default relative paths
   (`./data/tentacron.db`, `./data/results`) resolve there — so mount a

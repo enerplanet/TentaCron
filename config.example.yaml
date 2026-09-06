@@ -86,6 +86,7 @@ targets:
         # cancel_url_template: "https://meme.example.com/jobs/{id}" # DELETE on client cancellation, once meme offers it
         interval: 10s
         timeout: 30m
+        result_timeout: 15m # the bundle download as a whole; the target's timeout bounds each read of it
 
   buem:
     # BuEM building-energy model via buem-gateway

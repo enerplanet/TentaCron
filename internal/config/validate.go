@@ -224,7 +224,7 @@ func (v *validator) target(p string, t Target) {
 	switch t.Response.Mode {
 	case ModeDirect:
 	case ModePoll:
-		v.poll(p+".response.poll", t.Response.Poll)
+		v.poll(p+".response.poll", t.Response.Poll, t.Timeout)
 	default:
 		v.fail("%s.response.mode: must be \"direct\" or \"poll\" (got %q)", p, t.Response.Mode)
 	}
@@ -241,7 +241,7 @@ func (v *validator) targetAuth(p string, t Target) {
 	}
 }
 
-func (v *validator) poll(p string, pl *Poll) {
+func (v *validator) poll(p string, pl *Poll, callTimeout Duration) {
 	if pl == nil {
 		v.fail("%s: required when mode is \"poll\"", p)
 		return
@@ -273,6 +273,11 @@ func (v *validator) poll(p string, pl *Poll) {
 	}
 	v.positiveDur(p+".interval", pl.Interval)
 	v.positiveDur(p+".timeout", pl.Timeout)
+	v.positiveDur(p+".result_timeout", pl.ResultTimeout)
+	if pl.ResultTimeout > 0 && callTimeout > 0 && pl.ResultTimeout < callTimeout {
+		v.fail("%s.result_timeout (%s) must be at least the target's timeout (%s), which bounds each read of the download",
+			p, pl.ResultTimeout.Std(), callTimeout.Std())
+	}
 	if pl.Interval > 0 && pl.Timeout > 0 && pl.Interval >= pl.Timeout {
 		v.fail("%s.interval (%s) must be shorter than %s.timeout (%s)", p, pl.Interval.Std(), p, pl.Timeout.Std())
 	}

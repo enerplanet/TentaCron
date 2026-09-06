@@ -8,8 +8,23 @@ under "Changed" with the keys or fields concerned.
 
 ## [Unreleased]
 
+### Added
+
+- `response.poll.result_timeout` (default 10 minutes, never below the
+  target's `timeout`) bounds one result download as a whole, while the
+  target's `timeout` bounds the wait between two reads of it. A stalled
+  download fails within `timeout`; a slow but moving bundle may take up to
+  `result_timeout`.
+
 ### Fixed
 
+- A result download ran under the target's per-call `timeout`, 60 seconds
+  by default, and under the job's attempt deadline on top, so a bundle
+  anywhere near the size cap could not finish: the failure counted as
+  transient and every tick retried it until the poll deadline ended the
+  request as `target_error` although the target's work had succeeded. Poll
+  ticks no longer run under `job_timeout`, and the download has its own
+  bounds.
 - A result that arrived after its request had been cancelled, or after an
   overlapping poll tick had completed it under another name, was dropped
   but its file stayed in the results directory forever, since no row

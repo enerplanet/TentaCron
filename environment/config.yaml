@@ -60,6 +60,7 @@ targets:
         result_url_template: "https://meme.example.com/jobs/{id}"
         interval: 10s
         timeout: 30m
+        result_timeout: 15m # the bundle download as a whole; the target's timeout bounds each read of it
 
   buem:
     # BuEM via buem-gateway; see ../config.example.yaml for the annotated entry.

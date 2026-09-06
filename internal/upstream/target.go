@@ -13,6 +13,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/enerplanet/tentacron/internal/config"
@@ -231,7 +232,7 @@ func (c *Client) CancelTarget(ctx context.Context, name string, tcfg config.Targ
 
 // ResultStream is an open result download. The body is not capped by the
 // client — the worker streams it to disk under storage.max_result_bytes —
-// and Close releases the connection together with the call's deadline.
+// and Close releases the connection together with the call's deadlines.
 type ResultStream struct {
 	Status      int
 	ContentType string
@@ -248,28 +249,65 @@ func (r *ResultStream) Close() error {
 // FetchResult opens the finished target job's result for streaming. It
 // bypasses c.do because a result bundle may be far larger than the JSON
 // response cap and its Content-Type must be kept for storage. Non-2xx
-// statuses are classified like any other call; the target's timeout bounds
-// the whole download.
+// statuses are classified like any other call. Two bounds apply to the
+// download, because they answer different failures: the poll's
+// result_timeout as the total, so a slow but moving download of a large
+// bundle may finish; and the target's timeout as the idle bound, renewed
+// after every read and covering the wait for the headers, so a stalled
+// connection fails as fast as any other call.
 func (c *Client) FetchResult(ctx context.Context, name string, tcfg config.Target, targetJobID string) (stream *ResultStream, err error) {
 	poll := tcfg.Response.Poll
 	resultURL := strings.ReplaceAll(poll.ResultURLTemplate, "{id}", url.PathEscape(targetJobID))
 	start, status := time.Now(), 0
 	defer func() { c.observe("result "+name, status, err, time.Since(start)) }()
 
-	callCtx, cancel := context.WithTimeout(ctx, tcfg.Timeout.Std())
+	callCtx, cancel := context.WithTimeout(ctx, poll.ResultBudget())
+	body := &idleBoundBody{ctx: callCtx, idle: tcfg.Timeout.Std()}
+	body.timer = time.AfterFunc(body.idle, func() { body.stalled.Store(true); cancel() })
+	stop := func() { body.timer.Stop(); cancel() }
 	resp, err := c.send(callCtx, "result "+name, http.MethodGet, resultURL, nil, authHeaders(tcfg))
 	if err != nil {
-		cancel()
+		stop()
 		return nil, err
 	}
 	status = resp.StatusCode
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		_ = resp.Body.Close()
-		cancel()
+		stop()
 		transient := resp.StatusCode == http.StatusTooManyRequests || resp.StatusCode >= 500
 		return nil, &Error{Op: "result " + name, Status: resp.StatusCode, Transient: transient}
 	}
-	return &ResultStream{Status: resp.StatusCode, ContentType: resp.Header.Get("Content-Type"), Body: resp.Body, cancel: cancel}, nil
+	body.ReadCloser = resp.Body
+	return &ResultStream{Status: resp.StatusCode, ContentType: resp.Header.Get("Content-Type"), Body: body, cancel: stop}, nil
+}
+
+// idleBoundBody is a response body whose idle timer is renewed on every
+// read. When the timer fires it cancels the download's context; the next
+// read then reports a stall rather than a bare cancellation, and a download
+// cut off by the total bound names result_timeout.
+type idleBoundBody struct {
+	io.ReadCloser
+	ctx     context.Context
+	idle    time.Duration
+	timer   *time.Timer
+	stalled atomic.Bool
+}
+
+func (b *idleBoundBody) Read(p []byte) (int, error) {
+	n, err := b.ReadCloser.Read(p)
+	if n > 0 {
+		b.timer.Reset(b.idle)
+	}
+	if err == nil || errors.Is(err, io.EOF) {
+		return n, err
+	}
+	switch {
+	case b.stalled.Load():
+		return n, fmt.Errorf("result download stalled: no data for %s: %w", b.idle, err)
+	case errors.Is(b.ctx.Err(), context.DeadlineExceeded):
+		return n, fmt.Errorf("result download exceeded result_timeout: %w", err)
+	}
+	return n, err
 }
 
 // ExtractPath returns the sub-document at the dot-separated path of a JSON

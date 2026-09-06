@@ -41,16 +41,20 @@ func (p *run) process(ctx context.Context, job *store.Job) {
 		}
 	}()
 
-	actx, cancel := context.WithTimeout(ctx, p.cfg.JobTimeoutFor(job.Target))
-	defer cancel()
-
 	switch job.State {
 	// ClaimNext already moved "received" jobs to "resolving", so a freshly
 	// claimed job arrives here in StateResolving, never StateReceived.
 	case store.StateResolving:
+		// The attempt deadline covers resolution and forwarding.
+		actx, cancel := context.WithTimeout(ctx, p.cfg.JobTimeoutFor(job.Target))
+		defer cancel()
 		p.processNew(actx, bg, job)
 	case store.StateAwaitingTarget:
-		p.processPoll(actx, bg, job)
+		// A poll tick is not an attempt: the status call is bounded by the
+		// target's timeout and the result download by its own two bounds
+		// (see upstream.FetchResult), never by job_timeout, which was sized
+		// for resolution plus one forward.
+		p.processPoll(ctx, bg, job)
 	default:
 		p.logger.Error("claimed job in unexpected state", "job_id", job.ID, "state", job.State)
 	}

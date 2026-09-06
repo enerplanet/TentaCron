@@ -1326,3 +1326,55 @@ func mustEvents(t *testing.T, st *store.Store, id string) []store.Event {
 	}
 	return events
 }
+
+// A result download slower than the target's per-call timeout, but moving,
+// completes: the download is bounded by its own result_timeout as a whole
+// and by the call timeout only between two reads, and the job's attempt
+// deadline does not apply to a poll tick at all.
+func TestSlowMovingResultDownloadCompletes(t *testing.T) {
+	var resultCalls atomic.Int64
+	mux := http.NewServeMux()
+	mux.HandleFunc("POST /simulate", func(w http.ResponseWriter, _ *http.Request) { _, _ = io.WriteString(w, `{"id":"m-1"}`) })
+	mux.HandleFunc("GET /jobs/m-1/status", func(w http.ResponseWriter, _ *http.Request) { _, _ = io.WriteString(w, `{"state":"succeeded"}`) })
+	mux.HandleFunc("GET /jobs/m-1", func(w http.ResponseWriter, r *http.Request) {
+		resultCalls.Add(1)
+		w.Header().Set("Content-Type", "application/zip")
+		fl := w.(http.Flusher)
+		for range 20 {
+			_, _ = w.Write([]byte("chunk---"))
+			fl.Flush()
+			select {
+			case <-time.After(30 * time.Millisecond):
+			case <-r.Context().Done():
+				return
+			}
+		}
+	})
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+	cfg := baseConfig(t)
+	cfg.Worker.JobTimeout = dur(200 * time.Millisecond)
+	cfg.Targets["meme"] = config.Target{URL: srv.URL + "/simulate", Method: "POST", Timeout: dur(100 * time.Millisecond), TimeseriesPath: "time-series",
+		Response: config.Response{Mode: config.ModePoll, Poll: &config.Poll{
+			IDJSONPath: "id", URLTemplate: srv.URL + "/jobs/{id}/status", ResultURLTemplate: srv.URL + "/jobs/{id}",
+			StatusJSONPath: "state", DoneValues: []string{"succeeded"},
+			Interval: dur(20 * time.Millisecond), Timeout: dur(3 * time.Second), ResultTimeout: dur(5 * time.Second),
+		}}}
+	st := openStore(t)
+	nudge := startPool(t, cfg, st)
+	id := createJob(t, st, "meme", `{"time-series":[]}`, 3)
+	nudge <- struct{}{}
+	job := waitForTerminal(t, st, id)
+	if job.State != store.StateCompleted || job.ResultPath == "" {
+		t.Fatalf("state=%s code=%s message=%s path=%q, want completed with a file", job.State, job.ErrorCode, job.ErrorMessage, job.ResultPath)
+	}
+	// Overlapping poll ticks may still fetch the result more than once
+	// until the tick lease lands; what matters here is that a download
+	// slower than the call timeout finishes at all.
+	if n := resultCalls.Load(); n < 1 {
+		t.Fatalf("result fetched %d times, want at least once", n)
+	}
+	if data, err := os.ReadFile(job.ResultPath); err != nil || len(data) != 20*len("chunk---") {
+		t.Fatalf("stored %d bytes (err %v), want the whole download", len(data), err)
+	}
+}

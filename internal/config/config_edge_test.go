@@ -161,6 +161,9 @@ targets:
 	if p.ResultURLTemplate != p.URLTemplate {
 		t.Errorf("result_url_template must default to url_template, got %q", p.ResultURLTemplate)
 	}
+	if p.ResultTimeout.Std() != DefaultResultTimeout || p.ResultBudget() != DefaultResultTimeout {
+		t.Errorf("result_timeout default = %v (budget %v), want %v", p.ResultTimeout.Std(), p.ResultBudget(), DefaultResultTimeout)
+	}
 }
 
 func TestProxyTargetHasNoResolutionDefaults(t *testing.T) {
@@ -727,5 +730,32 @@ targets:
 		if err == nil || !strings.Contains(err.Error(), tt.wantErr) {
 			t.Errorf("want %q, got %v", tt.wantErr, err)
 		}
+	}
+}
+
+// result_timeout is the total bound of a download and the target's timeout
+// the bound between two reads of it, so the total can never be the shorter.
+func TestPollResultTimeoutMustCoverTheCallTimeout(t *testing.T) {
+	_, err := Load(writeConfig(t, `
+auth:
+  api_keys: [{name: t, key: k}]
+targets:
+  meme:
+    url: "https://meme.example.com/simulate"
+    timeout: 60s
+    response:
+      mode: poll
+      poll:
+        id_json_path: id
+        url_template: "https://meme.example.com/jobs/{id}"
+        status_json_path: state
+        done_values: [succeeded]
+        result_timeout: 30s
+`))
+	if err == nil || !strings.Contains(err.Error(), "result_timeout (30s) must be at least the target's timeout (1m0s)") {
+		t.Fatalf("err = %v, want the floor named", err)
+	}
+	if (&Poll{}).ResultBudget() != DefaultResultTimeout {
+		t.Errorf("a hand-built poll without result_timeout must fall back to the default")
 	}
 }

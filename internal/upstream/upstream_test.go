@@ -529,3 +529,88 @@ func TestPollTargetStatusMatching(t *testing.T) {
 		})
 	}
 }
+
+// slowStream serves a body that grows by one byte every gap until n bytes
+// were sent or the client went away; n <= 0 streams until the client leaves.
+func slowStream(gap time.Duration, n int) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/zip")
+		fl := w.(http.Flusher)
+		for sent := 0; n <= 0 || sent < n; sent++ {
+			_, _ = w.Write([]byte("x"))
+			fl.Flush()
+			select {
+			case <-time.After(gap):
+			case <-r.Context().Done():
+				return
+			}
+		}
+	}
+}
+
+func timedResultCfg(base string, call, total time.Duration) config.Target {
+	tcfg := pollTargetCfg(base)
+	tcfg.Timeout = dur(call)
+	tcfg.Response.Poll.ResultTimeout = dur(total)
+	return tcfg
+}
+
+// The target's timeout is the idle bound of a download: a connection that
+// stops sending fails within it, and says so.
+func TestFetchResultStalledStreamFailsWithinTheCallTimeout(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/zip")
+		_, _ = io.WriteString(w, "head")
+		w.(http.Flusher).Flush()
+		<-r.Context().Done() // never sends another byte
+	}))
+	defer srv.Close()
+	stream, err := testClient(1<<20).FetchResult(context.Background(), "meme", timedResultCfg(srv.URL, 100*time.Millisecond, 10*time.Second), "j1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = stream.Close() }()
+	start := time.Now()
+	_, err = io.ReadAll(stream.Body)
+	if err == nil || !strings.Contains(err.Error(), "stalled") {
+		t.Fatalf("err = %v, want a stall reported", err)
+	}
+	if elapsed := time.Since(start); elapsed > time.Second {
+		t.Fatalf("stall took %s to surface, want about the call timeout", elapsed)
+	}
+}
+
+// A download that keeps moving may outlast the call timeout many times over.
+func TestFetchResultMovingStreamOutlastsTheCallTimeout(t *testing.T) {
+	srv := httptest.NewServer(slowStream(30*time.Millisecond, 12))
+	defer srv.Close()
+	stream, err := testClient(1<<20).FetchResult(context.Background(), "meme", timedResultCfg(srv.URL, 100*time.Millisecond, 10*time.Second), "j1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = stream.Close() }()
+	body, err := io.ReadAll(stream.Body)
+	if err != nil || len(body) != 12 {
+		t.Fatalf("len=%d err=%v, want the whole 12-byte body after ~360ms of streaming", len(body), err)
+	}
+}
+
+// result_timeout bounds the download as a whole, moving or not, and the
+// error names it.
+func TestFetchResultTotalBoundNamesResultTimeout(t *testing.T) {
+	srv := httptest.NewServer(slowStream(20*time.Millisecond, 0))
+	defer srv.Close()
+	stream, err := testClient(1<<20).FetchResult(context.Background(), "meme", timedResultCfg(srv.URL, 100*time.Millisecond, 200*time.Millisecond), "j1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = stream.Close() }()
+	start := time.Now()
+	_, err = io.ReadAll(stream.Body)
+	if err == nil || !strings.Contains(err.Error(), "result_timeout") {
+		t.Fatalf("err = %v, want the total bound named", err)
+	}
+	if elapsed := time.Since(start); elapsed > time.Second {
+		t.Fatalf("total bound took %s, want about result_timeout", elapsed)
+	}
+}

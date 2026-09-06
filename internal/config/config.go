@@ -327,6 +327,25 @@ type Poll struct {
 	FailedValues      []string `yaml:"failed_values"`
 	Interval          Duration `yaml:"interval"`
 	Timeout           Duration `yaml:"timeout"`
+	// ResultTimeout bounds one result download as a whole. The target's
+	// Timeout still bounds the wait between two reads of it, so a stalled
+	// connection fails as fast as any other call while a slow but moving
+	// download of a large bundle may take up to this long. Default
+	// DefaultResultTimeout; never below the target's Timeout.
+	ResultTimeout Duration `yaml:"result_timeout"`
+}
+
+// DefaultResultTimeout is the total bound of a result download when
+// result_timeout is not set.
+const DefaultResultTimeout = 10 * time.Minute
+
+// ResultBudget is the total bound of a result download: result_timeout, or
+// the default for a configuration built without Load's defaults.
+func (p *Poll) ResultBudget() time.Duration {
+	if p.ResultTimeout > 0 {
+		return p.ResultTimeout.Std()
+	}
+	return DefaultResultTimeout
 }
 
 // Resolvent describes the backend for one resolvent type: either a resource
@@ -547,6 +566,7 @@ func (t *Target) applyResponseDefaults() {
 	p := t.Response.Poll
 	setDur(&p.Interval, 10*time.Second)
 	setDur(&p.Timeout, 30*time.Minute)
+	setDur(&p.ResultTimeout, DefaultResultTimeout)
 	if p.ResultURLTemplate == "" {
 		p.ResultURLTemplate = p.URLTemplate
 	}
