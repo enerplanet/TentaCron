@@ -37,6 +37,7 @@ in the root Makefile:
 # from the repo root:
 make -C environment build ENV=dev   # image (Go toolchain + tooling)
 make -C environment test  ENV=dev   # full Go suite inside the container
+make -C environment validate ENV=dev # validate config.yaml with that env file
 make -C environment run   ENV=dev   # API service
 make -C environment shell ENV=dev   # go / make / sqlite3
 ```
@@ -110,6 +111,9 @@ form.
   every credential variable as required, so a new `${VAR}` reference in the
   config needs a matching line in both env files and in
   [`docker-compose.yml`](docker-compose.yml).
+- [`config.yaml`](config.yaml) serves Prometheus metrics on `:9090`
+  (`server.metrics_addr`) inside the compose network only; publish that
+  port deliberately if you scrape from the host.
 - The `api` service writes its SQLite database and result files to
   `/src/data` (the bind mount), which is gitignored. The development
   container runs as root, so `data/` contents it creates are root-owned on
