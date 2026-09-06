@@ -604,6 +604,7 @@ paths:
 webhooks:
   requestTerminal:
     post:
+      operationId: requestTerminal
       summary: Completion callback
       description: |
         Sent once to the request's `callback_url` when the request reaches

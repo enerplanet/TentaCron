@@ -428,6 +428,10 @@ truth for this contract: the standalone
 the same file and serves it at `GET /openapi.yaml`, and a test fails when
 the document and the registered routes disagree, so the description can
 neither describe a route the build does not serve nor miss one it does.
+CI lints it with [Redocly](https://redocly.com/docs/cli/) under the
+recommended ruleset (`make lint-openapi` runs the same check locally); the
+few deliberate exceptions are listed with their reasons in
+`.redocly.lint-ignore.yaml`.
 
 Generate a client with any OpenAPI 3.1 tool, from the running service or
 from the file in the repository:

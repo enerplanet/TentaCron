@@ -62,12 +62,11 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-node@v4
         with:
-          python-version: "3.12"
-      - run: pip install openapi-spec-validator
-      - name: Validate the OpenAPI description
-        run: openapi-spec-validator docs/openapi/openapi.yaml
+          node-version: 20
+      - name: Lint OpenAPI specification
+        run: npx @redocly/cli lint docs/openapi/openapi.yaml --format=github-actions
 
   vuln:
     runs-on: ubuntu-latest

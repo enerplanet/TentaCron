@@ -6,7 +6,7 @@ CONFIG   ?= config.example.yaml
 # Containerized build/test/run lives in environment/ (make -C environment help);
 # the test pyramid (golden E2E corpus, tiers) is documented in test/README.md.
 
-.PHONY: build test test-race cover lint run validate tidy clean e2e golden-update fuzz stress live
+.PHONY: build test test-race cover lint lint-openapi run validate tidy clean e2e golden-update fuzz stress live
 
 build:
 	CGO_ENABLED=0 go build -trimpath -ldflags "$(LDFLAGS)" -o bin/$(BINARY) ./cmd/$(BINARY)
@@ -24,6 +24,11 @@ cover:
 lint:
 	go vet ./...
 	golangci-lint run
+
+# The OpenAPI description is linted with Redocly, as in buem-gateway and
+# weather; CI runs the same command. Needs Node (npx).
+lint-openapi:
+	npx --yes @redocly/cli lint docs/openapi/openapi.yaml
 
 run: build
 	./bin/$(BINARY) -config $(CONFIG)

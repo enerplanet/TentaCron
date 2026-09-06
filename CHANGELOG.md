@@ -145,6 +145,14 @@ under "Changed" with the keys or fields concerned.
 
 ### Changed
 
+- CI lints the OpenAPI description with Redocly under its recommended
+  ruleset, the linter the sibling services use, in place of the structural
+  check by openapi-spec-validator; the docs workflow runs the same lint
+  before building the site, `make lint-openapi` runs it locally, and the
+  deliberate exceptions (the local development server, no client error on
+  the four unauthenticated system endpoints) are listed with reasons in
+  `.redocly.lint-ignore.yaml`. The completion-callback webhook carries an
+  `operationId` like every operation.
 - The OpenAPI description lives at `docs/openapi/openapi.yaml`, the layout
   the sibling services use, next to a standalone Swagger UI page
   (`docs/openapi/index.html`) that renders it by relative path and so works

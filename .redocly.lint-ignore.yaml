@@ -1,0 +1,16 @@
+# This file instructs Redocly's linter to ignore the rules contained for specific parts of your API.
+# See https://redocly.com/docs/cli/ for more information.
+#
+# Every entry is a deliberate exception, not a backlog: the local development
+# server is listed on purpose (the rule flags any localhost URL), and the four
+# unauthenticated system endpoints take no input, so there is no client error
+# for them to describe. Regenerate with `--generate-ignore-file` only to add
+# an exception you can justify here.
+docs/openapi/openapi.yaml:
+  no-server-example.com:
+    - '#/servers/1/url'
+  operation-4xx-response:
+    - '#/paths/~1healthz/get/responses'
+    - '#/paths/~1readyz/get/responses'
+    - '#/paths/~1version/get/responses'
+    - '#/paths/~1openapi.yaml/get/responses'
