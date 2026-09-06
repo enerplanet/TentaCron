@@ -13,10 +13,10 @@ func TestScheduleLifecycle(t *testing.T) {
 	due := time.Date(2026, 9, 6, 4, 30, 0, 0, time.UTC)
 	sc := &Schedule{ID: "s1", Client: "c1", Target: "demo", Payload: []byte(`{"a":1}`), Cron: "30 6 * * *", Timezone: "Europe/Berlin",
 		Priority: 2, Options: JobOptions{Cache: CacheBypass}, NextRunAt: &due}
-	if err := s.CreateSchedule(ctx, sc, 100); err != nil {
+	if _, _, err := s.CreateSchedule(ctx, sc, 100); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.CreateSchedule(ctx, &Schedule{ID: "s2", Client: "c2", Target: "demo", Payload: []byte(`{}`), Cron: "@daily", Timezone: "UTC", NextRunAt: &due}, 100); err != nil {
+	if _, _, err := s.CreateSchedule(ctx, &Schedule{ID: "s2", Client: "c2", Target: "demo", Payload: []byte(`{}`), Cron: "@daily", Timezone: "UTC", NextRunAt: &due}, 100); err != nil {
 		t.Fatal(err)
 	}
 	got, err := s.GetSchedule(ctx, "s1")
@@ -167,17 +167,45 @@ func TestCreateScheduleRespectsTheLimit(t *testing.T) {
 		return &Schedule{ID: id, Client: client, Target: "demo", Payload: []byte(`{}`), Cron: "@daily", Timezone: "UTC", NextRunAt: &next}
 	}
 	for range 2 {
-		if err := s.CreateSchedule(ctx, mk("a"), 2); err != nil {
+		if _, _, err := s.CreateSchedule(ctx, mk("a"), 2); err != nil {
 			t.Fatal(err)
 		}
 	}
-	if err := s.CreateSchedule(ctx, mk("a"), 2); !errors.Is(err, ErrScheduleLimit) {
+	if _, _, err := s.CreateSchedule(ctx, mk("a"), 2); !errors.Is(err, ErrScheduleLimit) {
 		t.Fatalf("third schedule: err = %v, want ErrScheduleLimit", err)
 	}
-	if err := s.CreateSchedule(ctx, mk("b"), 2); err != nil {
+	if _, _, err := s.CreateSchedule(ctx, mk("b"), 2); err != nil {
 		t.Fatalf("another client's first schedule: %v", err)
 	}
-	if err := s.CreateSchedule(ctx, mk("c"), 0); !errors.Is(err, ErrScheduleLimit) {
+	if _, _, err := s.CreateSchedule(ctx, mk("c"), 0); !errors.Is(err, ErrScheduleLimit) {
 		t.Fatalf("limit 0: err = %v, want ErrScheduleLimit", err)
+	}
+}
+
+// A client's Idempotency-Key names one schedule: the identical schedule is
+// replayed, a different one conflicts, and another client's key space is
+// separate. A replay never counts against the limit.
+func TestCreateScheduleReplaysAndConflictsOnIdempotencyKey(t *testing.T) {
+	s := openTest(t)
+	ctx := context.Background()
+	next := time.Now().Add(time.Hour)
+	mk := func(client, key, cron string) *Schedule {
+		id, _ := NewID()
+		return &Schedule{ID: id, Client: client, Target: "demo", Payload: []byte(`{}`), Cron: cron, Timezone: "UTC", NextRunAt: &next, IdempotencyKey: key}
+	}
+	first := mk("a", "nightly", "@daily")
+	created, stored, err := s.CreateSchedule(ctx, first, 1)
+	if err != nil || !created || stored.ID != first.ID {
+		t.Fatalf("first: created=%v stored=%v err=%v", created, stored, err)
+	}
+	created, stored, err = s.CreateSchedule(ctx, mk("a", "nightly", "@daily"), 1)
+	if err != nil || created || stored.ID != first.ID {
+		t.Fatalf("replay: created=%v stored=%v err=%v", created, stored, err)
+	}
+	if _, _, err := s.CreateSchedule(ctx, mk("a", "nightly", "@weekly"), 1); !errors.Is(err, ErrIdempotencyConflict) {
+		t.Fatalf("different schedule under the key: err = %v, want ErrIdempotencyConflict", err)
+	}
+	if created, _, err := s.CreateSchedule(ctx, mk("b", "nightly", "@daily"), 1); err != nil || !created {
+		t.Fatalf("another client's key space: created=%v err=%v", created, err)
 	}
 }

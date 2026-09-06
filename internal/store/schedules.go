@@ -1,6 +1,7 @@
 package store
 
 import (
+	"bytes"
 	"context"
 	"database/sql"
 	"errors"
@@ -20,6 +21,10 @@ type Schedule struct {
 	Timezone string
 	Priority int
 	Options  JobOptions
+	// IdempotencyKey, when set, names this schedule for its client: a
+	// creation replaying the key with an identical schedule returns this
+	// one instead of a second.
+	IdempotencyKey string
 	// NextRunAt is the due time of the next run; the scheduler advances it
 	// with a compare-and-set, so two schedulers cannot both run one due time.
 	NextRunAt *time.Time
@@ -40,48 +45,77 @@ func RunKey(scheduleID string, t time.Time) string {
 	return RunKeyPrefix(scheduleID) + t.UTC().Format(time.RFC3339)
 }
 
-const scheduleColumns = `id, client, target, payload, cron, timezone, priority, options, next_run_at, last_run_at, last_job_id, created_at, updated_at`
+const scheduleColumns = `id, client, target, payload, cron, timezone, priority, options, next_run_at, last_run_at, last_job_id, created_at, updated_at, idempotency_key`
 
 // ErrScheduleLimit is returned when a client already holds as many
 // schedules as its key allows.
 var ErrScheduleLimit = errors.New("schedule limit reached")
 
-// CreateSchedule stores a schedule unless the client already holds limit
-// schedules; count and insert share one write transaction, so concurrent
-// creations cannot overshoot the limit together. NextRunAt must be set by
-// the caller.
-func (s *Store) CreateSchedule(ctx context.Context, sc *Schedule, limit int) (err error) {
+// CreateSchedule stores a schedule — unless the client's Idempotency-Key
+// already names one: an identical schedule is then replayed (created is
+// false and stored is the existing one), a different one answers
+// ErrIdempotencyConflict — and unless the client already holds limit
+// schedules (ErrScheduleLimit). Lookup, count and insert share one write
+// transaction, so concurrent creations can neither double a key nor
+// overshoot the limit together. NextRunAt must be set by the caller.
+func (s *Store) CreateSchedule(ctx context.Context, sc *Schedule, limit int) (created bool, stored *Schedule, err error) {
 	now := time.Now()
-	var next any
+	var next, idem any
 	if sc.NextRunAt != nil {
 		next = ts(*sc.NextRunAt)
 	}
+	if sc.IdempotencyKey != "" {
+		idem = sc.IdempotencyKey
+	}
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
-		return err
+		return false, nil, err
 	}
 	defer func() {
 		if err != nil {
 			_ = tx.Rollback()
 		}
 	}()
+	if sc.IdempotencyKey != "" {
+		existing, lookupErr := scanSchedule(tx.QueryRowContext(ctx,
+			`SELECT `+scheduleColumns+` FROM schedules WHERE client = ? AND idempotency_key = ?`, sc.Client, sc.IdempotencyKey))
+		switch {
+		case lookupErr == nil:
+			_ = tx.Rollback()
+			if !existing.sameAs(sc) {
+				return false, nil, fmt.Errorf("key %q: %w", sc.IdempotencyKey, ErrIdempotencyConflict)
+			}
+			return false, existing, nil
+		case !errors.Is(lookupErr, sql.ErrNoRows):
+			err = lookupErr
+			return false, nil, err
+		}
+	}
 	var held int
 	if err = tx.QueryRowContext(ctx, `SELECT count(*) FROM schedules WHERE client = ?`, sc.Client).Scan(&held); err != nil {
-		return fmt.Errorf("count schedules: %w", err)
+		return false, nil, fmt.Errorf("count schedules: %w", err)
 	}
 	if held >= limit {
-		return fmt.Errorf("client %s holds %d of %d schedules: %w", sc.Client, held, limit, ErrScheduleLimit)
+		err = fmt.Errorf("client %s holds %d of %d schedules: %w", sc.Client, held, limit, ErrScheduleLimit)
+		return false, nil, err
 	}
 	if _, err = tx.ExecContext(ctx, `INSERT INTO schedules (`+scheduleColumns+`)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, ?, ?)`,
-		sc.ID, sc.Client, sc.Target, sc.Payload, sc.Cron, sc.Timezone, sc.Priority, sc.Options.encode(), next, ts(now), ts(now)); err != nil {
-		return fmt.Errorf("insert schedule: %w", err)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, ?, ?, ?)`,
+		sc.ID, sc.Client, sc.Target, sc.Payload, sc.Cron, sc.Timezone, sc.Priority, sc.Options.encode(), next, ts(now), ts(now), idem); err != nil {
+		return false, nil, fmt.Errorf("insert schedule: %w", err)
 	}
 	if err = tx.Commit(); err != nil {
-		return err
+		return false, nil, err
 	}
 	sc.CreatedAt, sc.UpdatedAt = now, now
-	return nil
+	return true, sc, nil
+}
+
+// sameAs reports whether other describes the same schedule: the fields a
+// client submits, not the bookkeeping.
+func (sc *Schedule) sameAs(other *Schedule) bool {
+	return sc.Target == other.Target && bytes.Equal(sc.Payload, other.Payload) && sc.Cron == other.Cron &&
+		sc.Timezone == other.Timezone && sc.Priority == other.Priority && sc.Options == other.Options
 }
 
 // GetSchedule returns one schedule or ErrNotFound.
@@ -163,11 +197,12 @@ func (s *Store) querySchedules(ctx context.Context, q string, args ...any) ([]*S
 func scanSchedule(r rowScanner) (*Schedule, error) {
 	var sc Schedule
 	var options string
-	var next, last, lastJob, created, updated sql.NullString
+	var next, last, lastJob, created, updated, idem sql.NullString
 	if err := r.Scan(&sc.ID, &sc.Client, &sc.Target, &sc.Payload, &sc.Cron, &sc.Timezone, &sc.Priority, &options,
-		&next, &last, &lastJob, &created, &updated); err != nil {
+		&next, &last, &lastJob, &created, &updated, &idem); err != nil {
 		return nil, err
 	}
+	sc.IdempotencyKey = idem.String
 	var err error
 	if sc.Options, err = decodeOptions(options); err != nil {
 		return nil, fmt.Errorf("schedule %s: %w", sc.ID, err)

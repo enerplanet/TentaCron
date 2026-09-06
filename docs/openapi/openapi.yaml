@@ -266,8 +266,13 @@ paths:
         created with the idempotency key `schedule:<id>:<due time>`, default
         `options.cache: refresh`, and never earlier than their due time. The
         payload is inspected like a dry run, so a schedule whose every run
-        would fail is refused.
+        would fail is refused. An `Idempotency-Key` (at most 255 bytes,
+        scoped to the client) makes a retried creation return the stored
+        schedule instead of a second one; reusing the key with a different
+        schedule answers `409`.
       operationId: createSchedule
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
       requestBody:
         required: true
         content:
@@ -303,13 +308,18 @@ paths:
         "401":
           $ref: "#/components/responses/Unauthorized"
         "409":
-          description: The key already holds as many schedules as `auth.api_keys[].max_schedules` allows (100 by default); delete one first.
+          description: The key already holds as many schedules as `auth.api_keys[].max_schedules` allows (100 by default; `schedule_limit`), or the `Idempotency-Key` was already used with a different schedule (`idempotency_conflict`).
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
-              example:
-                error: { code: schedule_limit, message: this key may hold at most 100 schedules; delete one first }
+              examples:
+                scheduleLimit:
+                  value:
+                    error: { code: schedule_limit, message: this key may hold at most 100 schedules; delete one first }
+                idempotencyConflict:
+                  value:
+                    error: { code: idempotency_conflict, message: Idempotency-Key was already used with a different schedule }
         "422":
           $ref: "#/components/responses/UnknownTarget"
     get:

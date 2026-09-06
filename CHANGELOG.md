@@ -10,6 +10,10 @@ under "Changed" with the keys or fields concerned.
 
 ### Added
 
+- `POST /v1/schedules` honours `Idempotency-Key` like `POST /v1/requests`:
+  a retried creation replays the stored schedule instead of doubling the
+  run cadence, and a different schedule under the same key answers
+  `409 idempotency_conflict` (migration 0009).
 - `auth.api_keys[].max_schedules` caps how many schedules a key may hold
   at once, 100 by default, the size of one schedule listing, so a key can
   always list everything it holds; `0` lets a key create none.

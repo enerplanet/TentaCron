@@ -1,0 +1,89 @@
+[
+  {
+    "request": "POST /v1/schedules",
+    "response": {
+      "created_at": "«ts»",
+      "cron": "@daily",
+      "id": "«schedule-1»",
+      "links": {
+        "runs": "/v1/schedules/«schedule-1»/runs",
+        "self": "/v1/schedules/«schedule-1»"
+      },
+      "next_run_at": "«ts»",
+      "target": "demo",
+      "timezone": "UTC",
+      "updated_at": "«ts»"
+    },
+    "status": 201,
+    "step": "create with an idempotency key"
+  },
+  {
+    "request": "POST /v1/schedules",
+    "response": {
+      "created_at": "«ts»",
+      "cron": "@daily",
+      "id": "«schedule-1»",
+      "links": {
+        "runs": "/v1/schedules/«schedule-1»/runs",
+        "self": "/v1/schedules/«schedule-1»"
+      },
+      "next_run_at": "«ts»",
+      "target": "demo",
+      "timezone": "UTC",
+      "updated_at": "«ts»"
+    },
+    "status": 201,
+    "step": "the identical request replays the stored schedule"
+  },
+  {
+    "request": "POST /v1/schedules",
+    "response": {
+      "error": {
+        "code": "idempotency_conflict",
+        "message": "Idempotency-Key was already used with a different schedule"
+      }
+    },
+    "status": 409,
+    "step": "the same key with a different schedule is refused"
+  },
+  {
+    "request": "POST /v1/schedules",
+    "response": {
+      "created_at": "«ts»",
+      "cron": "@daily",
+      "id": "«schedule-2»",
+      "links": {
+        "runs": "/v1/schedules/«schedule-2»/runs",
+        "self": "/v1/schedules/«schedule-2»"
+      },
+      "next_run_at": "«ts»",
+      "target": "demo",
+      "timezone": "UTC",
+      "updated_at": "«ts»"
+    },
+    "status": 201,
+    "step": "another client's key space is its own"
+  },
+  {
+    "request": "GET /v1/schedules",
+    "response": {
+      "items": [
+        {
+          "created_at": "«ts»",
+          "cron": "@daily",
+          "id": "«schedule-1»",
+          "links": {
+            "runs": "/v1/schedules/«schedule-1»/runs",
+            "self": "/v1/schedules/«schedule-1»"
+          },
+          "next_run_at": "«ts»",
+          "target": "demo",
+          "timezone": "UTC",
+          "updated_at": "«ts»"
+        }
+      ]
+    },
+    "status": 200,
+    "step": "the client still holds one schedule"
+  }
+]

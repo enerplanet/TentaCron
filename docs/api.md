@@ -347,6 +347,11 @@ is then computed from the current time.
 | `DELETE /v1/schedules/{id}` | `204`; runs already created stay. |
 | `GET /v1/schedules/{id}/runs` | The runs, newest first, with the request list's `state`, `limit` and `cursor` parameters. |
 
+An `Idempotency-Key` header on creation works as on `POST /v1/requests`:
+the identical schedule under the same key answers `201` with the stored
+schedule instead of a second one, a different schedule under the same key
+answers `409 idempotency_conflict`, and keys are scoped to the client.
+
 `cron` takes five fields (`minute hour day-of-month month day-of-week`,
 e.g. `30 6 * * 1-5`) or a descriptor: `@hourly`, `@daily`, `@weekly`,
 `@monthly`, `@yearly`, `@every <duration>` (e.g. `@every 6h`). The

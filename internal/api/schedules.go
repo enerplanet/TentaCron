@@ -69,25 +69,13 @@ func toScheduleResponse(sc *store.Schedule) scheduleResponse {
 // first due time. The payload is inspected as a dry run would, so a schedule
 // whose every run would fail is refused up front; a key already holding as
 // many schedules as it may answers 409, so a key can always list everything
-// it holds.
+// it holds. An Idempotency-Key makes a retried creation replay the stored
+// schedule instead of doubling the cadence.
 func (s *Server) handleCreateSchedule(w http.ResponseWriter, r *http.Request) {
-	var req scheduleRequest
-	if !requireJSON(w, r) {
-		return
-	}
-	r.Body = http.MaxBytesReader(w, r.Body, s.cfg().Server.MaxBodyBytes)
-	if !decodeSingleObject(w, r.Body, &req) {
-		return
-	}
-	if header := r.Header.Get("X-API-Key"); header != "" {
-		req.APIKey = header
-	}
-	id, ok := s.authenticate(req.APIKey)
+	req, id, ok := s.decodeScheduleRequest(w, r)
 	if !ok {
-		writeError(w, http.StatusUnauthorized, CodeUnauthorized, "invalid API key")
 		return
 	}
-	noteClient(r, id.name)
 	spec, ok := s.validateSchedule(w, req, id)
 	if !ok {
 		return
@@ -105,22 +93,63 @@ func (s *Server) handleCreateSchedule(w http.ResponseWriter, r *http.Request) {
 	sc := &store.Schedule{
 		ID: scID, Client: id.name, Target: req.Target, Payload: req.Payload, Cron: req.Cron, Timezone: tz,
 		Options: createRequest{Options: req.Options}.jobOptions(), NextRunAt: &next,
+		IdempotencyKey: r.Header.Get("Idempotency-Key"),
 	}
 	if req.Priority != nil {
 		sc.Priority = *req.Priority
 	}
+	s.storeSchedule(w, r, sc, id)
+}
+
+// decodeScheduleRequest parses and authenticates a schedule creation,
+// writing the client error itself when the request is unusable.
+func (s *Server) decodeScheduleRequest(w http.ResponseWriter, r *http.Request) (scheduleRequest, identity, bool) {
+	var req scheduleRequest
+	if !requireJSON(w, r) {
+		return req, identity{}, false
+	}
+	if len(r.Header.Get("Idempotency-Key")) > maxIdempotencyKeyLen {
+		writeError(w, http.StatusBadRequest, CodeInvalidParameter, "Idempotency-Key must be at most 255 bytes")
+		return req, identity{}, false
+	}
+	r.Body = http.MaxBytesReader(w, r.Body, s.cfg().Server.MaxBodyBytes)
+	if !decodeSingleObject(w, r.Body, &req) {
+		return req, identity{}, false
+	}
+	if header := r.Header.Get("X-API-Key"); header != "" {
+		req.APIKey = header
+	}
+	id, ok := s.authenticate(req.APIKey)
+	if !ok {
+		writeError(w, http.StatusUnauthorized, CodeUnauthorized, "invalid API key")
+		return req, identity{}, false
+	}
+	noteClient(r, id.name)
+	return req, id, true
+}
+
+// storeSchedule persists the schedule under the key's limit and its
+// idempotency key, and answers 201 with the stored — created or replayed —
+// schedule, 409 for a conflict or a full key.
+func (s *Server) storeSchedule(w http.ResponseWriter, r *http.Request, sc *store.Schedule, id identity) {
 	limit := s.cfg().MaxSchedulesFor(id.name)
-	if err := s.store.CreateSchedule(r.Context(), sc, limit); err != nil {
-		if errors.Is(err, store.ErrScheduleLimit) {
-			writeError(w, http.StatusConflict, CodeScheduleLimit,
-				fmt.Sprintf("this key may hold at most %d schedules; delete one first", limit))
-			return
-		}
+	created, stored, err := s.store.CreateSchedule(r.Context(), sc, limit)
+	switch {
+	case errors.Is(err, store.ErrIdempotencyConflict):
+		writeError(w, http.StatusConflict, CodeIdempotencyConflict, "Idempotency-Key was already used with a different schedule")
+		return
+	case errors.Is(err, store.ErrScheduleLimit):
+		writeError(w, http.StatusConflict, CodeScheduleLimit,
+			fmt.Sprintf("this key may hold at most %d schedules; delete one first", limit))
+		return
+	case err != nil:
 		s.internalError(w, "create schedule failed", err)
 		return
 	}
-	s.logger.Info("schedule created", "schedule_id", sc.ID, "target", sc.Target, "client", id.name, "cron", sc.Cron)
-	writeJSON(w, http.StatusCreated, toScheduleResponse(sc))
+	if created {
+		s.logger.Info("schedule created", "schedule_id", stored.ID, "target", stored.Target, "client", id.name, "cron", stored.Cron)
+	}
+	writeJSON(w, http.StatusCreated, toScheduleResponse(stored))
 }
 
 // validateSchedule applies the single-submission checks, the key's priority

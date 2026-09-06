@@ -931,6 +931,23 @@ var apiContractScenarios = []scenario{
 		},
 	},
 	{
+		// An Idempotency-Key on schedule creation: the identical request
+		// replays the stored schedule, a different one under the same key
+		// is refused, and another client's key space is its own.
+		name: "schedule-idempotency",
+		run: func(t *testing.T, h *harness) {
+			keyed := map[string]string{"X-API-Key": clientKey, "Idempotency-Key": "nightly"}
+			other := map[string]string{"X-API-Key": secondClientKey, "Idempotency-Key": "nightly"}
+			body := `{"target":"demo","payload":{"time-series":[]},"cron":"@daily"}`
+			h.call("create with an idempotency key", http.MethodPost, "/v1/schedules", body, keyed)
+			h.call("the identical request replays the stored schedule", http.MethodPost, "/v1/schedules", body, keyed)
+			h.call("the same key with a different schedule is refused", http.MethodPost, "/v1/schedules",
+				`{"target":"demo","payload":{"time-series":[]},"cron":"@weekly"}`, keyed)
+			h.call("another client's key space is its own", http.MethodPost, "/v1/schedules", body, other)
+			h.call("the client still holds one schedule", http.MethodGet, "/v1/schedules", "", keyed)
+		},
+	},
+	{
 		// A key holds at most max_schedules schedules: the one past the cap
 		// is refused with 409, and deleting one makes room again.
 		name: "schedule-limit",
