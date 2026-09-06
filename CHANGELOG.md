@@ -10,6 +10,11 @@ under "Changed" with the keys or fields concerned.
 
 ### Fixed
 
+- A result that arrived after its request had been cancelled, or after an
+  overlapping poll tick had completed it under another name, was dropped
+  but its file stayed in the results directory forever, since no row
+  referenced it and retention never saw it. The file is discarded with the
+  outcome; the stored result's own file is never touched.
 - The stuck-job rescue measured every in-flight job against twice
   `worker.job_timeout`, although a target may set a longer `job_timeout`
   and nothing refreshes a job while its attempt runs: a legitimate attempt

@@ -609,9 +609,10 @@ func (p *run) markCompleted(bg context.Context, job *store.Job, status int, body
 	err := p.store.MarkCompleted(bg, job.ID, status, body, path, contentType, detail)
 	switch {
 	case errors.Is(err, store.ErrTerminalState):
-		// An overlapping poll tick finished the job first; this outcome is
-		// redundant, not wrong.
+		// An overlapping poll tick finished the job first, or the client
+		// cancelled it meanwhile; this outcome is redundant, not wrong.
 		p.logger.Debug("job already terminal, dropping duplicate completion", "job_id", job.ID)
+		p.discardLateResult(bg, job.ID, path)
 	case err != nil:
 		p.logger.Error("mark completed failed", "job_id", job.ID, "error", err)
 	case path != "":
@@ -622,6 +623,26 @@ func (p *run) markCompleted(bg context.Context, job *store.Job, status int, body
 		p.metrics.JobFinished(job.Target, "completed", "")
 		p.notifier.Notify(job.ID)
 		p.logger.Info("job completed", "job_id", job.ID, "target", job.Target)
+	}
+}
+
+// discardLateResult removes the file a dropped completion had already
+// renamed into place, so a job that ended first — cancelled, or completed by
+// an overlapping tick under another name — never leaves a file that no row
+// references and retention would never prune. The one file kept is the
+// job's own stored result: an overlapping tick that won with the same path
+// must not lose it. When the job cannot be read the file stays; a leak is
+// recoverable, a deleted winner is not.
+func (p *run) discardLateResult(bg context.Context, jobID, path string) {
+	if path == "" {
+		return
+	}
+	current, err := p.store.GetJob(bg, jobID)
+	if err != nil || current.ResultPath == path {
+		return
+	}
+	if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
+		p.logger.Warn("could not remove the result file of a dropped completion", "job_id", jobID, "path", path, "error", err)
 	}
 }
 

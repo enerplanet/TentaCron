@@ -572,6 +572,76 @@ func TestDuplicateCompletionNeverOverwritesResult(t *testing.T) {
 	if events, _ := st.ListEvents(ctx, id); len(events) != 2 {
 		t.Errorf("audit trail must not record the dropped duplicate, got %d events", len(events))
 	}
+	if files := resultFiles(t, cfg); len(files) != 0 {
+		t.Errorf("the dropped completion left its file behind: %v", files)
+	}
+}
+
+func resultFiles(t *testing.T, cfg *config.Config) []string {
+	t.Helper()
+	entries, err := os.ReadDir(cfg.Storage.ResultsDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	names := make([]string, 0, len(entries))
+	for _, e := range entries {
+		names = append(names, e.Name())
+	}
+	return names
+}
+
+// A result that arrives after the client cancelled the request is dropped,
+// and so is the file it had already written: nothing references it, so
+// retention would never remove it.
+func TestLateResultFileOfACancelledJobIsDiscarded(t *testing.T) {
+	cfg := baseConfig(t)
+	st := openStore(t)
+	id := createJob(t, st, "meme", `{}`, 3)
+	ctx := context.Background()
+	if c, _ := st.ClaimNext(ctx, store.ClaimPolicy{PollInterval: func(string) time.Duration { return time.Minute }}); c == nil {
+		t.Fatal("claim failed")
+	}
+	if err := st.SetResolved(ctx, id, []byte(`{}`), "resolved"); err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now()
+	if err := st.MarkAwaitingTarget(ctx, id, "m-1", 202, []byte(`{"id":"m-1"}`), now.Add(time.Minute), now.Add(time.Hour)); err != nil {
+		t.Fatal(err)
+	}
+	job, _ := st.GetJob(ctx, id)
+	if err := st.MarkCancelled(ctx, id, "cancelled by client"); err != nil {
+		t.Fatal(err)
+	}
+	p := New(config.Static(cfg), st, upstream.New(1<<20, nil), discardLogger(), nil)
+	(&run{Pool: p, cfg: cfg}).complete(ctx, job, 200, "application/zip", []byte("PK\x03\x04late-bundle"), "late")
+	got, _ := st.GetJob(ctx, id)
+	if got.State != store.StateCancelled || got.ResultPath != "" {
+		t.Fatalf("cancelled job changed: %+v", got)
+	}
+	if files := resultFiles(t, cfg); len(files) != 0 {
+		t.Errorf("the late result's file was not discarded: %v", files)
+	}
+}
+
+// Two overlapping ticks that both store a file result under the job's own
+// path must leave exactly the winner's file in place.
+func TestOverlappingTicksKeepTheWinnersFile(t *testing.T) {
+	cfg := baseConfig(t)
+	st := openStore(t)
+	id := createJob(t, st, "demo", `{}`, 3)
+	ctx := context.Background()
+	job, _ := st.GetJob(ctx, id)
+	p := New(config.Static(cfg), st, upstream.New(1<<20, nil), discardLogger(), nil)
+	(&run{Pool: p, cfg: cfg}).complete(ctx, job, 200, "application/zip", []byte("PK\x03\x04first"), "first")
+	(&run{Pool: p, cfg: cfg}).complete(ctx, job, 200, "application/zip", []byte("PK\x03\x04second"), "second")
+	got, _ := st.GetJob(ctx, id)
+	files := resultFiles(t, cfg)
+	if len(files) != 1 || got.ResultPath == "" || filepath.Base(got.ResultPath) != files[0] {
+		t.Fatalf("files = %v, stored result = %q; want exactly the stored one", files, got.ResultPath)
+	}
+	if _, err := os.Stat(got.ResultPath); err != nil {
+		t.Fatalf("the winner's file is gone: %v", err)
+	}
 }
 
 func TestSweepRescuesStuckJob(t *testing.T) {

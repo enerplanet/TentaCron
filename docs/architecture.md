@@ -48,8 +48,9 @@ stateDiagram-v2
 
 Every transition is appended to the `job_events` table, giving a complete
 audit trail per request. Terminal states are final: a late outcome from an
-overlapping worker can never overwrite a result a client may already have
-seen. A request a worker is processing right now (`resolving`,
+overlapping worker, or one arriving after a cancellation, can never
+overwrite a result a client may already have seen, and a result file such
+a late outcome had already written is discarded rather than left behind. A request a worker is processing right now (`resolving`,
 `forwarding`) cannot be cancelled — the worker holds it and the upstream
 call is in flight — so `DELETE` answers `409` there and the client retries
 once the request is queued again or awaiting its target.
