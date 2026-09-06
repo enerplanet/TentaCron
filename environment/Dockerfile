@@ -10,7 +10,7 @@
 # The repo root is bind-mounted at /src by docker-compose, so source edits are
 # picked up without a rebuild — only the toolchain layer is baked in.
 
-FROM golang:1.26-bookworm
+FROM golang:1.27-bookworm
 ENV GOTOOLCHAIN=local
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
