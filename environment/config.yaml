@@ -95,13 +95,13 @@ targets:
       mode: direct
 
   ignis-calculate:
-    # Proxy target; see ../config.example.yaml for the annotated entry.
-    url: "https://ignis.example.com/api/v1/calculate/{code}"
+    # Proxy target; see ../config.example.yaml for the annotated (through-proxy)
+    # entry. This environment reaches ignis-app directly on the
+    # building-simulation docker network, with no reverse proxy in that path,
+    # so no credential is injected.
+    url: "http://ignis-app:8080/api/v1/calculate/{code}"
     method: POST
-    api_key: "${IGNIS_API_KEY}"
-    api_key_inject: header
-    api_key_header: X-Api-Key
-    timeout: 60s
+    timeout: 10s # ignis enforces a 5s per-request handler deadline
     proxy: true
     response:
       mode: direct

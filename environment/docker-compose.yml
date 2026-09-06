@@ -39,6 +39,11 @@ services:
       - go-mod:/root/go/pkg/mod
     ports:
       - "${HOST_PORT:-8080}:${PORT:-8080}"
+    networks:
+      - default
+      # Join the ignis deployment's network so http://ignis-app:8080 resolves
+      # (the ignis-calculate target). ignis-app is not published on the host.
+      - building-simulation_default
     command: make run
 
   # Production deployment: the published distroless image (built by the
@@ -125,3 +130,10 @@ volumes:
   go-build:
   go-mod:
   tentacron-data:
+
+networks:
+  default: {}
+  # Created by the ignis deployment (docker compose project building-simulation).
+  # Must already exist: start ignis before tentacron, or `docker network create`.
+  building-simulation_default:
+    external: true
