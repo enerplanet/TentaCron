@@ -8,6 +8,13 @@ under "Changed" with the keys or fields concerned.
 
 ## [Unreleased]
 
+### Upgrading
+
+- Back up with the binary you run now (`tentacron backup`) before
+  installing this release. Migrations 0008 (an index) and 0009 (a column
+  and an index on schedules) apply on first start and are additive: a
+  0.2.0-alpha binary can still open the migrated database.
+
 ### Added
 
 - `POST /v1/schedules` honours `Idempotency-Key` like `POST /v1/requests`:

@@ -267,6 +267,13 @@ service is writing — the WAL sidecar would be missing from the copy.
 Result files under `storage.results_dir` are not in the database; back up
 the directory alongside it if results must survive a restore.
 
+**Upgrading.** Back up before installing a new release, with the binary
+you run now. Schema migrations apply on the new binary's first start and
+readiness waits for them; they are additive, so the previous release can
+still open a migrated database if a rollback is ever needed, but a backup
+taken beforehand is what a restore falls back to. The suite rehearses this
+upgrade over a database populated at the previous release's schema.
+
 Databases created by tentacron use SQLite's incremental auto-vacuum, and
 every housekeeping sweep hands pages freed by pruning back to the filesystem
 and checkpoints the WAL, so the file tracks the live data rather than its
