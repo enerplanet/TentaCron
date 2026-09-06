@@ -7,8 +7,9 @@
 // An embed directive cannot reach outside its package's directory, so this
 // package embeds the file for the API package, which serves it at
 // GET /openapi.yaml; a running service therefore always describes its own
-// build, and a test keeps the document in lockstep with the registered
-// routes.
+// build. Tests keep the document true to the code: the registered routes
+// must match its paths exactly (internal/api), and every response the golden
+// corpus records must validate against its schemas (test/e2e).
 package openapi
 
 import _ "embed"

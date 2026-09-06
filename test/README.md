@@ -93,6 +93,14 @@ payload in [`examples/`](../examples) through the stack — the drift gate
 that keeps published examples true to the contract. Adding an example means
 adding the file, a scenario there, and running `make golden-update` once to
 freeze its transcript.
+[`e2e/openapi_test.go`](e2e/openapi_test.go) validates every response the
+corpus records against the OpenAPI description
+([`docs/openapi/openapi.yaml`](../docs/openapi/openapi.yaml)): status
+code documented for the operation, media type declared, body conforming
+to the schema, format assertions on. Together with the route test in
+`internal/api` this makes the description a checked contract rather than
+prose — a response field or error code the description does not list is
+a failing test, not a documentation issue found later.
 
 **Workflow:** change behavior → `make test` fails with a readable transcript
 diff → if the change is intended, `make golden-update` and review the golden

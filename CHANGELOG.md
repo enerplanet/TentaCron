@@ -10,6 +10,13 @@ under "Changed" with the keys or fields concerned.
 
 ### Added
 
+- The golden end-to-end corpus is validated against the OpenAPI
+  description: every recorded response must use a documented status code
+  and media type and conform to the schema (format assertions on), and a
+  probe of an unknown route must answer `404 not_found` in the error shape.
+  With the route test this makes the description a checked contract; the
+  document itself is validated by the same test, which replaces the
+  structural check CI used to run separately.
 - ADR-0006 records when a Postgres store would be reconsidered (measured
   throughput, availability or isolation gates) and the shape it would take,
   so the single-instance decision of ADR-0002 is revisited on evidence.

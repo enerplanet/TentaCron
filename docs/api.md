@@ -428,6 +428,10 @@ truth for this contract: the standalone
 the same file and serves it at `GET /openapi.yaml`, and a test fails when
 the document and the registered routes disagree, so the description can
 neither describe a route the build does not serve nor miss one it does.
+The golden end-to-end corpus is validated against it as well: every
+recorded response must use a documented status code and media type and
+conform to the schema, so a response field or error code missing from the
+description fails the build.
 CI lints it with [Redocly](https://redocly.com/docs/cli/) under the
 recommended ruleset (`make lint-openapi` runs the same check locally); the
 few deliberate exceptions are listed with their reasons in
