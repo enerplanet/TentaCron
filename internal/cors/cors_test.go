@@ -4,6 +4,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 )
@@ -272,6 +273,70 @@ func TestValidateCredentialCombinations(t *testing.T) {
 	ok := Config{AllowedOrigins: []string{"https://app.example.org"}, AllowedHeaders: []string{"*"}, ExposeHeaders: []string{"X-Trace"}, AllowCredentials: true}
 	if err := ok.Validate(); err != nil {
 		t.Errorf("echo-mode headers with credentials are fine: %v", err)
+	}
+}
+
+// Update swaps the policy under concurrent requests: disabled to enabled,
+// one origin to another, and back to a pass-through, with every response
+// answered by one whole policy.
+func TestUpdateSwapsThePolicy(t *testing.T) {
+	next := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusMethodNotAllowed) })
+	h := New(Config{}, next)
+	preflight := func(origin string) *httptest.ResponseRecorder {
+		req := httptest.NewRequest(http.MethodOptions, "/v1/requests", nil)
+		req.Header.Set("Origin", origin)
+		req.Header.Set("Access-Control-Request-Method", "POST")
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, req)
+		return rec
+	}
+	if rec := preflight("https://a.example"); rec.Code != http.StatusMethodNotAllowed || rec.Header().Get("Vary") != "" {
+		t.Fatalf("disabled handler must pass through untouched: %d %v", rec.Code, rec.Header())
+	}
+	h.Update(Config{AllowedOrigins: []string{"https://a.example"}})
+	if rec := preflight("https://a.example"); rec.Code != http.StatusNoContent || rec.Header().Get("Access-Control-Allow-Origin") != "https://a.example" {
+		t.Fatalf("enabled by Update: %d %v", rec.Code, rec.Header())
+	}
+	if !h.Enabled() || !h.Allows("https://a.example") || h.Allows("https://b.example") {
+		t.Errorf("Enabled/Allows do not reflect the policy")
+	}
+
+	stop := make(chan struct{})
+	var wg sync.WaitGroup
+	for range 4 {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for {
+				select {
+				case <-stop:
+					return
+				default:
+				}
+				rec := preflight("https://b.example")
+				if rec.Code != http.StatusNoContent && rec.Code != http.StatusMethodNotAllowed {
+					t.Errorf("status %d during a swap", rec.Code)
+					return
+				}
+				if allow := rec.Header().Get("Access-Control-Allow-Origin"); allow != "" && rec.Code != http.StatusNoContent {
+					t.Errorf("an allow header on a %d: the response mixed two policies", rec.Code)
+					return
+				}
+			}
+		}()
+	}
+	for i := range 50 {
+		if i%2 == 0 {
+			h.Update(Config{AllowedOrigins: []string{"https://b.example"}})
+		} else {
+			h.Update(Config{})
+		}
+	}
+	close(stop)
+	wg.Wait()
+	h.Update(Config{AllowedOrigins: []string{"https://b.example"}})
+	if rec := preflight("https://b.example"); rec.Header().Get("Access-Control-Allow-Origin") != "https://b.example" {
+		t.Errorf("the last policy wins: %v", rec.Header())
 	}
 }
 

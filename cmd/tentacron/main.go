@@ -274,7 +274,7 @@ func newProcess(path string, logger *slog.Logger, level *slog.LevelVar) (*proces
 	return &process{
 		cfg: cfg, provider: provider, store: st, logger: logger, servers: servers, api: apiServer,
 		loops:   []runner{pool, deliverer},
-		reload:  func() { reloadConfig(provider, logger, level, client) },
+		reload:  func() { reloadConfig(provider, logger, level, client, apiServer) },
 		started: make(chan struct{}),
 	}, nil
 }
@@ -310,7 +310,7 @@ func serveFromConfig(path string, logger *slog.Logger, level *slog.LevelVar) err
 // parse or validate is reported and the running configuration kept; a good
 // one is swapped in, the log level, the redaction list and the response cap
 // follow it, and the settings that still need a restart are named.
-func reloadConfig(provider *config.Provider, logger *slog.Logger, level *slog.LevelVar, client *upstream.Client) {
+func reloadConfig(provider *config.Provider, logger *slog.Logger, level *slog.LevelVar, client *upstream.Client, api *api.Server) {
 	res, err := provider.Reload()
 	if err != nil {
 		logger.Error("configuration reload failed; keeping the running configuration", "error", err)
@@ -320,6 +320,7 @@ func reloadConfig(provider *config.Provider, logger *slog.Logger, level *slog.Le
 	level.Set(cfg.Server.SlogLevel())
 	client.SetSecrets(cfg.UpstreamSecrets())
 	client.SetMaxBody(cfg.Upstream.MaxResponseBytes)
+	api.UpdateCORS(cfg.Server.CORS.Policy())
 	attrs := []any{"hash", res.Hash[:12], "changed", res.Changed,
 		"targets", len(cfg.Targets), "resolvents", len(cfg.Resolvents), "keys", len(cfg.Auth.APIKeys)}
 	if len(res.RestartRequired) > 0 {

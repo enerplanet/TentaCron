@@ -10,6 +10,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/enerplanet/tentacron/internal/api"
+
 	"github.com/enerplanet/tentacron/internal/config"
 	"github.com/enerplanet/tentacron/internal/metrics"
 	"github.com/enerplanet/tentacron/internal/upstream"
@@ -60,7 +62,8 @@ func TestReloadAppliesTheResponseCap(t *testing.T) {
 	if err := os.WriteFile(path, []byte(cfgText(2000)), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	reloadConfig(provider, slog.New(slog.NewTextHandler(io.Discard, nil)), new(slog.LevelVar), client)
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	reloadConfig(provider, logger, new(slog.LevelVar), client, api.New(provider, nil, logger, nil))
 	if client.MaxBody() != 2000 {
 		t.Fatalf("cap after reload = %d, want 2000", client.MaxBody())
 	}

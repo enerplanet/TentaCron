@@ -98,13 +98,15 @@ func loadFile(path string) (*Config, string, error) {
 }
 
 // restartRequired lists the startup-only settings that differ between two
-// configurations: listeners, timeouts and CORS of the server (everything
-// but the log level), storage, the worker's loop shape and the sweep
-// cadence. Everything else is read per request or per job.
+// configurations: listeners, timeouts and the body limit of the server
+// (everything but the log level and the browser policy, which the API
+// swaps in place), storage, the worker's loop shape and the sweep cadence.
+// Everything else is read per request or per job.
 func restartRequired(old, cur *Config) []string {
 	var out []string
 	oldServer, curServer := old.Server, cur.Server
 	oldServer.LogLevel, curServer.LogLevel = "", ""
+	oldServer.CORS, curServer.CORS = CORS{}, CORS{}
 	if !reflect.DeepEqual(oldServer, curServer) {
 		out = append(out, "server")
 	}

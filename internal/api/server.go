@@ -7,6 +7,9 @@ import (
 	"log/slog"
 	"net/http"
 	"sync"
+	"sync/atomic"
+
+	"github.com/enerplanet/tentacron/internal/cors"
 
 	"github.com/enerplanet/tentacron/internal/config"
 	"github.com/enerplanet/tentacron/internal/notify"
@@ -47,6 +50,16 @@ type Server struct {
 	background sync.WaitGroup
 	// metrics, when set, counts the long-polls waiting right now.
 	metrics LongPollMetrics
+	// cors is the browser policy the handler chain installed; a reload
+	// swaps its policy through UpdateCORS.
+	cors atomic.Pointer[cors.Handler]
+}
+
+// UpdateCORS applies a reloaded browser policy to the running handler.
+func (s *Server) UpdateCORS(cfg cors.Config) {
+	if h := s.cors.Load(); h != nil {
+		h.Update(cfg)
+	}
 }
 
 // LongPollMetrics is what the API reports about long-polls; *metrics.Metrics

@@ -14,6 +14,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"time"
 )
 
@@ -180,6 +181,7 @@ func (w wildcard) match(origin string) bool {
 // policy is a Config normalised into ready-to-emit header values at
 // construction, so the per-request work is a map lookup plus header writes.
 type policy struct {
+	enabled   bool            // any origin listed; false makes the handler a pass-through
 	allowAll  bool            // "*" listed
 	exact     map[string]bool // lowercased exact origins (may include "null")
 	wildcards []wildcard      // lowercased subdomain patterns
@@ -194,7 +196,7 @@ type policy struct {
 }
 
 func newPolicy(cfg Config) *policy {
-	p := &policy{exact: map[string]bool{}, credentials: cfg.AllowCredentials, privateNetwork: cfg.AllowPrivateNetwork}
+	p := &policy{enabled: cfg.Enabled(), exact: map[string]bool{}, credentials: cfg.AllowCredentials, privateNetwork: cfg.AllowPrivateNetwork}
 	for _, o := range cfg.AllowedOrigins {
 		o = strings.ToLower(o)
 		if o == "*" {
@@ -267,23 +269,44 @@ func (p *policy) allowOriginValue(origin string) string {
 	return origin
 }
 
-// Handler wraps the API with the browser policy.
+// Handler wraps the API with the browser policy. The policy can be swapped
+// while requests are in flight: each request reads it once, so a request
+// finishes with the policy it started with.
 type Handler struct {
-	policy *policy
+	policy atomic.Pointer[policy]
 	next   http.Handler
 }
 
-// New builds the handler; call it only when cfg.Enabled(), since a
-// disabled policy must not even add Vary.
+// New builds the handler. A disabled cfg makes it a pass-through that adds
+// nothing, not even Vary, until Update enables it.
 func New(cfg Config, next http.Handler) *Handler {
-	return &Handler{policy: newPolicy(cfg), next: next}
+	h := &Handler{next: next}
+	h.Update(cfg)
+	return h
+}
+
+// Update swaps the policy for cfg, enabling or disabling the handler as
+// the configuration says; a reload applies it without a restart.
+func (h *Handler) Update(cfg Config) { h.policy.Store(newPolicy(cfg)) }
+
+// Enabled reports whether the current policy answers browsers at all.
+func (h *Handler) Enabled() bool { return h.policy.Load().enabled }
+
+// Allows reports whether the current policy admits origin.
+func (h *Handler) Allows(origin string) bool {
+	p := h.policy.Load()
+	return p.enabled && p.originAllowed(origin)
 }
 
 // ServeHTTP answers every preflight itself and marks the actual request's
 // response for its origin. Every response varies on Origin, so a shared
 // cache never serves one origin's headers to another.
 func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	p := h.policy
+	p := h.policy.Load()
+	if !p.enabled {
+		h.next.ServeHTTP(w, r)
+		return
+	}
 	origin := r.Header.Get("Origin")
 	if r.Method == http.MethodOptions && r.Header.Get("Access-Control-Request-Method") != "" {
 		h.preflight(w, r, p, origin)

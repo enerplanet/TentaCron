@@ -87,12 +87,11 @@ func (s *Server) withRecovery(next http.Handler) http.Handler {
 	})
 }
 
-// withCORS installs the browser policy from the configuration; with no
-// origin allowed the middleware is absent, so not even Vary is added.
+// withCORS installs the browser policy from the configuration. It is
+// always in the chain, a pass-through while no origin is allowed, so a
+// reload can enable, change or disable it without a restart.
 func (s *Server) withCORS(next http.Handler) http.Handler {
-	policy := s.cfg().Server.CORS.Policy()
-	if !policy.Enabled() {
-		return next
-	}
-	return cors.New(policy, next)
+	h := cors.New(s.cfg().Server.CORS.Policy(), next)
+	s.cors.Store(h)
+	return h
 }

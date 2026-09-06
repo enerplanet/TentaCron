@@ -17,14 +17,18 @@ import (
 // lifecycleConfig is a complete configuration on a free port whose one
 // target refuses connections, so a request stays queued behind a long
 // backoff and a long-poll on it has something to wait for.
-func lifecycleConfig(dir, level string) string {
+func lifecycleConfig(dir, level string, origins ...string) string {
+	cors := ""
+	if len(origins) > 0 {
+		cors = "  cors:\n    allowed_origins: [\"" + strings.Join(origins, "\", \"") + "\"]\n"
+	}
 	return fmt.Sprintf(`
 server:
   addr: "127.0.0.1:0"
   write_timeout: 8s
   shutdown_grace: 3s
   log_level: %s
-auth:
+%sauth:
   api_keys: [{name: t, key: k}]
 storage:
   path: %q
@@ -38,7 +42,28 @@ targets:
   demo:
     url: "http://127.0.0.1:1/run"
     timeout: 1s
-`, level, filepath.Join(dir, "t.db"), filepath.Join(dir, "results"))
+`, level, cors, filepath.Join(dir, "t.db"), filepath.Join(dir, "results"))
+}
+
+// preflightClient sends every preflight on a fresh connection. Two
+// goroutines sharing a keep-alive client make the transport dial a spare
+// connection that never carries a request; the server counts it as new
+// rather than idle and Shutdown waits the whole grace window for it,
+// which would fail the shutdown timing below for a reason of the test's
+// own making.
+var preflightClient = &http.Client{Transport: &http.Transport{DisableKeepAlives: true}}
+
+// preflightFrom sends a CORS preflight from origin to the running process.
+func preflightFrom(base, origin string) (int, string, error) {
+	req, _ := http.NewRequestWithContext(context.Background(), http.MethodOptions, base+"/v1/requests", http.NoBody)
+	req.Header.Set("Origin", origin)
+	req.Header.Set("Access-Control-Request-Method", "POST")
+	resp, err := preflightClient.Do(req)
+	if err != nil {
+		return 0, "", err
+	}
+	resp.Body.Close()
+	return resp.StatusCode, resp.Header.Get("Access-Control-Allow-Origin"), nil
 }
 
 func waitUntil(t *testing.T, what string, cond func() bool) {
@@ -91,13 +116,43 @@ func TestProcessLifecycle(t *testing.T) {
 		return resp.StatusCode == http.StatusOK
 	})
 
-	// A reload swaps the file in and applies the log level.
+	// A reload swaps the file in, applies the log level and the browser
+	// policy: an origin added by the reload is answered without a restart,
+	// while preflights keep arriving during the swap.
+	if code, _, err := preflightFrom(base, "http://localhost:5173"); err != nil || code != http.StatusMethodNotAllowed {
+		t.Fatalf("preflight before any origin is allowed: %d %v, want the mux's 405", code, err)
+	}
+	stopPreflights := make(chan struct{})
+	preflightsDone := make(chan error, 1)
+	go func() {
+		for {
+			select {
+			case <-stopPreflights:
+				preflightsDone <- nil
+				return
+			default:
+			}
+			code, _, err := preflightFrom(base, "http://localhost:5173")
+			if err != nil || (code != http.StatusMethodNotAllowed && code != http.StatusNoContent) {
+				preflightsDone <- fmt.Errorf("preflight during the swap: %d: %w", code, err)
+				return
+			}
+		}
+	}()
 	hashBefore := p.provider.Hash()
-	if err := os.WriteFile(path, []byte(lifecycleConfig(dir, "debug")), 0o600); err != nil {
+	if err := os.WriteFile(path, []byte(lifecycleConfig(dir, "debug", "http://localhost:5173")), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	reloads <- struct{}{}
 	waitUntil(t, "the reload", func() bool { return p.provider.Hash() != hashBefore && level.Level() == slog.LevelDebug })
+	waitUntil(t, "the new origin to be served", func() bool {
+		code, allow, err := preflightFrom(base, "http://localhost:5173")
+		return err == nil && code == http.StatusNoContent && allow == "http://localhost:5173"
+	})
+	close(stopPreflights)
+	if err := <-preflightsDone; err != nil {
+		t.Fatal(err)
+	}
 
 	// A request that stays queued: its target refuses connections and the
 	// backoff is long.

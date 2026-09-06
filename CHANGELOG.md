@@ -37,6 +37,10 @@ under "Changed" with the keys or fields concerned.
 
 ### Changed
 
+- `server.cors` is applied on `SIGHUP` without a restart: the browser
+  policy is swapped in place, a request in flight finishes with the
+  policy it started with, and a CORS-only change no longer reports
+  `restart_required`.
 - A CORS preflight from an origin that is not allowed answers `204` with
   only the `Vary` headers instead of the mux's `405` and its `Allow`
   list, so the browser reports a blocked origin rather than a method

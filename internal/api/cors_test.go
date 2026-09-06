@@ -2,9 +2,12 @@ package api
 
 import (
 	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/enerplanet/tentacron/internal/cors"
 
 	"github.com/enerplanet/tentacron/internal/config"
 )
@@ -240,6 +243,32 @@ func TestCORSNonPreflightOptions(t *testing.T) {
 		t.Errorf("plain OPTIONS: %d %v, want 405 with Allow", rec.Code, rec.Header())
 	}
 	assertHeader(t, rec.Header(), "Access-Control-Allow-Origin", allowedOrigin)
+}
+
+// A reloaded policy applies to the running handler: an origin added after
+// start is answered without rebuilding the chain.
+func TestCORSUpdateAppliesToTheRunningHandler(t *testing.T) {
+	e := newEnv(t)
+	h := e.server.Handler()
+	call := func() *httptest.ResponseRecorder {
+		req := httptest.NewRequest(http.MethodOptions, "/v1/requests", nil)
+		req.Header.Set("Origin", allowedOrigin)
+		req.Header.Set("Access-Control-Request-Method", "POST")
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, req)
+		return rec
+	}
+	if rec := call(); rec.Code != http.StatusMethodNotAllowed {
+		t.Fatalf("before the update: %d", rec.Code)
+	}
+	e.server.UpdateCORS(cors.Config{AllowedOrigins: []string{allowedOrigin}})
+	if rec := call(); rec.Code != http.StatusNoContent || rec.Header().Get("Access-Control-Allow-Origin") != allowedOrigin {
+		t.Fatalf("after the update: %d %v", rec.Code, rec.Header())
+	}
+	e.server.UpdateCORS(cors.Config{})
+	if rec := call(); rec.Code != http.StatusMethodNotAllowed || rec.Header().Get("Vary") != "" {
+		t.Fatalf("disabled again: %d %v", rec.Code, rec.Header())
+	}
 }
 
 // The preflight max-age is ten minutes unless configured; "0s" omits it.

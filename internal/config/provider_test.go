@@ -76,6 +76,7 @@ func TestRestartRequiredNamesStartupOnlySettings(t *testing.T) {
 	old, _ := parse([]byte(minimalYAML))
 	cur, _ := parse([]byte(minimalYAML))
 	cur.Server.LogLevel = "debug"
+	cur.Server.CORS.AllowedOrigins = []string{"https://app.example.org"}
 	cur.Auth.APIKeys = append(cur.Auth.APIKeys, APIKey{Name: "x", Key: "y"})
 	cur.Cache.DefaultTTL++
 	if got := restartRequired(old, cur); len(got) != 0 {
