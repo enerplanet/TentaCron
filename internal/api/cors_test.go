@@ -127,16 +127,56 @@ func TestCORSVaryWithoutOrigin(t *testing.T) {
 	assertHeader(t, rec.Header(), "Access-Control-Allow-Origin", "")
 }
 
-// Origins match exactly and case-sensitively today; item 1.1 lowers the
-// case and adds wildcards. An exact entry never matches a subdomain.
-func TestCORSExactOriginOnly(t *testing.T) {
+// An exact entry matches case-insensitively and never a subdomain, a
+// different scheme or a trailing slash.
+func TestCORSExactOrigin(t *testing.T) {
 	e := corsEnv(t, allowedOrigin)
-	for _, origin := range []string{"HTTPS://APP.EXAMPLE.ORG", "https://a.app.example.org", "https://app.example.org/", "http://app.example.org"} {
+	rec := e.do(t, http.MethodGet, "/healthz", "", withOrigin("HTTPS://APP.EXAMPLE.ORG", nil))
+	assertHeader(t, rec.Header(), "Access-Control-Allow-Origin", "HTTPS://APP.EXAMPLE.ORG")
+	for _, origin := range []string{"https://a.app.example.org", "https://app.example.org/", "http://app.example.org"} {
 		rec := e.do(t, http.MethodGet, "/healthz", "", withOrigin(origin, nil))
 		if got := rec.Header().Get("Access-Control-Allow-Origin"); got != "" {
-			t.Errorf("origin %q allowed as %q; only the exact entry matches today", origin, got)
+			t.Errorf("origin %q allowed as %q; only the exact entry matches", origin, got)
 		}
 	}
+}
+
+// The "*" entry admits every origin and answers with the literal "*".
+func TestCORSWildcardOrigin(t *testing.T) {
+	e := corsEnv(t, "*")
+	rec := e.do(t, http.MethodGet, "/healthz", "", withOrigin(foreignOrigin, nil))
+	assertHeader(t, rec.Header(), "Access-Control-Allow-Origin", "*")
+	rec = e.do(t, http.MethodOptions, "/v1/requests", "", withOrigin(foreignOrigin, map[string]string{"Access-Control-Request-Method": "POST"}))
+	if rec.Code != http.StatusNoContent {
+		t.Errorf("preflight under *: %d", rec.Code)
+	}
+	assertHeader(t, rec.Header(), "Access-Control-Allow-Origin", "*")
+}
+
+// A subdomain wildcard admits any depth below the host, never the host
+// itself and never a look-alike.
+func TestCORSSubdomainWildcard(t *testing.T) {
+	e := corsEnv(t, "https://*.preview.example.org")
+	for origin, want := range map[string]string{
+		"https://pr-12.preview.example.org":   "https://pr-12.preview.example.org",
+		"https://a.b.preview.example.org":     "https://a.b.preview.example.org",
+		"https://preview.example.org":         "",
+		"https://evil-preview.example.org":    "",
+		"http://pr-12.preview.example.org":    "",
+		"https://preview.example.org.evil.io": "",
+	} {
+		rec := e.do(t, http.MethodGet, "/healthz", "", withOrigin(origin, nil))
+		assertHeader(t, rec.Header(), "Access-Control-Allow-Origin", want)
+	}
+}
+
+// The literal null origin, which sandboxed iframes and file:// pages send,
+// is admitted only when listed.
+func TestCORSNullOrigin(t *testing.T) {
+	rec := corsEnv(t, allowedOrigin).do(t, http.MethodGet, "/healthz", "", withOrigin("null", nil))
+	assertHeader(t, rec.Header(), "Access-Control-Allow-Origin", "")
+	rec = corsEnv(t, "null").do(t, http.MethodGet, "/healthz", "", withOrigin("null", nil))
+	assertHeader(t, rec.Header(), "Access-Control-Allow-Origin", "null")
 }
 
 // Error envelopes carry the CORS headers too: the middleware wraps the

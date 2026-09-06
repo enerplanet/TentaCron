@@ -12,7 +12,7 @@ server:
   metrics_addr: "127.0.0.1:9090" # Prometheus /metrics on its own listener; omit to disable
   log_level: info # debug | info | warn | error
   cors:
-    allowed_origins: [] # e.g. ["https://app.example.org"]: exact browser origins allowed to call the API
+    allowed_origins: [] # browser origins allowed to call the API: exact, "https://*.preview.example.org", or "*" (validate warns)
 
 auth:
   # Rotate a key without a gap: set the new value as key, move the old one to

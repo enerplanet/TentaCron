@@ -49,7 +49,7 @@ func TestValidateAcceptsAGoodConfigAndDescribesIt(t *testing.T) {
 		t.Fatalf("exit %d, stderr %q", code, errOut)
 	}
 	for _, want := range []string{"configuration ok", "2 target(s)", "1 resolvent type(s)",
-		"demo", "POST https://demo.example.com/run", "ignis", "proxy", "resolvent-pv1", "key via header X-API-Key"} {
+		"demo", "POST https://demo.example.com/run", "ignis", "proxy", "resolvent-pv1", "key via header X-API-Key", "cors    off"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("summary lacks %q:\n%s", want, out)
 		}

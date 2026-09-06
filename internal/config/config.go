@@ -10,6 +10,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/enerplanet/tentacron/internal/cors"
+
 	"gopkg.in/yaml.v3"
 )
 
@@ -65,12 +67,19 @@ type Server struct {
 	CORS CORS `yaml:"cors"`
 }
 
-// CORS configures cross-origin access for browser frontends. Origins match
-// exactly (scheme, host, port); there is no wildcard, because a key held in a
-// browser should be confined to the frontend it belongs to. Empty disables
-// CORS handling entirely.
+// CORS configures cross-origin access for browser frontends: exact origins
+// (scheme, host, port), the wildcard "*", or subdomain wildcards such as
+// https://*.example.org, matched case-insensitively. Empty disables CORS
+// handling entirely. A key held in a page is visible to its users; the
+// per-key ceilings bound what it can do, and a backend-for-frontend keeps
+// it server-side where that is not enough.
 type CORS struct {
 	AllowedOrigins []string `yaml:"allowed_origins"`
+}
+
+// Policy is the browser policy the API installs for this configuration.
+func (c CORS) Policy() cors.Config {
+	return cors.Config{AllowedOrigins: c.AllowedOrigins}
 }
 
 // SlogLevel maps the configured log level onto slog; an unknown value (which

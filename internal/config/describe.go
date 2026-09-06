@@ -19,6 +19,7 @@ func Describe(c *Config) string {
 	fmt.Fprintf(&b, "worker  %d worker(s), %d resolvent fetch(es) per job, %d attempt(s), job timeout %s\n",
 		c.Worker.Count, c.Worker.ResolventConcurrency, c.Worker.MaxAttempts, c.Worker.JobTimeout.Std())
 	fmt.Fprintf(&b, "storage %s  results %s  retention %s\n", c.Storage.Path, c.Storage.ResultsDir, c.Storage.Retention.Std())
+	b.WriteString("cors    " + describeCORS(c.Server.CORS) + "\n")
 	b.WriteString("targets\n")
 	for _, name := range slices.Sorted(maps.Keys(c.Targets)) {
 		fmt.Fprintf(&b, "  %-18s %s\n", name, describeTarget(c, name, c.Targets[name]))
@@ -28,6 +29,20 @@ func Describe(c *Config) string {
 		fmt.Fprintf(&b, "  %-24s %s\n", name, describeResolvent(c.Resolvents[name]))
 	}
 	return b.String()
+}
+
+// describeCORS is the browser policy in one line, with a warning when the
+// "*" origin is set: a key in a page on any origin is a key on every origin.
+func describeCORS(c CORS) string {
+	p := c.Policy()
+	if !p.Enabled() {
+		return "off (no browser origin allowed)"
+	}
+	s := fmt.Sprintf("%d origin(s), %d wildcard(s)", len(c.AllowedOrigins), p.Wildcards())
+	if p.AllowsAny() {
+		s += `; WARNING: "*" lets any page that holds a key use it`
+	}
+	return s
 }
 
 func describeTarget(c *Config, name string, t Target) string {

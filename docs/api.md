@@ -48,7 +48,8 @@ answers `400 invalid_parameter`); an `X-Request-ID` longer than 128
 characters is replaced by a generated id.
 
 **Browsers.** A frontend may call the API directly from the origins listed
-under `server.cors.allowed_origins` (exact matches, no wildcards): preflights
+under `server.cors.allowed_origins` (exact origins, `*`, or subdomain
+wildcards such as `https://*.example.org`, matched case-insensitively): preflights
 are answered for every method the API has, cancellation and schedule
 deletion included, and `X-Request-ID`, `Content-Disposition` and the range
 headers are exposed. Any other origin receives no CORS headers. A key embedded in a

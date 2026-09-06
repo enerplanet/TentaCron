@@ -42,7 +42,12 @@ func TestCORSOriginValidation(t *testing.T) {
 	if err != nil || len(cfg.Server.CORS.AllowedOrigins) != 2 {
 		t.Fatalf("valid origins: %v (err %v)", cfg.Server.CORS.AllowedOrigins, err)
 	}
-	for _, origin := range []string{"*", "app.example.org", "https://app.example.org/", "https://app.example.org/path", "https://*.example.org", "ftp://x", "https://user@app.example.org"} {
+	for _, origin := range []string{"*", "https://*.example.org", "null"} {
+		if _, err := Load(writeConfig(t, minimalYAML+"server:\n  cors:\n    allowed_origins: [\""+origin+"\"]\n")); err != nil {
+			t.Errorf("origin %q must be accepted: %v", origin, err)
+		}
+	}
+	for _, origin := range []string{"", "app.example.org", "https://app.example.org/", "https://app.example.org/path", "https://app.*.example.org", "ftp://x", "https://user@app.example.org"} {
 		_, err := Load(writeConfig(t, minimalYAML+"server:\n  cors:\n    allowed_origins: [\""+origin+"\"]\n"))
 		if err == nil || !strings.Contains(err.Error(), "server.cors.allowed_origins[0]") {
 			t.Errorf("origin %q must be rejected, got %v", origin, err)

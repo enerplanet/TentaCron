@@ -9,6 +9,8 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/enerplanet/tentacron/internal/cors"
+
 	"github.com/enerplanet/tentacron/internal/resolver"
 )
 
@@ -76,19 +78,10 @@ func (v *validator) server(s Server) {
 		}
 	}
 	for i, origin := range s.CORS.AllowedOrigins {
-		if !validOrigin(origin) {
-			v.fail("server.cors.allowed_origins[%d]: %q must be an exact origin like https://app.example.org (no path, no wildcard)", i, origin)
+		if err := cors.ValidateOrigin(origin); err != nil {
+			v.fail("server.cors.allowed_origins[%d]: %v", i, err)
 		}
 	}
-}
-
-// validOrigin accepts scheme://host[:port] and nothing else.
-func validOrigin(origin string) bool {
-	u, err := url.Parse(origin)
-	if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" || u.User != nil {
-		return false
-	}
-	return u.Path == "" && u.RawQuery == "" && u.Fragment == "" && !strings.Contains(u.Host, "*")
 }
 
 func (v *validator) storage(s Storage) {

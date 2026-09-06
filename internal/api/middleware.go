@@ -7,6 +7,8 @@ import (
 	"log/slog"
 	"net/http"
 	"time"
+
+	"github.com/enerplanet/tentacron/internal/cors"
 )
 
 // maxRequestIDLen bounds the client-supplied X-Request-ID that is echoed and
@@ -85,37 +87,12 @@ func (s *Server) withRecovery(next http.Handler) http.Handler {
 	})
 }
 
-// withCORS lets configured browser origins call the API directly: it answers
-// preflights and marks responses for exactly those origins. An origin that
-// is not configured gets no CORS headers, so the browser blocks the call —
-// but every response varies on Origin, so a shared cache never serves one
-// origin's headers to another; with no origins configured the middleware is
-// a no-op.
+// withCORS installs the browser policy from the configuration; with no
+// origin allowed the middleware is absent, so not even Vary is added.
 func (s *Server) withCORS(next http.Handler) http.Handler {
-	allowed := map[string]bool{}
-	for _, origin := range s.cfg().Server.CORS.AllowedOrigins {
-		allowed[origin] = true
-	}
-	if len(allowed) == 0 {
+	policy := s.cfg().Server.CORS.Policy()
+	if !policy.Enabled() {
 		return next
 	}
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		h := w.Header()
-		h.Add("Vary", "Origin")
-		origin := r.Header.Get("Origin")
-		if origin == "" || !allowed[origin] {
-			next.ServeHTTP(w, r)
-			return
-		}
-		h.Set("Access-Control-Allow-Origin", origin)
-		h.Set("Access-Control-Expose-Headers", "X-Request-ID, Allow, Content-Disposition, Content-Length, Content-Range, Accept-Ranges")
-		if r.Method == http.MethodOptions && r.Header.Get("Access-Control-Request-Method") != "" {
-			h.Set("Access-Control-Allow-Methods", "GET, HEAD, POST, DELETE, OPTIONS")
-			h.Set("Access-Control-Allow-Headers", "Content-Type, X-API-Key, Idempotency-Key, X-Request-ID, Range")
-			h.Set("Access-Control-Max-Age", "600")
-			w.WriteHeader(http.StatusNoContent)
-			return
-		}
-		next.ServeHTTP(w, r)
-	})
+	return cors.New(policy, next)
 }

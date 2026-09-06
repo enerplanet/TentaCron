@@ -8,6 +8,23 @@ under "Changed" with the keys or fields concerned.
 
 ## [Unreleased]
 
+### Added
+
+- `server.cors.allowed_origins` accepts the wildcard `*`, subdomain
+  wildcards such as `https://*.preview.example.org` (any depth below the
+  host, never the host itself) and the literal `null` origin, matched
+  case-insensitively, with the same semantics as the sibling service meme.
+  `tentacron validate` prints the browser policy in one line and warns
+  when `*` is set. The policy lives in a package of its own,
+  `internal/cors`, with a fuzz target on the origin matcher.
+
+### Changed
+
+- The 0.2.0 rule that browser origins must be exact is lifted: a key held
+  in a page is bounded by that key's `max_queued`, `max_concurrent` and
+  `max_priority` ceilings and can be revoked on its own, so wildcards are
+  a deployment's choice rather than a refusal.
+
 ## [0.3.0-alpha] - 2026-09-06
 
 ### Upgrading

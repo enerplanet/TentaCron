@@ -24,7 +24,7 @@ for a complete annotated example covering every integration below.
 | `max_body_bytes` | `10485760` | Caps inbound request bodies. Upstream responses have their own limit under `upstream`. |
 | `metrics_addr` | – (off) | `host:port` of a second listener that serves Prometheus metrics on `/metrics` only. Keep it off the public network; see [Operations → Metrics](operations.md#metrics). |
 | `log_level` | `info` | Minimum level written to the structured log: `debug`, `info`, `warn` or `error`. |
-| `cors.allowed_origins` | `[]` (off) | Browser origins allowed to call the API directly, matched exactly (`https://app.example.org`); no wildcards. Preflights are answered and `X-Request-ID`, `Content-Disposition` and the range headers are exposed. A key held in a browser is visible to its users; prefer a backend-for-frontend that keeps the key server-side where that matters. |
+| `cors.allowed_origins` | `[]` (off) | Browser origins allowed to call the API directly: exact origins (`https://app.example.org`), the wildcard `*`, or subdomain wildcards (`https://*.example.org`: any depth below the host, never the host itself), matched case-insensitively; the literal `null` only when listed. Preflights are answered for every method and `X-Request-ID`, `Content-Disposition` and the range headers are exposed. A key held in a page is visible to its users and bounded by that key's ceilings; `tentacron validate` warns when `*` is set. Prefer a backend-for-frontend where the key must stay secret. |
 
 ## auth
 
