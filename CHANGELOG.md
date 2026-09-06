@@ -31,6 +31,9 @@ under "Changed" with the keys or fields concerned.
   a retried creation replays the stored schedule instead of doubling the
   run cadence, and a different schedule under the same key answers
   `409 idempotency_conflict` (migration 0009).
+- Two gauges: `tentacron_long_polls`, the status reads waiting on `?wait=`
+  right now, and `tentacron_build_info` with `version`, `revision` and `go`
+  labels, so a dashboard can join every other series to a build.
 - `auth.api_keys[].max_queued` caps how many requests a key may hold that
   have not ended yet: the one past the cap answers `429 queue_full` with a
   `Retry-After` of one worker poll interval, and a batch has each further

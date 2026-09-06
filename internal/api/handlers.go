@@ -571,6 +571,10 @@ func waitParam(w http.ResponseWriter, r *http.Request, maxWait time.Duration) (t
 // transition in between cannot be missed; a one-second fallback re-read
 // covers a missing notifier.
 func (s *Server) awaitTerminal(ctx context.Context, job *store.Job, wait time.Duration) *store.Job {
+	if s.metrics != nil {
+		s.metrics.LongPollStarted()
+		defer s.metrics.LongPollEnded()
+	}
 	deadline := time.NewTimer(wait)
 	defer deadline.Stop()
 	fallback := time.NewTicker(time.Second)

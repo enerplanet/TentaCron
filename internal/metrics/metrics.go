@@ -34,6 +34,8 @@ type Metrics struct {
 	scheduleRuns     *prometheus.CounterVec
 	callbacks        *prometheus.CounterVec
 	scrapeErrors     prometheus.Counter
+	longPolls        prometheus.Gauge
+	buildInfo        *prometheus.GaugeVec
 }
 
 // New builds the registry. states may be nil, in which case queue depth is
@@ -66,13 +68,46 @@ func New(states StateCounter) *Metrics {
 		scrapeErrors: prometheus.NewCounter(prometheus.CounterOpts{
 			Name: "tentacron_metrics_scrape_errors_total", Help: "Scrapes on which the queue depth could not be read from the store.",
 		}),
+		longPolls: prometheus.NewGauge(prometheus.GaugeOpts{
+			Name: "tentacron_long_polls", Help: "Status reads waiting on ?wait= right now.",
+		}),
+		buildInfo: prometheus.NewGaugeVec(prometheus.GaugeOpts{
+			Name: "tentacron_build_info", Help: "Always 1; the labels name the running build (version, revision, go).",
+		}, []string{"version", "revision", "go"}),
 	}
 	m.registry.MustRegister(m.jobsTotal, m.failuresTotal, m.upstreamDuration, m.upstreamTotal, m.cacheLookups, m.scheduleRuns, m.callbacks, m.scrapeErrors,
+		m.longPolls, m.buildInfo,
 		collectors.NewGoCollector(), collectors.NewProcessCollector(collectors.ProcessCollectorOpts{}))
 	if states != nil {
 		m.registry.MustRegister(&stateCollector{states: states, errors: m.scrapeErrors})
 	}
 	return m
+}
+
+// SetBuildInfo publishes the running build as a constant gauge, so a
+// dashboard can join every other series to a version.
+func (m *Metrics) SetBuildInfo(version, revision, goVersion string) {
+	if m == nil {
+		return
+	}
+	m.buildInfo.Reset()
+	m.buildInfo.WithLabelValues(version, revision, goVersion).Set(1)
+}
+
+// LongPollStarted records a status read that begins waiting on ?wait=.
+func (m *Metrics) LongPollStarted() {
+	if m == nil {
+		return
+	}
+	m.longPolls.Inc()
+}
+
+// LongPollEnded records the end of a wait recorded by LongPollStarted.
+func (m *Metrics) LongPollEnded() {
+	if m == nil {
+		return
+	}
+	m.longPolls.Dec()
 }
 
 // Handler serves the registry in the Prometheus exposition format.

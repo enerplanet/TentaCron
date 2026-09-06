@@ -39,6 +39,10 @@ func TestMetricsAreExposedWithDocumentedNames(t *testing.T) {
 	m.ObserveUpstream("target", "meme", 503, errors.New("HTTP 503"), 250*time.Millisecond)
 	m.ObserveUpstream("resource", "resolvent-pv1", 200, nil, 20*time.Millisecond)
 	m.ObserveUpstream("poll", "meme", 0, errors.New("dial tcp: refused"), time.Second)
+	m.SetBuildInfo("v0.3.0-alpha", "abc123", "go1.26")
+	m.LongPollStarted()
+	m.LongPollStarted()
+	m.LongPollEnded()
 
 	out := scrape(t, m)
 	for _, want := range []string{
@@ -53,6 +57,8 @@ func TestMetricsAreExposedWithDocumentedNames(t *testing.T) {
 		`tentacron_upstream_request_duration_seconds_count{kind="target",name="meme"} 1`,
 		`tentacron_jobs_in_state{state="received"} 3`,
 		`tentacron_jobs_in_state{state="awaiting_target"} 1`,
+		`tentacron_long_polls 1`,
+		`tentacron_build_info{go="go1.26",revision="abc123",version="v0.3.0-alpha"} 1`,
 		`go_goroutines`,
 		`process_start_time_seconds`,
 	} {

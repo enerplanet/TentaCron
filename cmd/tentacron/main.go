@@ -257,8 +257,9 @@ func newProcess(path string, logger *slog.Logger, level *slog.LevelVar) (*proces
 		WithConnectionPool(cfg.Worker.Count * cfg.Worker.ResolventConcurrency).WithMetrics(m)
 	pool := worker.New(provider, st, client, logger, nudge).WithMetrics(m).WithNotifier(hub)
 	deliverer := callback.New(provider, st, logger).WithMetrics(m).WithNotifier(hub)
-	apiServer := api.New(provider, st, logger, nudge).WithUpstream(client).WithNotifier(hub)
+	apiServer := api.New(provider, st, logger, nudge).WithUpstream(client).WithNotifier(hub).WithMetrics(m)
 	apiServer.Build = buildInfo()
+	m.SetBuildInfo(apiServer.Build.Version, apiServer.Build.Revision, apiServer.Build.Go)
 	servers := []*http.Server{newHTTPServer(cfg, apiServer.Handler())}
 	if ms := newMetricsServer(cfg, m); ms != nil {
 		servers = append(servers, ms)

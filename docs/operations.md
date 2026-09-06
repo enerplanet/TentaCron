@@ -216,6 +216,8 @@ time) without authentication, and `/healthz` carries the version too.
 | `tentacron_schedule_runs_total` | `target` | Runs materialised from schedules. |
 | `tentacron_callback_deliveries_total` | `outcome` | Completion-callback attempts: `delivered`, `retry`, `failed`. |
 | `tentacron_metrics_scrape_errors_total` | – | Scrapes on which the queue depth could not be read. |
+| `tentacron_long_polls` | – | Status reads waiting on `?wait=` right now; what a reverse proxy's timeout must accommodate. |
+| `tentacron_build_info` | `version`, `revision`, `go` | Always 1; join dashboards to the running build. |
 
 Plus the standard Go runtime and process collectors. A minimal scrape
 configuration and four alerts worth having:

@@ -45,6 +45,21 @@ type Server struct {
 	// background tracks fire-and-forget work (target cancel notifications)
 	// so a shutdown can wait for it.
 	background sync.WaitGroup
+	// metrics, when set, counts the long-polls waiting right now.
+	metrics LongPollMetrics
+}
+
+// LongPollMetrics is what the API reports about long-polls; *metrics.Metrics
+// implements it, and its nil receiver is a valid no-op.
+type LongPollMetrics interface {
+	LongPollStarted()
+	LongPollEnded()
+}
+
+// WithMetrics reports long-polls in flight to m.
+func (s *Server) WithMetrics(m LongPollMetrics) *Server {
+	s.metrics = m
+	return s
 }
 
 // BeginDrain tells waiting long-polls to answer now. Idempotent.
