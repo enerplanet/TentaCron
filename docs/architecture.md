@@ -20,6 +20,8 @@ flowchart LR
     W -->|series cache| DB
     S[Scheduler] -->|"due schedule → job"| DB
     D[Callback deliverer] -->|"signed job document"| CB[Client callback URL]
+    W -.->|"job ended: wakes ?wait= long-polls"| A
+    P[Prometheus] -->|"GET /metrics"| M[Metrics listener]
 ```
 
 ## Request lifecycle
@@ -234,8 +236,29 @@ answer read only up to 1 KiB.
   the injected API-key headers to cross-origin redirect targets), and
   upstream error excerpts have all configured credentials redacted before
   they are stored or logged.
-- Request and response bodies are size-capped (`server.max_body_bytes`); TLS
-  termination is expected at a reverse proxy.
+- Inbound bodies are capped by `server.max_body_bytes`, upstream JSON
+  responses by `upstream.max_response_bytes` and result downloads by
+  `storage.max_result_bytes`; TLS termination is expected at a reverse
+  proxy.
 
-Prometheus metrics are deliberately deferred; the structured logs and the
-`job_events` audit trail cover observability for a single-instance v1.
+## Operability
+
+- **Configuration** is loaded once into a provider and re-read on `SIGHUP`:
+  a file that fails validation is rejected and the running configuration
+  kept, a good one is swapped in atomically. The API reads the current
+  configuration per request and a worker per job, so a reload never changes
+  a request midway; settings read once at startup (listeners, storage,
+  worker counts) are logged as `restart_required`. A key may carry a
+  `previous_key` during a rotation.
+- **Long-polls** (`GET /v1/requests/{id}?wait=`) park on an in-process
+  notifier that workers and cancellations signal on every terminal
+  transition, with a periodic re-read as the fallback.
+- **Metrics** are served on a second listener (`server.metrics_addr`),
+  never on the API's; `GET /version` and `/healthz` report the build.
+  Structured logs and the `job_events` audit trail cover the rest.
+- **Backups** are `VACUUM INTO` snapshots taken by `tentacron backup` while
+  the service runs; the housekeeping sweep compacts the database file.
+- **The API contract** is the OpenAPI document under `docs/openapi`,
+  embedded into the binary and served at `GET /openapi.yaml`; tests keep it
+  true to the routes and to the golden corpus
+  ([ADR-0007](decisions/0007-openapi-contract.md)).
