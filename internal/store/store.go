@@ -78,8 +78,14 @@ func OpenForBackup(path string) (*Store, error) {
 func (s *Store) SchemaVersion(ctx context.Context) (int, error) { return s.recordedVersion(ctx) }
 
 // MigrationsApplied lists the migration versions Open applied to bring the
-// database to this binary's schema, oldest first; empty when it was current.
-func (s *Store) MigrationsApplied() []int { return slices.Clone(s.applied) }
+// database to this binary's schema, oldest first; an empty, non-nil list
+// when it was current, so the start-up log shows [] rather than null.
+func (s *Store) MigrationsApplied() []int {
+	if s.applied == nil {
+		return []int{}
+	}
+	return slices.Clone(s.applied)
+}
 
 func (s *Store) recordedVersion(ctx context.Context) (int, error) {
 	var exists int

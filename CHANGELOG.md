@@ -48,6 +48,8 @@ under "Changed" with the keys or fields concerned.
 
 ### Fixed
 
+- The `database opened` log line reports `migrations_applied: []` on a
+  database that is already current, where it printed `null`.
 - Browser clients can read `Retry-After` on a `429 queue_full`: the header
   is exposed, as are all headers the handlers set that the Fetch
   specification does not safelist. Preflights allow `Authorization`, so a

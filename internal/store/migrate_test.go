@@ -161,8 +161,8 @@ func TestUpgradeFromPreviousReleaseWithData(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := again.MigrationsApplied(); len(got) != 0 {
-		t.Errorf("a current database reports applied migrations %v", got)
+	if got := again.MigrationsApplied(); got == nil || len(got) != 0 {
+		t.Errorf("a current database must report an empty, non-nil list, got %#v", got)
 	}
 	_ = again.Close()
 	// Additive: every old column is still there with its type.
