@@ -75,11 +75,36 @@ type Server struct {
 // it server-side where that is not enough.
 type CORS struct {
 	AllowedOrigins []string `yaml:"allowed_origins"`
+	// AllowedHeaders a preflight may request in addition to the ones the
+	// API reads; ["*"] echoes whatever the preflight asks for.
+	AllowedHeaders []string `yaml:"allowed_headers"`
+	// ExposeHeaders a page may read in addition to the ones the API sets.
+	ExposeHeaders []string `yaml:"expose_headers"`
+	// AllowCredentials permits cookies and client certificates on
+	// cross-origin requests; never together with the "*" origin.
+	AllowCredentials bool `yaml:"allow_credentials"`
+	// MaxAge bounds preflight caching: absent means ten minutes, "0s" omits
+	// the header so browsers fall back to their five-second default.
+	MaxAge *Duration `yaml:"max_age"`
+	// AllowPrivateNetwork answers Chrome's private-network preflights, for
+	// a public page calling an instance on a LAN or localhost.
+	AllowPrivateNetwork bool `yaml:"allow_private_network"`
 }
 
 // Policy is the browser policy the API installs for this configuration.
 func (c CORS) Policy() cors.Config {
-	return cors.Config{AllowedOrigins: c.AllowedOrigins}
+	p := cors.Config{
+		AllowedOrigins: c.AllowedOrigins, AllowedHeaders: c.AllowedHeaders, ExposeHeaders: c.ExposeHeaders,
+		AllowCredentials: c.AllowCredentials, AllowPrivateNetwork: c.AllowPrivateNetwork,
+	}
+	switch {
+	case c.MaxAge == nil: // the package default
+	case c.MaxAge.Std() == 0:
+		p.MaxAge = -1 // omit the header
+	default:
+		p.MaxAge = c.MaxAge.Std()
+	}
+	return p
 }
 
 // SlogLevel maps the configured log level onto slog; an unknown value (which

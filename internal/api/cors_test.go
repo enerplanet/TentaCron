@@ -4,6 +4,7 @@ import (
 	"net/http"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/enerplanet/tentacron/internal/config"
 )
@@ -241,10 +242,30 @@ func TestCORSNonPreflightOptions(t *testing.T) {
 	assertHeader(t, rec.Header(), "Access-Control-Allow-Origin", allowedOrigin)
 }
 
-// The preflight max-age is fixed at ten minutes today; item 1.4 makes it
-// configurable.
+// The preflight max-age is ten minutes unless configured; "0s" omits it.
 func TestCORSMaxAge(t *testing.T) {
 	e := corsEnv(t, allowedOrigin)
 	rec := e.do(t, http.MethodOptions, "/v1/requests", "", withOrigin(allowedOrigin, map[string]string{"Access-Control-Request-Method": "POST"}))
 	assertHeader(t, rec.Header(), "Access-Control-Max-Age", "600")
+	custom := config.Duration(45 * time.Second)
+	e = newEnvWith(t, func(c *config.Config) {
+		c.Server.CORS.AllowedOrigins = []string{allowedOrigin}
+		c.Server.CORS.MaxAge = &custom
+	}, nil)
+	rec = e.do(t, http.MethodOptions, "/v1/requests", "", withOrigin(allowedOrigin, map[string]string{"Access-Control-Request-Method": "POST"}))
+	assertHeader(t, rec.Header(), "Access-Control-Max-Age", "45")
+}
+
+// Credentials and private-network answers come through the configuration.
+func TestCORSCredentialsAndPrivateNetwork(t *testing.T) {
+	e := newEnvWith(t, func(c *config.Config) {
+		c.Server.CORS.AllowedOrigins = []string{allowedOrigin}
+		c.Server.CORS.AllowCredentials = true
+		c.Server.CORS.AllowPrivateNetwork = true
+	}, nil)
+	rec := e.do(t, http.MethodOptions, "/v1/requests", "", withOrigin(allowedOrigin, map[string]string{"Access-Control-Request-Method": "POST", "Access-Control-Request-Private-Network": "true"}))
+	assertHeader(t, rec.Header(), "Access-Control-Allow-Credentials", "true")
+	assertHeader(t, rec.Header(), "Access-Control-Allow-Private-Network", "true")
+	rec = e.do(t, http.MethodGet, "/healthz", "", withOrigin(allowedOrigin, nil))
+	assertHeader(t, rec.Header(), "Access-Control-Allow-Credentials", "true")
 }

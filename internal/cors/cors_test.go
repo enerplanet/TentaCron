@@ -5,6 +5,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 )
 
 func serve(t *testing.T, cfg Config, method, origin string, extra map[string]string) *httptest.ResponseRecorder {
@@ -171,6 +172,106 @@ func TestNonPreflightOptions(t *testing.T) {
 	}
 	if rec.Header().Get("Access-Control-Allow-Origin") != "https://app.example.org" || vary(rec) != "Origin" {
 		t.Errorf("actual-request headers: %v", rec.Header())
+	}
+}
+
+// Credentials: the header on preflight and response, and the specific
+// origin echoed even under "*", since the Fetch specification rejects a
+// wildcard there.
+func TestCredentials(t *testing.T) {
+	cfg := Config{AllowedOrigins: []string{"https://app.example.org"}, AllowCredentials: true}
+	rec := serve(t, cfg, http.MethodOptions, "https://app.example.org", map[string]string{"Access-Control-Request-Method": "POST"})
+	if rec.Header().Get("Access-Control-Allow-Credentials") != "true" {
+		t.Errorf("preflight lacks Allow-Credentials: %v", rec.Header())
+	}
+	rec = serve(t, cfg, http.MethodGet, "https://app.example.org", nil)
+	if rec.Header().Get("Access-Control-Allow-Credentials") != "true" || rec.Header().Get("Access-Control-Allow-Origin") != "https://app.example.org" {
+		t.Errorf("response: %v", rec.Header())
+	}
+	rec = serve(t, Config{AllowedOrigins: []string{"*"}, AllowCredentials: true}, http.MethodGet, "https://any.example", nil)
+	if rec.Header().Get("Access-Control-Allow-Origin") != "https://any.example" {
+		t.Errorf("credentialed * must echo the origin, got %q", rec.Header().Get("Access-Control-Allow-Origin"))
+	}
+	rec = serve(t, Config{AllowedOrigins: []string{"https://app.example.org"}}, http.MethodGet, "https://app.example.org", nil)
+	if rec.Header().Get("Access-Control-Allow-Credentials") != "" {
+		t.Errorf("credentials off must not emit the header: %v", rec.Header())
+	}
+}
+
+// Max-age: the default, a custom value in whole seconds, and omitted when
+// negative.
+func TestMaxAge(t *testing.T) {
+	pre := func(cfg Config) string {
+		cfg.AllowedOrigins = []string{"https://app.example.org"}
+		rec := serve(t, cfg, http.MethodOptions, "https://app.example.org", map[string]string{"Access-Control-Request-Method": "POST"})
+		return rec.Header().Get("Access-Control-Max-Age")
+	}
+	if got := pre(Config{}); got != "600" {
+		t.Errorf("default max-age = %q, want 600", got)
+	}
+	if got := pre(Config{MaxAge: 90 * time.Second}); got != "90" {
+		t.Errorf("custom max-age = %q, want 90", got)
+	}
+	if got := pre(Config{MaxAge: -1}); got != "" {
+		t.Errorf("negative max-age must omit the header, got %q", got)
+	}
+}
+
+// Private Network Access: answered only when asked and enabled.
+func TestPrivateNetwork(t *testing.T) {
+	ask := map[string]string{"Access-Control-Request-Method": "POST", "Access-Control-Request-Private-Network": "true"}
+	rec := serve(t, Config{AllowedOrigins: []string{"https://app.example.org"}, AllowPrivateNetwork: true}, http.MethodOptions, "https://app.example.org", ask)
+	if rec.Header().Get("Access-Control-Allow-Private-Network") != "true" {
+		t.Errorf("enabled and asked: %v", rec.Header())
+	}
+	rec = serve(t, Config{AllowedOrigins: []string{"https://app.example.org"}, AllowPrivateNetwork: true}, http.MethodOptions, "https://app.example.org",
+		map[string]string{"Access-Control-Request-Method": "POST"})
+	if rec.Header().Get("Access-Control-Allow-Private-Network") != "" {
+		t.Errorf("not asked: %v", rec.Header())
+	}
+	rec = serve(t, Config{AllowedOrigins: []string{"https://app.example.org"}}, http.MethodOptions, "https://app.example.org", ask)
+	if rec.Header().Get("Access-Control-Allow-Private-Network") != "" {
+		t.Errorf("disabled: %v", rec.Header())
+	}
+}
+
+// Extra headers are added to the built-in sets, canonicalised and
+// deduplicated; ["*"] in allowed headers echoes the preflight's request.
+func TestExtraHeadersAndEchoMode(t *testing.T) {
+	cfg := Config{AllowedOrigins: []string{"https://app.example.org"}, AllowedHeaders: []string{"x-proxy-user", "content-type"}, ExposeHeaders: []string{"x-proxy-trace", "retry-after"}}
+	rec := serve(t, cfg, http.MethodOptions, "https://app.example.org", map[string]string{"Access-Control-Request-Method": "POST"})
+	if got := rec.Header().Get("Access-Control-Allow-Headers"); got != strings.Join(DefaultAllowedHeaders, ", ")+", X-Proxy-User" {
+		t.Errorf("Allow-Headers = %q", got)
+	}
+	rec = serve(t, cfg, http.MethodGet, "https://app.example.org", nil)
+	if got := rec.Header().Get("Access-Control-Expose-Headers"); got != strings.Join(DefaultExposeHeaders, ", ")+", X-Proxy-Trace" {
+		t.Errorf("Expose-Headers = %q", got)
+	}
+	echo := Config{AllowedOrigins: []string{"https://app.example.org"}, AllowedHeaders: []string{"*"}}
+	rec = serve(t, echo, http.MethodOptions, "https://app.example.org", map[string]string{"Access-Control-Request-Method": "POST", "Access-Control-Request-Headers": "x-one, x-two"})
+	if got := rec.Header().Get("Access-Control-Allow-Headers"); got != "x-one, x-two" {
+		t.Errorf("echo mode: Allow-Headers = %q", got)
+	}
+	rec = serve(t, echo, http.MethodOptions, "https://app.example.org", map[string]string{"Access-Control-Request-Method": "GET"})
+	if got := rec.Header().Get("Access-Control-Allow-Headers"); got != "" {
+		t.Errorf("echo mode with nothing asked: Allow-Headers = %q", got)
+	}
+}
+
+// The Fetch specification's forbidden combinations are refused.
+func TestValidateCredentialCombinations(t *testing.T) {
+	for name, cfg := range map[string]Config{
+		"* origin":         {AllowedOrigins: []string{"*"}, AllowCredentials: true},
+		"* expose header":  {AllowedOrigins: []string{"https://app.example.org"}, ExposeHeaders: []string{"*"}, AllowCredentials: true},
+		"* allowed method": {AllowedOrigins: []string{"https://app.example.org"}, AllowedMethods: []string{"*"}, AllowCredentials: true},
+	} {
+		if err := cfg.Validate(); err == nil || !strings.Contains(err.Error(), "allow_credentials") {
+			t.Errorf("%s: err = %v, want a credentials error", name, err)
+		}
+	}
+	ok := Config{AllowedOrigins: []string{"https://app.example.org"}, AllowedHeaders: []string{"*"}, ExposeHeaders: []string{"X-Trace"}, AllowCredentials: true}
+	if err := ok.Validate(); err != nil {
+		t.Errorf("echo-mode headers with credentials are fine: %v", err)
 	}
 }
 

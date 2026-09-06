@@ -4,6 +4,7 @@ import (
 	"log/slog"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestObservabilityDefaultsAndValidation(t *testing.T) {
@@ -33,6 +34,50 @@ func TestObservabilityDefaultsAndValidation(t *testing.T) {
 	for level, want := range map[string]slog.Level{"debug": slog.LevelDebug, "info": slog.LevelInfo, "warn": slog.LevelWarn, "error": slog.LevelError, "": slog.LevelInfo} {
 		if got := (Server{LogLevel: level}).SlogLevel(); got != want {
 			t.Errorf("SlogLevel(%q) = %v, want %v", level, got, want)
+		}
+	}
+}
+
+// The knobs load with their defaults, map onto the policy, and the Fetch
+// combinations are refused with the key named.
+func TestCORSKnobs(t *testing.T) {
+	cfg, err := Load(writeConfig(t, minimalYAML+`server:
+  cors:
+    allowed_origins: ["https://app.example.org"]
+    allowed_headers: ["X-Proxy-User"]
+    expose_headers: ["X-Proxy-Trace"]
+    allow_credentials: true
+    allow_private_network: true
+    max_age: 2m
+`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	p := cfg.Server.CORS.Policy()
+	if !p.AllowCredentials || !p.AllowPrivateNetwork || p.MaxAge != 2*time.Minute || len(p.AllowedHeaders) != 1 || len(p.ExposeHeaders) != 1 {
+		t.Errorf("policy = %+v", p)
+	}
+	plain, err := Load(writeConfig(t, minimalYAML+"server:\n  cors:\n    allowed_origins: [\"https://app.example.org\"]\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if p := plain.Server.CORS.Policy(); p.AllowCredentials || p.AllowPrivateNetwork || p.MaxAge != 0 {
+		t.Errorf("defaults: %+v", p)
+	}
+	omitted, err := Load(writeConfig(t, minimalYAML+"server:\n  cors:\n    allowed_origins: [\"https://app.example.org\"]\n    max_age: 0s\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if omitted.Server.CORS.Policy().MaxAge >= 0 {
+		t.Errorf("max_age 0s must omit the header (negative policy value), got %v", omitted.Server.CORS.Policy().MaxAge)
+	}
+	for name, doc := range map[string]string{
+		"credentials with *":        "server:\n  cors:\n    allowed_origins: [\"*\"]\n    allow_credentials: true\n",
+		"credentials with * expose": "server:\n  cors:\n    allowed_origins: [\"https://app.example.org\"]\n    expose_headers: [\"*\"]\n    allow_credentials: true\n",
+		"negative max_age":          "server:\n  cors:\n    allowed_origins: [\"https://app.example.org\"]\n    max_age: -1s\n",
+	} {
+		if _, err := Load(writeConfig(t, minimalYAML+doc)); err == nil || !strings.Contains(err.Error(), "server.cors") {
+			t.Errorf("%s: err = %v, want one naming server.cors", name, err)
 		}
 	}
 }

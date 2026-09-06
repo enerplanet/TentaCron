@@ -10,6 +10,15 @@ under "Changed" with the keys or fields concerned.
 
 ### Added
 
+- `server.cors` gains the knobs meme's browser policy has, opt-in and
+  validated by the Fetch rules: `allow_credentials` (the response then
+  always echoes the specific origin, and the `*` origin is refused),
+  `max_age` (default ten minutes, `0s` omits the header),
+  `allow_private_network` for Chrome's private-network preflights, and
+  `allowed_headers` and `expose_headers` as additions to the sets the API
+  needs, with `["*"]` in `allowed_headers` echoing the preflight's
+  request. `tentacron validate` and the start-up log print the policy in
+  one line.
 - `server.cors.allowed_origins` accepts the wildcard `*`, subdomain
   wildcards such as `https://*.preview.example.org` (any depth below the
   host, never the host itself) and the literal `null` origin, matched

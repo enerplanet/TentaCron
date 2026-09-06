@@ -13,6 +13,11 @@ server:
   log_level: info # debug | info | warn | error
   cors:
     allowed_origins: [] # browser origins allowed to call the API: exact, "https://*.preview.example.org", or "*" (validate warns)
+    # allowed_headers: [] # request headers a proxy in front adds, beyond the ones the API reads; ["*"] echoes the preflight
+    # expose_headers: [] # response headers a page may read beyond the ones the API sets
+    # allow_credentials: false # cookies and client certificates on cross-origin requests; never with the "*" origin
+    # max_age: 10m # preflight cache lifetime (Chromium caps it at 10m); 0s omits the header
+    # allow_private_network: false # answer Chrome's private-network preflights for a public page calling a LAN instance
 
 auth:
   # Rotate a key without a gap: set the new value as key, move the old one to

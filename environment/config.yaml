@@ -9,6 +9,10 @@ server:
   addr: ":${PORT}"
   metrics_addr: ":9090" # scraped inside the compose network; not published by default
   log_level: info
+  cors:
+    allowed_origins: [] # a local frontend against this compose: ["http://localhost:5173"]
+    # allow_credentials, max_age, allow_private_network, allowed_headers and
+    # expose_headers as in ../config.example.yaml
 
 auth:
   api_keys:

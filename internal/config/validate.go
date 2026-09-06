@@ -82,6 +82,12 @@ func (v *validator) server(s Server) {
 			v.fail("server.cors.allowed_origins[%d]: %v", i, err)
 		}
 	}
+	if s.CORS.MaxAge != nil && s.CORS.MaxAge.Std() < 0 {
+		v.fail("server.cors.max_age: must not be negative (got %s); \"0s\" omits the header", s.CORS.MaxAge.Std())
+	}
+	if err := s.CORS.Policy().Validate(); err != nil {
+		v.fail("server.cors: %v", err)
+	}
 }
 
 func (v *validator) storage(s Storage) {

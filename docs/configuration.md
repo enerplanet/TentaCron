@@ -25,6 +25,11 @@ for a complete annotated example covering every integration below.
 | `metrics_addr` | – (off) | `host:port` of a second listener that serves Prometheus metrics on `/metrics` only. Keep it off the public network; see [Operations → Metrics](operations.md#metrics). |
 | `log_level` | `info` | Minimum level written to the structured log: `debug`, `info`, `warn` or `error`. |
 | `cors.allowed_origins` | `[]` (off) | Browser origins allowed to call the API directly: exact origins (`https://app.example.org`), the wildcard `*`, or subdomain wildcards (`https://*.example.org`: any depth below the host, never the host itself), matched case-insensitively; the literal `null` only when listed. Preflights are answered for every method and `X-Request-ID`, `Content-Disposition` and the range headers are exposed. A key held in a page is visible to its users and bounded by that key's ceilings; `tentacron validate` warns when `*` is set. Prefer a backend-for-frontend where the key must stay secret. |
+| `cors.allowed_headers` | `[]` | Request headers a preflight may name in addition to the ones the API reads (`Content-Type`, `X-API-Key`, `Idempotency-Key`, `X-Request-ID`, `Range`, `Authorization`): what a proxy in front adds. The single entry `"*"` echoes whatever the preflight asks for. |
+| `cors.expose_headers` | `[]` | Response headers a page may read in addition to the ones the API sets (`X-Request-ID`, `Allow`, `Retry-After`, `Content-Disposition`, `Content-Length`, `Content-Range`, `Accept-Ranges`). `"*"` is refused together with `allow_credentials`. |
+| `cors.allow_credentials` | `false` | Let cross-origin requests carry cookies and client certificates, for a page behind a cookie-based proxy. The response then always echoes the specific origin; combining it with the `*` origin is refused. |
+| `cors.max_age` | `10m` | How long a browser may cache a preflight answer (Chromium caps it at ten minutes). `0s` omits the header, so browsers fall back to their five-second default. |
+| `cors.allow_private_network` | `false` | Answer Chrome's Private Network Access preflights, needed when a page on the public internet calls an instance on a LAN or on localhost. |
 
 ## auth
 

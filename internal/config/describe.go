@@ -5,6 +5,8 @@ import (
 	"maps"
 	"slices"
 	"strings"
+
+	"github.com/enerplanet/tentacron/internal/cors"
 )
 
 // Describe renders a loaded configuration as the operator-facing summary
@@ -19,7 +21,7 @@ func Describe(c *Config) string {
 	fmt.Fprintf(&b, "worker  %d worker(s), %d resolvent fetch(es) per job, %d attempt(s), job timeout %s\n",
 		c.Worker.Count, c.Worker.ResolventConcurrency, c.Worker.MaxAttempts, c.Worker.JobTimeout.Std())
 	fmt.Fprintf(&b, "storage %s  results %s  retention %s\n", c.Storage.Path, c.Storage.ResultsDir, c.Storage.Retention.Std())
-	b.WriteString("cors    " + describeCORS(c.Server.CORS) + "\n")
+	b.WriteString("cors    " + DescribeCORS(c.Server.CORS) + "\n")
 	b.WriteString("targets\n")
 	for _, name := range slices.Sorted(maps.Keys(c.Targets)) {
 		fmt.Fprintf(&b, "  %-18s %s\n", name, describeTarget(c, name, c.Targets[name]))
@@ -31,14 +33,29 @@ func Describe(c *Config) string {
 	return b.String()
 }
 
-// describeCORS is the browser policy in one line, with a warning when the
-// "*" origin is set: a key in a page on any origin is a key on every origin.
-func describeCORS(c CORS) string {
+// DescribeCORS is the browser policy in one line, for the validate summary
+// and the start-up log, with a warning when the "*" origin is set: a key in
+// a page on any origin is a key on every origin.
+func DescribeCORS(c CORS) string {
 	p := c.Policy()
 	if !p.Enabled() {
 		return "off (no browser origin allowed)"
 	}
-	s := fmt.Sprintf("%d origin(s), %d wildcard(s)", len(c.AllowedOrigins), p.Wildcards())
+	onOff := func(b bool) string {
+		if b {
+			return "on"
+		}
+		return "off"
+	}
+	maxAge := cors.DefaultMaxAge.String()
+	switch {
+	case p.MaxAge < 0:
+		maxAge = "omitted"
+	case p.MaxAge > 0:
+		maxAge = p.MaxAge.String()
+	}
+	s := fmt.Sprintf("%d origin(s), %d wildcard(s), credentials %s, private network %s, preflight max-age %s",
+		len(c.AllowedOrigins), p.Wildcards(), onOff(p.AllowCredentials), onOff(p.AllowPrivateNetwork), maxAge)
 	if p.AllowsAny() {
 		s += `; WARNING: "*" lets any page that holds a key use it`
 	}

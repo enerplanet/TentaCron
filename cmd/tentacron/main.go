@@ -410,7 +410,8 @@ func (p *process) run(ctx context.Context, reloads <-chan struct{}) error {
 	}
 	p.logger.Info("tentacron started", "version", version, "addr", p.bound[0],
 		"metrics_addr", p.cfg.Server.MetricsAddr, "log_level", p.cfg.Server.LogLevel,
-		"targets", len(p.cfg.Targets), "resolvents", len(p.cfg.Resolvents))
+		"targets", len(p.cfg.Targets), "resolvents", len(p.cfg.Resolvents),
+		"cors", config.DescribeCORS(p.cfg.Server.CORS))
 
 	for {
 		select {

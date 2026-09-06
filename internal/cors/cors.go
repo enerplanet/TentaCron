@@ -11,7 +11,10 @@ package cors
 import (
 	"fmt"
 	"net/http"
+	"slices"
+	"strconv"
 	"strings"
+	"time"
 )
 
 // Defaults applied when the corresponding Config list is empty. The methods
@@ -29,9 +32,9 @@ var (
 	DefaultExposeHeaders  = []string{"X-Request-ID", "Allow", "Retry-After", "Content-Disposition", "Content-Length", "Content-Range", "Accept-Ranges"}
 )
 
-// defaultMaxAge caps preflight caching. Ten minutes is Chromium's upper
-// bound, so a larger value buys nothing.
-const defaultMaxAge = 600
+// DefaultMaxAge caps preflight caching when Config.MaxAge is zero. Ten
+// minutes is Chromium's upper bound, so a larger default buys nothing.
+const DefaultMaxAge = 10 * time.Minute
 
 // Config is the browser policy. The zero value disables CORS entirely: no
 // CORS header is emitted and OPTIONS keeps its 405 from the method-scoped
@@ -45,14 +48,67 @@ type Config struct {
 	// case-insensitive. The literal origin "null" (sandboxed iframes,
 	// file:// pages) is only allowed when listed explicitly or via "*".
 	AllowedOrigins []string
+
+	// AllowedMethods a cross-origin request may use. Empty means every
+	// method this API serves (DefaultAllowedMethods). A literal "*" is
+	// emitted as-is and only acts as a wildcard on credentialless
+	// requests; Validate rejects it in combination with AllowCredentials.
+	AllowedMethods []string
+
+	// AllowedHeaders a preflight may request, in addition to the ones the
+	// handlers read (DefaultAllowedHeaders): what a proxy in front adds.
+	// The single entry "*" echoes whatever the preflight asks for — a
+	// literal "*" would be read as a header named "*" on credentialed
+	// requests.
+	AllowedHeaders []string
+
+	// ExposeHeaders lists response headers browser JS may read in addition
+	// to the ones the handlers set (DefaultExposeHeaders): what a proxy in
+	// front adds. Like AllowedMethods, a literal "*" is only a wildcard
+	// without credentials; Validate rejects the credentialed combination.
+	ExposeHeaders []string
+
+	// AllowCredentials permits cookies and TLS client certificates on
+	// cross-origin requests. Forbidden together with the "*" origin:
+	// Validate rejects the combination, and the handler echoes the
+	// specific origin rather than "*" regardless.
+	AllowCredentials bool
+
+	// MaxAge bounds how long browsers may cache a preflight answer. The
+	// zero value means DefaultMaxAge; a negative value omits the header
+	// entirely (browsers then fall back to their 5-second default).
+	// Emitted as whole seconds.
+	MaxAge time.Duration
+
+	// AllowPrivateNetwork answers Chrome's Private Network Access
+	// preflights (Access-Control-Request-Private-Network) affirmatively —
+	// needed when a public page calls an API on a LAN or localhost. Off
+	// by default.
+	AllowPrivateNetwork bool
 }
 
 // Enabled reports whether the policy answers browsers at all.
 func (c Config) Enabled() bool { return len(c.AllowedOrigins) > 0 }
 
-// Validate rejects entries that are malformed or would silently match
-// nothing, such as a trailing slash. It returns nil on the zero value.
+// Validate rejects configurations that are forbidden by the Fetch
+// specification or — like a trailing slash on an origin — silently match
+// nothing. It returns nil on the zero value. The configuration calls it
+// at start; the handler itself accepts whatever it is given.
 func (c Config) Validate() error {
+	if c.AllowCredentials {
+		// On credentialed requests browsers read "*" in these headers as a
+		// literal token, not a wildcard — the config would silently not do
+		// what it says. (AllowedHeaders "*" is exempt: it is echo mode.)
+		if slices.Contains(c.AllowedMethods, "*") {
+			return fmt.Errorf("cors: allowed_methods \"*\" cannot be combined with allow_credentials (browsers treat it as a literal method name on credentialed requests)")
+		}
+		if slices.Contains(c.ExposeHeaders, "*") {
+			return fmt.Errorf("cors: expose_headers \"*\" cannot be combined with allow_credentials (browsers treat it as a literal header name on credentialed requests)")
+		}
+		if c.AllowsAny() {
+			return fmt.Errorf("cors: the \"*\" origin cannot be combined with allow_credentials (the Fetch specification forbids wildcard origins on credentialed requests)")
+		}
+	}
 	for _, o := range c.AllowedOrigins {
 		if err := ValidateOrigin(o); err != nil {
 			return err
@@ -128,14 +184,17 @@ type policy struct {
 	exact     map[string]bool // lowercased exact origins (may include "null")
 	wildcards []wildcard      // lowercased subdomain patterns
 
-	methods string // Access-Control-Allow-Methods value
-	headers string // Access-Control-Allow-Headers value
-	expose  string // Access-Control-Expose-Headers value
-	maxAge  string // Access-Control-Max-Age in seconds
+	credentials    bool   // Access-Control-Allow-Credentials: true
+	privateNetwork bool   // answer Access-Control-Request-Private-Network
+	methods        string // Access-Control-Allow-Methods value
+	headers        string // Access-Control-Allow-Headers value ("" with headersAny)
+	headersAny     bool   // AllowedHeaders is "*": echo the requested headers
+	expose         string // Access-Control-Expose-Headers value
+	maxAge         string // Access-Control-Max-Age in seconds; "" omits the header
 }
 
 func newPolicy(cfg Config) *policy {
-	p := &policy{exact: map[string]bool{}}
+	p := &policy{exact: map[string]bool{}, credentials: cfg.AllowCredentials, privateNetwork: cfg.AllowPrivateNetwork}
 	for _, o := range cfg.AllowedOrigins {
 		o = strings.ToLower(o)
 		if o == "*" {
@@ -146,11 +205,38 @@ func newPolicy(cfg Config) *policy {
 			p.exact[o] = true
 		}
 	}
-	p.methods = strings.Join(DefaultAllowedMethods, ", ")
-	p.headers = strings.Join(DefaultAllowedHeaders, ", ")
-	p.expose = strings.Join(DefaultExposeHeaders, ", ")
-	p.maxAge = fmt.Sprint(defaultMaxAge)
+	methods := cfg.AllowedMethods
+	if len(methods) == 0 {
+		methods = DefaultAllowedMethods
+	}
+	p.methods = joinHeaderList(nil, methods, strings.ToUpper)
+	if len(cfg.AllowedHeaders) == 1 && cfg.AllowedHeaders[0] == "*" {
+		p.headersAny = true
+	} else {
+		p.headers = joinHeaderList(DefaultAllowedHeaders, cfg.AllowedHeaders, http.CanonicalHeaderKey)
+	}
+	p.expose = joinHeaderList(DefaultExposeHeaders, cfg.ExposeHeaders, http.CanonicalHeaderKey)
+	switch {
+	case cfg.MaxAge < 0: // omit
+	case cfg.MaxAge == 0:
+		p.maxAge = strconv.Itoa(int(DefaultMaxAge / time.Second))
+	default:
+		p.maxAge = strconv.Itoa(int(cfg.MaxAge / time.Second))
+	}
 	return p
+}
+
+// joinHeaderList emits base as spelled (the documented names), followed by
+// the canonicalised extras it does not already hold, as one header value.
+func joinHeaderList(base, extra []string, canon func(string) string) string {
+	out := slices.Clone(base)
+	for _, v := range extra {
+		v = canon(v)
+		if !slices.ContainsFunc(out, func(have string) bool { return strings.EqualFold(have, v) }) {
+			out = append(out, v)
+		}
+	}
+	return strings.Join(out, ", ")
 }
 
 func (p *policy) originAllowed(origin string) bool {
@@ -171,9 +257,11 @@ func (p *policy) originAllowed(origin string) bool {
 
 // allowOriginValue is the Access-Control-Allow-Origin value for an allowed
 // origin: the literal "*" when every origin is allowed, otherwise the
-// request origin echoed back.
+// request origin echoed back. Credentialed responses always echo the
+// specific origin — the Fetch specification rejects "*" there — even if
+// the caller skipped Validate.
 func (p *policy) allowOriginValue(origin string) string {
-	if p.allowAll {
+	if p.allowAll && !p.credentials {
 		return "*"
 	}
 	return origin
@@ -198,7 +286,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	p := h.policy
 	origin := r.Header.Get("Origin")
 	if r.Method == http.MethodOptions && r.Header.Get("Access-Control-Request-Method") != "" {
-		h.preflight(w, p, origin)
+		h.preflight(w, r, p, origin)
 		return
 	}
 
@@ -209,6 +297,9 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	hdr.Add("Vary", "Origin")
 	if origin != "" && p.originAllowed(origin) {
 		hdr.Set("Access-Control-Allow-Origin", p.allowOriginValue(origin))
+		if p.credentials {
+			hdr.Set("Access-Control-Allow-Credentials", "true")
+		}
 		hdr.Set("Access-Control-Expose-Headers", p.expose)
 	}
 	h.next.ServeHTTP(w, r)
@@ -221,7 +312,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 // actual request. The method and header lists are emitted as-is: the
 // Fetch specification has the browser compare the request against them
 // and fail the fetch itself.
-func (h *Handler) preflight(w http.ResponseWriter, p *policy, origin string) {
+func (h *Handler) preflight(w http.ResponseWriter, r *http.Request, p *policy, origin string) {
 	hdr := w.Header()
 	hdr.Add("Vary", "Origin")
 	hdr.Add("Vary", "Access-Control-Request-Method")
@@ -229,8 +320,22 @@ func (h *Handler) preflight(w http.ResponseWriter, p *policy, origin string) {
 	if origin != "" && p.originAllowed(origin) {
 		hdr.Set("Access-Control-Allow-Origin", p.allowOriginValue(origin))
 		hdr.Set("Access-Control-Allow-Methods", p.methods)
-		hdr.Set("Access-Control-Allow-Headers", p.headers)
-		hdr.Set("Access-Control-Max-Age", p.maxAge)
+		if p.headersAny {
+			if req := r.Header.Get("Access-Control-Request-Headers"); req != "" {
+				hdr.Set("Access-Control-Allow-Headers", req)
+			}
+		} else {
+			hdr.Set("Access-Control-Allow-Headers", p.headers)
+		}
+		if p.credentials {
+			hdr.Set("Access-Control-Allow-Credentials", "true")
+		}
+		if p.maxAge != "" {
+			hdr.Set("Access-Control-Max-Age", p.maxAge)
+		}
+		if p.privateNetwork && r.Header.Get("Access-Control-Request-Private-Network") == "true" {
+			hdr.Set("Access-Control-Allow-Private-Network", "true")
+		}
 	}
 	w.WriteHeader(http.StatusNoContent)
 }
