@@ -38,10 +38,13 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
 
       - name: Lint OpenAPI specification
-        run: npx @redocly/cli lint docs/openapi/openapi.yaml --format=github-actions
+        # Pinned like golangci-lint: a floating CLI can start failing on rule
+        # changes unrelated to the description under review. Bump deliberately,
+        # together with the Makefile.
+        run: npx @redocly/cli@2.51.2 lint docs/openapi/openapi.yaml --format=github-actions
 
       - name: Build site
         run: mkdocs build --strict

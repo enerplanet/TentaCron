@@ -26,9 +26,12 @@ lint:
 	golangci-lint run
 
 # The OpenAPI description is linted with Redocly, as in buem-gateway and
-# weather; CI runs the same command. Needs Node (npx).
+# weather; CI runs the same command. Needs Node (npx). The version is pinned
+# here and in .github/workflows/ci.yml and docs.yml; bump all three together.
+REDOCLY_VERSION := 2.51.2
+
 lint-openapi:
-	npx --yes @redocly/cli lint docs/openapi/openapi.yaml
+	npx --yes @redocly/cli@$(REDOCLY_VERSION) lint docs/openapi/openapi.yaml
 
 run: build
 	./bin/$(BINARY) -config $(CONFIG)

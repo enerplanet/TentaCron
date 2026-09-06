@@ -96,7 +96,7 @@ Update the documentation (`README.md`, `docs/`, `config.example.yaml`,
 change also updates the OpenAPI description,
 [docs/openapi/openapi.yaml](docs/openapi/openapi.yaml); a test fails until
 it and the registered routes agree, and `make lint-openapi` runs the Redocly
-lint CI applies.
+lint CI applies, at the version pinned in the Makefile and the workflows.
 
 ### 5) Commit your changes
 
