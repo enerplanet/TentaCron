@@ -56,6 +56,9 @@ paths:
           application/json:
             schema:
               $ref: "#/components/schemas/CreateRequest"
+            examples:
+              demoDirect:
+                $ref: "#/components/examples/SubmitDemoDirect"
       responses:
         "202":
           description: Accepted; the request's id and initial state.
@@ -63,6 +66,9 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/Accepted"
+              examples:
+                accepted:
+                  $ref: "#/components/examples/Accepted"
         "400":
           $ref: "#/components/responses/BadRequest"
         "401":
@@ -73,24 +79,25 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
+              example:
+                error: { code: idempotency_conflict, message: Idempotency-Key was already used with a different target or payload }
         "413":
-          description: The body exceeds `server.max_body_bytes`.
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/Error"
+          $ref: "#/components/responses/PayloadTooLarge"
         "415":
-          description: "`Content-Type: application/json` is required."
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/Error"
+          $ref: "#/components/responses/UnsupportedMediaType"
         "422":
           description: The target is not configured (`unknown_target`), or the `callback_url` is not https on an allow-listed host (`callback_not_allowed`).
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
+              examples:
+                unknownTarget:
+                  value:
+                    error: { code: unknown_target, message: target "hydra" is not configured }
+                callbackNotAllowed:
+                  value:
+                    error: { code: callback_not_allowed, message: callback_url host "evil.example" is not allow-listed }
     get:
       tags: [requests]
       summary: List requests
@@ -143,6 +150,9 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/JobList"
+              examples:
+                failedPage:
+                  $ref: "#/components/examples/JobList"
         "400":
           $ref: "#/components/responses/BadRequest"
         "401":
@@ -166,6 +176,9 @@ paths:
           application/json:
             schema:
               $ref: "#/components/schemas/CreateRequest"
+            examples:
+              demoDirect:
+                $ref: "#/components/examples/SubmitDemoDirect"
       responses:
         "200":
           description: The inspection result.
@@ -173,22 +186,19 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ValidateResponse"
+              examples:
+                couldStart:
+                  $ref: "#/components/examples/ValidateOK"
+                wouldFail:
+                  $ref: "#/components/examples/ValidateProblems"
         "400":
           $ref: "#/components/responses/BadRequest"
         "401":
           $ref: "#/components/responses/Unauthorized"
         "415":
-          description: "`Content-Type: application/json` is required."
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/Error"
+          $ref: "#/components/responses/UnsupportedMediaType"
         "422":
-          description: The target is not configured.
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/Error"
+          $ref: "#/components/responses/UnknownTarget"
 
   /v1/requests/batch:
     post:
@@ -208,6 +218,9 @@ paths:
           application/json:
             schema:
               $ref: "#/components/schemas/BatchRequest"
+            examples:
+              mixed:
+                $ref: "#/components/examples/BatchMixed"
       responses:
         "202":
           description: At least one item was accepted.
@@ -215,6 +228,9 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/BatchResponse"
+              examples:
+                mixed:
+                  $ref: "#/components/examples/BatchAccepted"
         "400":
           description: Malformed body, an empty or oversized list, or no item was accepted.
           content:
@@ -223,20 +239,20 @@ paths:
                 oneOf:
                   - $ref: "#/components/schemas/Error"
                   - $ref: "#/components/schemas/BatchResponse"
+              examples:
+                malformed:
+                  value:
+                    error: { code: missing_field, message: requests is required }
+                noneAccepted:
+                  value:
+                    items:
+                      - error: { code: unknown_target, message: target "hydra" is not configured }
         "401":
           $ref: "#/components/responses/Unauthorized"
         "413":
-          description: The body exceeds `server.max_body_bytes`.
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/Error"
+          $ref: "#/components/responses/PayloadTooLarge"
         "415":
-          description: "`Content-Type: application/json` is required."
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/Error"
+          $ref: "#/components/responses/UnsupportedMediaType"
 
   /v1/schedules:
     post:
@@ -258,6 +274,9 @@ paths:
           application/json:
             schema:
               $ref: "#/components/schemas/ScheduleRequest"
+            examples:
+              daily:
+                $ref: "#/components/examples/ScheduleDaily"
       responses:
         "201":
           description: The schedule with its first due time.
@@ -265,20 +284,26 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/Schedule"
+              examples:
+                daily:
+                  $ref: "#/components/examples/Schedule"
         "400":
           description: Malformed body or payload, an invalid `cron`, `timezone` or `priority`, or a payload the dry run rejects (`invalid_payload`, `unknown_resolvent`, `target_error`).
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
+              examples:
+                invalidCron:
+                  value:
+                    error: { code: invalid_parameter, message: "cron \"61 * * * *\": end of range (61) above maximum (59): 61" }
+                everyRunWouldFail:
+                  value:
+                    error: { code: unknown_resolvent, message: no resolvent config for type "resolvent-tidal" }
         "401":
           $ref: "#/components/responses/Unauthorized"
         "422":
-          description: The target is not configured.
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/Error"
+          $ref: "#/components/responses/UnknownTarget"
     get:
       tags: [schedules]
       summary: List schedules
@@ -301,6 +326,9 @@ paths:
                   items:
                     type: array
                     items: { $ref: "#/components/schemas/Schedule" }
+              examples:
+                one:
+                  $ref: "#/components/examples/Schedules"
         "401":
           $ref: "#/components/responses/Unauthorized"
 
@@ -321,6 +349,9 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/Schedule"
+              examples:
+                daily:
+                  $ref: "#/components/examples/Schedule"
         "401":
           $ref: "#/components/responses/Unauthorized"
         "404":
@@ -365,6 +396,9 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/JobList"
+              examples:
+                runs:
+                  $ref: "#/components/examples/JobList"
         "400":
           description: Invalid `state`, `limit` or `cursor`.
           content:
@@ -394,6 +428,9 @@ paths:
                   items:
                     type: array
                     items: { $ref: "#/components/schemas/TargetInfo" }
+              examples:
+                reference:
+                  $ref: "#/components/examples/Targets"
         "401":
           $ref: "#/components/responses/Unauthorized"
 
@@ -414,6 +451,9 @@ paths:
                   items:
                     type: array
                     items: { $ref: "#/components/schemas/ResolventInfo" }
+              examples:
+                reference:
+                  $ref: "#/components/examples/Resolvents"
         "401":
           $ref: "#/components/responses/Unauthorized"
 
@@ -441,6 +481,15 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/Job"
+              examples:
+                completed:
+                  $ref: "#/components/examples/JobCompleted"
+                awaitingTarget:
+                  $ref: "#/components/examples/JobAwaitingTarget"
+                failed:
+                  $ref: "#/components/examples/JobFailed"
+                withCallback:
+                  $ref: "#/components/examples/JobWithCallback"
         "400":
           $ref: "#/components/responses/BadRequest"
         "401":
@@ -466,6 +515,9 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/Job"
+              examples:
+                cancelled:
+                  $ref: "#/components/examples/JobCancelled"
         "401":
           $ref: "#/components/responses/Unauthorized"
         "404":
@@ -476,6 +528,8 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
+              example:
+                error: { code: not_cancellable, message: request is being processed }
 
   /v1/requests/{id}/result:
     get:
@@ -539,6 +593,9 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/EventList"
+              examples:
+                completed:
+                  $ref: "#/components/examples/Events"
         "401":
           $ref: "#/components/responses/Unauthorized"
         "404":
@@ -560,6 +617,7 @@ paths:
                 properties:
                   status: { type: string, const: ok }
                   version: { type: string }
+              example: { status: ok, version: v0.6.0 }
   /readyz:
     get:
       tags: [system]
@@ -569,6 +627,13 @@ paths:
       responses:
         "200":
           description: Migrations ran and the database answers.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status: { type: string, const: ready }
+              example: { status: ready }
         "503":
           description: The database is not reachable.
           content:
@@ -593,6 +658,7 @@ paths:
                   go: { type: string }
                   revision: { type: string }
                   built: { type: string }
+              example: { version: v0.6.0, go: go1.26.8, revision: 1510e40f6f0c, built: "2026-09-06T07:58:00Z" }
   /openapi.yaml:
     get:
       tags: [system]
@@ -655,18 +721,48 @@ components:
         application/json:
           schema:
             $ref: "#/components/schemas/Error"
+          example:
+            error: { code: missing_field, message: target is required }
     Unauthorized:
       description: Missing or unknown API key.
       content:
         application/json:
           schema:
             $ref: "#/components/schemas/Error"
+          example:
+            error: { code: unauthorized, message: missing or invalid X-API-Key header }
     NotFound:
       description: No such request — or another client's request, which is indistinguishable.
       content:
         application/json:
           schema:
             $ref: "#/components/schemas/Error"
+          example:
+            error: { code: not_found, message: no such request }
+    PayloadTooLarge:
+      description: The body exceeds `server.max_body_bytes`.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+          example:
+            error: { code: payload_too_large, message: request body exceeds the configured limit }
+    UnsupportedMediaType:
+      description: "`Content-Type: application/json` is required."
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+          example:
+            error: { code: unsupported_media_type, message: Content-Type must be application/json }
+    UnknownTarget:
+      description: The target is not configured.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+          example:
+            error: { code: unknown_target, message: target "hydra" is not configured }
   schemas:
     State:
       type: string
@@ -695,6 +791,7 @@ components:
         target:
           type: string
           description: A target name from the configuration.
+          example: demo
         payload:
           type: object
           description: The body to resolve and forward. Resolvent objects carry a `type` starting with `resolvent-`.
@@ -808,10 +905,12 @@ components:
         cron:
           type: string
           description: Five fields (`30 6 * * *`) or a descriptor (`@daily`, `@every 6h`).
+          example: "30 6 * * *"
         timezone:
           type: string
           default: UTC
           description: IANA zone name the expression is evaluated in.
+          example: Europe/Berlin
         priority:
           type: integer
           minimum: -10
@@ -981,3 +1080,272 @@ components:
                 type: string
                 format: date-time
                 description: Millisecond precision.
+  examples:
+    SubmitDemoDirect:
+      summary: A model with two resolvents and one literal series
+      description: >
+        examples/demo-direct.json as shipped, without the deprecated body key:
+        a PV plant and a wind turbine are resolved into hourly series and
+        forwarded next to a measured load to the direct-mode `demo` target.
+      value:
+        target: demo
+        payload:
+          scenario: rooftop-expansion-2030
+          time-series:
+            - name: pv_south_roof
+              type: resolvent-pv1
+              location: { lat: 48.831, lon: 12.957 }
+              capacity_kw: 12.5
+              azimuth: 180
+              tilt: 35
+            - name: wind_ridge
+              type: resolvent-wind
+              location: { lat: 48.902, lon: 12.581 }
+              hub_height_m: 120
+              rotor_diameter_m: 90
+            - name: household_load
+              type: time-series
+              start: "2030-01-01T00:00:00Z"
+              resolution: PT1H
+              unit: kW
+              values: [0.42, 0.38, 0.35, 0.61]
+    Accepted:
+      summary: The request was persisted
+      value:
+        id: 0d9c1f2e4b6a48c39e7f5a1b2c3d4e5f
+        state: received
+        links: { self: /v1/requests/0d9c1f2e4b6a48c39e7f5a1b2c3d4e5f }
+    JobCompleted:
+      summary: A completed request with an inline result
+      value:
+        id: 0d9c1f2e4b6a48c39e7f5a1b2c3d4e5f
+        target: demo
+        state: completed
+        attempts: 1
+        created_at: "2026-09-06T08:15:02Z"
+        updated_at: "2026-09-06T08:15:04Z"
+        completed_at: "2026-09-06T08:15:04Z"
+        result:
+          target_status: 200
+          target_response: { ok: true }
+        error: null
+    JobAwaitingTarget:
+      summary: A request whose asynchronous target is being polled
+      value:
+        id: 0d9c1f2e4b6a48c39e7f5a1b2c3d4e5f
+        target: meme
+        state: awaiting_target
+        attempts: 1
+        target_job_id: m-2026-0917
+        created_at: "2026-09-06T08:15:02Z"
+        updated_at: "2026-09-06T08:15:03Z"
+        result: null
+        error: null
+    JobFailed:
+      summary: A request that failed before its first upstream call
+      value:
+        id: 3b7e9d0c5a1f4e8b9c2d6a7f8e9b0c1d
+        target: demo
+        state: failed
+        attempts: 1
+        created_at: "2026-09-06T08:20:00Z"
+        updated_at: "2026-09-06T08:20:00Z"
+        completed_at: "2026-09-06T08:20:00Z"
+        result: null
+        error:
+          code: unknown_resolvent
+          message: no resolvent config for type "resolvent-tidal"
+    JobCancelled:
+      summary: A queued request cancelled before any work
+      value:
+        id: 3b7e9d0c5a1f4e8b9c2d6a7f8e9b0c1d
+        target: demo
+        state: cancelled
+        attempts: 0
+        created_at: "2026-09-06T08:20:00Z"
+        updated_at: "2026-09-06T08:20:01Z"
+        completed_at: "2026-09-06T08:20:01Z"
+        result: null
+        error: null
+    JobWithCallback:
+      summary: A completed request whose callback was delivered
+      value:
+        id: 0d9c1f2e4b6a48c39e7f5a1b2c3d4e5f
+        target: demo
+        state: completed
+        attempts: 1
+        callback:
+          url: https://hooks.example.org/tentacron
+          state: delivered
+          attempts: 1
+          last_status: 200
+        created_at: "2026-09-06T08:15:02Z"
+        updated_at: "2026-09-06T08:15:04Z"
+        completed_at: "2026-09-06T08:15:04Z"
+        result:
+          target_status: 200
+          target_response: { ok: true }
+        error: null
+    JobList:
+      summary: One full page of failed requests, with a cursor for the next
+      value:
+        items:
+          - id: 3b7e9d0c5a1f4e8b9c2d6a7f8e9b0c1d
+            target: demo
+            state: failed
+            attempts: 1
+            created_at: "2026-09-06T08:20:00Z"
+            updated_at: "2026-09-06T08:20:00Z"
+            completed_at: "2026-09-06T08:20:00Z"
+            result: null
+            error:
+              code: unknown_resolvent
+              message: no resolvent config for type "resolvent-tidal"
+        next_cursor: MTc1NzE0NDAwMDAwMC4xMg
+    ValidateOK:
+      summary: A well-formed request that could start, nothing cached yet
+      value:
+        ok: true
+        target: demo
+        resolvents:
+          - type: resolvent-pv1
+            path: /time-series/0
+            name: pv_south_roof
+            cached: false
+          - type: resolvent-wind
+            path: /time-series/1
+            name: wind_ridge
+            cached: false
+        problems: []
+    ValidateProblems:
+      summary: A request that would fail, an unknown resolvent type
+      value:
+        ok: false
+        target: demo
+        resolvents:
+          - type: resolvent-tidal
+            path: /time-series/0
+            cached: false
+        problems:
+          - code: unknown_resolvent
+            message: no resolvent config for type "resolvent-tidal"
+    BatchMixed:
+      summary: Three submissions, one of them for a target that does not exist
+      value:
+        requests:
+          - target: demo
+            idempotency_key: run-2026-09-06-north
+            payload:
+              time-series:
+                - { name: pv_north, type: resolvent-pv1, location: { lat: 48.9, lon: 12.6 }, capacity_kw: 8 }
+          - target: demo
+            idempotency_key: run-2026-09-06-south
+            payload:
+              time-series:
+                - { name: pv_south, type: resolvent-pv1, location: { lat: 48.8, lon: 12.9 }, capacity_kw: 12.5 }
+          - target: hydra
+            payload:
+              time-series: []
+    BatchAccepted:
+      summary: One result per item, in order
+      value:
+        items:
+          - id: 0d9c1f2e4b6a48c39e7f5a1b2c3d4e5f
+            state: received
+            links: { self: /v1/requests/0d9c1f2e4b6a48c39e7f5a1b2c3d4e5f }
+          - id: 3b7e9d0c5a1f4e8b9c2d6a7f8e9b0c1d
+            state: received
+            links: { self: /v1/requests/3b7e9d0c5a1f4e8b9c2d6a7f8e9b0c1d }
+          - error: { code: unknown_target, message: target "hydra" is not configured }
+    ScheduleDaily:
+      summary: Every morning at half past six, Berlin time
+      value:
+        target: demo
+        cron: "30 6 * * *"
+        timezone: Europe/Berlin
+        payload:
+          scenario: daily-forecast
+          time-series:
+            - name: pv_south_roof
+              type: resolvent-pv1
+              location: { lat: 48.831, lon: 12.957 }
+              capacity_kw: 12.5
+    Schedule:
+      summary: The schedule with its next due time
+      value:
+        id: 5a2c8e1f7b3d4906a8c1e2f3b4d5c6e7
+        target: demo
+        cron: "30 6 * * *"
+        timezone: Europe/Berlin
+        next_run_at: "2026-09-07T04:30:00Z"
+        created_at: "2026-09-06T08:15:02Z"
+        updated_at: "2026-09-06T08:15:02Z"
+        links:
+          self: /v1/schedules/5a2c8e1f7b3d4906a8c1e2f3b4d5c6e7
+          runs: /v1/schedules/5a2c8e1f7b3d4906a8c1e2f3b4d5c6e7/runs
+    Schedules:
+      summary: The caller's schedules
+      value:
+        items:
+          - id: 5a2c8e1f7b3d4906a8c1e2f3b4d5c6e7
+            target: demo
+            cron: "30 6 * * *"
+            timezone: Europe/Berlin
+            next_run_at: "2026-09-07T04:30:00Z"
+            last_run_at: "2026-09-06T04:30:00Z"
+            last_job_id: 0d9c1f2e4b6a48c39e7f5a1b2c3d4e5f
+            created_at: "2026-09-05T08:15:02Z"
+            updated_at: "2026-09-06T04:30:00Z"
+            links:
+              self: /v1/schedules/5a2c8e1f7b3d4906a8c1e2f3b4d5c6e7
+              runs: /v1/schedules/5a2c8e1f7b3d4906a8c1e2f3b4d5c6e7/runs
+    Targets:
+      summary: Three targets of the reference configuration
+      value:
+        items:
+          - name: buem
+            response_mode: direct
+            proxy: false
+            timeseries_path: "."
+            attach_resolvent: false
+          - name: ignis-calculate
+            response_mode: direct
+            proxy: true
+          - name: meme
+            response_mode: poll
+            proxy: false
+            timeseries_path: model.timeseries
+            attach_resolvent: true
+    Resolvents:
+      summary: Three resolvent types of the reference configuration, one per backend kind
+      value:
+        items:
+          - type: resolvent-buem
+            backend: target
+            target: buem-building
+            cache_ttl: 1h0m0s
+          - type: resolvent-pv1
+            backend: post
+            cache_ttl: 1h0m0s
+          - type: resolvent-weather
+            backend: get
+            cache_ttl: 1h0m0s
+    Events:
+      summary: The audit trail of a completed request
+      value:
+        items:
+          - to_state: received
+            detail: job accepted
+            created_at: "2026-09-06T08:15:02.117Z"
+          - from_state: received
+            to_state: resolving
+            detail: claimed by worker
+            created_at: "2026-09-06T08:15:02.130Z"
+          - from_state: resolving
+            to_state: forwarding
+            detail: resolved 2 resolvent(s), 0 from cache
+            created_at: "2026-09-06T08:15:03.842Z"
+          - from_state: forwarding
+            to_state: completed
+            detail: target responded with status 200
+            created_at: "2026-09-06T08:15:04.091Z"

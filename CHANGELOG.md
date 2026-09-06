@@ -10,6 +10,13 @@ under "Changed" with the keys or fields concerned.
 
 ### Added
 
+- Every request and response in the OpenAPI description carries an example:
+  the request examples are the shipped `examples/` files, the response
+  examples come from the golden transcripts, and the lint checks each
+  against its schema. The repeated 413, 415 and 422 error responses are
+  shared components. A test validates every file under `examples/` against
+  the `CreateRequest` schema, so an example the description does not
+  describe fails the build.
 - The golden end-to-end corpus is validated against the OpenAPI
   description: every recorded response must use a documented status code
   and media type and conform to the schema (format assertions on), and a

@@ -431,7 +431,11 @@ neither describe a route the build does not serve nor miss one it does.
 The golden end-to-end corpus is validated against it as well: every
 recorded response must use a documented status code and media type and
 conform to the schema, so a response field or error code missing from the
-description fails the build.
+description fails the build. Every request and response carries an
+example: the request examples are the shipped files under `examples/`
+(which a test validates against the `CreateRequest` schema), the response
+examples are taken from the golden transcripts, and the lint checks every
+example against its schema.
 CI lints it with [Redocly](https://redocly.com/docs/cli/) under the
 recommended ruleset (`make lint-openapi` runs the same check locally); the
 few deliberate exceptions are listed with their reasons in

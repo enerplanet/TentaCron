@@ -231,3 +231,29 @@ func schemaDetails(e *verrors.ValidationError) string {
 	}
 	return "\n" + strings.Join(lines, "\n")
 }
+
+// TestExamplesMatchOpenAPI validates every file under examples/ as the body
+// of POST /v1/requests against the description's CreateRequest schema. The
+// golden suite proves the examples run; this proves the description
+// describes them.
+func TestExamplesMatchOpenAPI(t *testing.T) {
+	v := newSpecValidator(t)
+	files, err := filepath.Glob(filepath.Join("..", "..", "examples", "*.json"))
+	if err != nil || len(files) == 0 {
+		t.Fatalf("no example files: %v", err)
+	}
+	for _, file := range files {
+		body, err := os.ReadFile(file)
+		if err != nil {
+			t.Fatal(err)
+		}
+		req, _ := http.NewRequest(http.MethodPost, "http://tentacron/v1/requests", bytes.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("X-API-Key", clientKey)
+		if ok, errs := v.ValidateHttpRequest(req); !ok {
+			for _, e := range errs {
+				t.Errorf("examples/%s: %s: %s%s", filepath.Base(file), e.Message, e.Reason, schemaDetails(e))
+			}
+		}
+	}
+}

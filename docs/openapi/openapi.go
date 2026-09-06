@@ -8,8 +8,9 @@
 // package embeds the file for the API package, which serves it at
 // GET /openapi.yaml; a running service therefore always describes its own
 // build. Tests keep the document true to the code: the registered routes
-// must match its paths exactly (internal/api), and every response the golden
-// corpus records must validate against its schemas (test/e2e).
+// must match its paths exactly (internal/api), every response the golden
+// corpus records must validate against its schemas, and every file under
+// examples/ must validate against CreateRequest (test/e2e).
 package openapi
 
 import _ "embed"

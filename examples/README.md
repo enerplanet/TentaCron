@@ -31,7 +31,8 @@ The `target` names and resolvent types match
 
 Every file here is executed by the golden end-to-end suite
 ([`test/e2e`](../test/e2e)) against an in-process tentacron on every
-`go test ./...` run — an example that drifts from the actual contract fails
-CI. The frozen transcripts (accept response, final state, the exact payload
+`go test ./...` run, and validated against the `CreateRequest` schema of
+the [OpenAPI description](../docs/openapi/openapi.yaml) — an example that
+drifts from the actual contract, or from its description, fails CI. The frozen transcripts (accept response, final state, the exact payload
 and requests the upstreams received, the audit trail) live under
 [`test/e2e/testdata/golden/example-*.golden.json`](../test/e2e/testdata/golden).
