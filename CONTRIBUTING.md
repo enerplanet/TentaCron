@@ -78,6 +78,7 @@ provides the toolchain if you prefer not to install it.
 
 ```bash
 make lint           # go vet + golangci-lint (CI runs the same)
+make lint-openapi   # when docs/openapi/openapi.yaml changed (needs Node)
 make test           # unit, integration and golden E2E suites
 make test-race      # what CI runs: race detector, shuffled order
 ```
@@ -116,7 +117,9 @@ git push -u origin <your-branch-name>
 Open the pull request against `main`. Describe what changed and why, add
 testing notes (which suites you ran, whether goldens were regenerated), and
 link related issues (e.g. `Closes #123`). CI must pass: lint, the race
-suite, the build, and the branch/commit linters.
+suite, the build with both reference configs validated, the fuzz smoke,
+the OpenAPI lint, govulncheck, the image build, and the branch/commit
+linters.
 
 ## Pull Request Checklist
 
