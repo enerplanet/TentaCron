@@ -1,0 +1,183 @@
+[
+  {
+    "headers": {
+      "Access-Control-Allow-Headers": "Content-Type, X-API-Key, Idempotency-Key, X-Request-ID, Range",
+      "Access-Control-Allow-Methods": "GET, HEAD, POST, DELETE, OPTIONS",
+      "Access-Control-Allow-Origin": "https://app.example.org",
+      "Access-Control-Max-Age": "600",
+      "Allow": null,
+      "Vary": "Origin"
+    },
+    "request": "OPTIONS /v1/requests",
+    "response": "",
+    "status": 204,
+    "step": "preflight to submit"
+  },
+  {
+    "headers": {
+      "Access-Control-Allow-Origin": "https://app.example.org",
+      "Access-Control-Expose-Headers": "X-Request-ID, Allow, Content-Disposition, Content-Length, Content-Range, Accept-Ranges",
+      "Vary": "Origin"
+    },
+    "request": "POST /v1/requests",
+    "response": {
+      "id": "«job-1»",
+      "links": {
+        "self": "/v1/requests/«job-1»"
+      },
+      "state": "received"
+    },
+    "status": 202,
+    "step": "submit from the allowed origin"
+  },
+  {
+    "headers": {
+      "Access-Control-Allow-Headers": "Content-Type, X-API-Key, Idempotency-Key, X-Request-ID, Range",
+      "Access-Control-Allow-Methods": "GET, HEAD, POST, DELETE, OPTIONS",
+      "Access-Control-Allow-Origin": "https://app.example.org",
+      "Access-Control-Max-Age": "600",
+      "Allow": null,
+      "Vary": "Origin"
+    },
+    "request": "OPTIONS /v1/requests/«job-1»",
+    "response": "",
+    "status": 204,
+    "step": "preflight to cancel"
+  },
+  {
+    "headers": {
+      "Access-Control-Allow-Headers": "Content-Type, X-API-Key, Idempotency-Key, X-Request-ID, Range",
+      "Access-Control-Allow-Methods": "GET, HEAD, POST, DELETE, OPTIONS",
+      "Access-Control-Allow-Origin": "https://app.example.org",
+      "Access-Control-Max-Age": "600",
+      "Allow": null,
+      "Vary": "Origin"
+    },
+    "request": "OPTIONS /v1/schedules/0123456789abcdef0123456789abcdef",
+    "response": "",
+    "status": 204,
+    "step": "preflight to delete a schedule"
+  },
+  {
+    "headers": {
+      "Access-Control-Allow-Headers": "Content-Type, X-API-Key, Idempotency-Key, X-Request-ID, Range",
+      "Access-Control-Allow-Methods": "GET, HEAD, POST, DELETE, OPTIONS",
+      "Access-Control-Allow-Origin": "https://app.example.org",
+      "Access-Control-Max-Age": "600",
+      "Allow": null,
+      "Vary": "Origin"
+    },
+    "request": "OPTIONS /v1/requests/«job-1»/result",
+    "response": "",
+    "status": 204,
+    "step": "preflight to download a result"
+  },
+  {
+    "request": "GET /v1/requests/{id}",
+    "response": {
+      "attempts": 1,
+      "completed_at": "«ts»",
+      "created_at": "«ts»",
+      "error": null,
+      "id": "«job-1»",
+      "result": {
+        "target_response": {
+          "ok": true
+        },
+        "target_status": 200
+      },
+      "state": "completed",
+      "target": "demo",
+      "updated_at": "«ts»"
+    },
+    "status": 200,
+    "step": "the request runs meanwhile"
+  },
+  {
+    "headers": {
+      "Access-Control-Allow-Origin": "https://app.example.org",
+      "Access-Control-Expose-Headers": "X-Request-ID, Allow, Content-Disposition, Content-Length, Content-Range, Accept-Ranges",
+      "Vary": "Origin"
+    },
+    "request": "GET /v1/requests/«job-1»",
+    "response": {
+      "attempts": 1,
+      "completed_at": "«ts»",
+      "created_at": "«ts»",
+      "error": null,
+      "id": "«job-1»",
+      "result": {
+        "target_response": {
+          "ok": true
+        },
+        "target_status": 200
+      },
+      "state": "completed",
+      "target": "demo",
+      "updated_at": "«ts»"
+    },
+    "status": 200,
+    "step": "read from the allowed origin"
+  },
+  {
+    "headers": {
+      "Access-Control-Allow-Headers": null,
+      "Access-Control-Allow-Methods": null,
+      "Access-Control-Allow-Origin": null,
+      "Access-Control-Max-Age": null,
+      "Allow": "GET, HEAD, POST",
+      "Vary": "Origin"
+    },
+    "request": "OPTIONS /v1/requests",
+    "response": {
+      "error": {
+        "code": "method_not_allowed",
+        "message": "method OPTIONS is not allowed for this route"
+      }
+    },
+    "status": 405,
+    "step": "preflight from a foreign origin"
+  },
+  {
+    "headers": {
+      "Access-Control-Allow-Origin": null,
+      "Access-Control-Expose-Headers": null,
+      "Vary": "Origin"
+    },
+    "request": "GET /v1/requests/«job-1»",
+    "response": {
+      "attempts": 1,
+      "completed_at": "«ts»",
+      "created_at": "«ts»",
+      "error": null,
+      "id": "«job-1»",
+      "result": {
+        "target_response": {
+          "ok": true
+        },
+        "target_status": 200
+      },
+      "state": "completed",
+      "target": "demo",
+      "updated_at": "«ts»"
+    },
+    "status": 200,
+    "step": "read from a foreign origin"
+  },
+  {
+    "headers": {
+      "Access-Control-Allow-Origin": "https://app.example.org",
+      "Allow": "GET, HEAD, POST",
+      "Vary": "Origin"
+    },
+    "request": "OPTIONS /v1/requests",
+    "response": {
+      "error": {
+        "code": "method_not_allowed",
+        "message": "method OPTIONS is not allowed for this route"
+      }
+    },
+    "status": 405,
+    "step": "an OPTIONS that is no preflight"
+  }
+]

@@ -718,6 +718,58 @@ func (h *harness) call(label, method, path, body string, hdr map[string]string) 
 	return m
 }
 
+// unrecordableHeaders never go into a transcript: they change on every run.
+var unrecordableHeaders = map[string]bool{"X-Request-Id": true, "Date": true, "Content-Length": true}
+
+// callRecording is call with the named response headers written into a
+// "headers" field of the step, present or not (null), so a transcript can
+// show the contract a browser depends on. Only the listed names are
+// recorded; the ones that change on every run are refused. Multi-valued
+// headers are joined as a browser would read them.
+func (h *harness) callRecording(label, method, path, body string, hdr map[string]string, headers ...string) map[string]any {
+	h.t.Helper()
+	if len(headers) == 0 {
+		h.t.Fatalf("%s: callRecording needs at least one header name", label)
+	}
+	var rd io.Reader
+	if body != "" {
+		rd = strings.NewReader(body)
+	}
+	req, _ := http.NewRequest(method, h.api.URL+path, rd)
+	if body != "" {
+		req.Header.Set("Content-Type", "application/json")
+	}
+	for k, v := range hdr {
+		req.Header.Set(k, v)
+	}
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		h.t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	respBody, _ := io.ReadAll(resp.Body)
+	doc := decodeAny(respBody)
+	h.registerIDs(doc)
+	recorded := map[string]any{}
+	for _, name := range headers {
+		canonical := http.CanonicalHeaderKey(name)
+		if unrecordableHeaders[canonical] {
+			h.t.Fatalf("%s: %s changes on every run and must not be recorded", label, name)
+		}
+		if vals := resp.Header.Values(name); len(vals) > 0 {
+			recorded[name] = strings.Join(vals, ", ")
+		} else {
+			recorded[name] = nil
+		}
+	}
+	h.record(map[string]any{
+		"step": label, "request": method + " " + path,
+		"status": resp.StatusCode, "headers": recorded, "response": scrubTimes(doc),
+	})
+	m, _ := doc.(map[string]any)
+	return m
+}
+
 // registerIDs notes every request and schedule id in a response so the
 // transcript can name them «job-N» / «schedule-N».
 func (h *harness) registerIDs(v any) {

@@ -176,6 +176,13 @@ func TestGoldenResponsesMatchOpenAPI(t *testing.T) {
 				continue
 			}
 			req, resp := exchange(st)
+			if req.Method == http.MethodOptions {
+				// CORS preflights and plain OPTIONS are answered by the
+				// middleware and the mux, never by an operation: the
+				// description does not list them, as meme's does not.
+				// Their contract is the recorded headers themselves.
+				continue
+			}
 			if !documented(paths, req.URL.Path) {
 				assertUnknownRoute(t, file, st)
 				continue

@@ -992,6 +992,36 @@ var apiContractScenarios = []scenario{
 		},
 	},
 	{
+		// What a browser gets: preflights answered before the mux and before
+		// authentication for every method, the allow-origin and the exposed
+		// headers on the actual request, nothing but Vary for a foreign
+		// origin, and the mux's 405 for an OPTIONS that is no preflight.
+		name: "browser-preflight",
+		mod: func(cfg *config.Config) {
+			cfg.Server.CORS.AllowedOrigins = []string{"https://app.example.org"}
+		},
+		run: func(t *testing.T, h *harness) {
+			const origin, foreign = "https://app.example.org", "https://evil.example.org"
+			preflightHeaders := []string{"Access-Control-Allow-Origin", "Access-Control-Allow-Methods", "Access-Control-Allow-Headers", "Access-Control-Max-Age", "Vary", "Allow"}
+			requestHeaders := []string{"Access-Control-Allow-Origin", "Access-Control-Expose-Headers", "Vary"}
+			preflight := func(label, method, path, from string) {
+				h.callRecording(label, http.MethodOptions, path, "", map[string]string{"Origin": from, "Access-Control-Request-Method": method}, preflightHeaders...)
+			}
+			auth := map[string]string{"Origin": origin, "X-API-Key": clientKey}
+			preflight("preflight to submit", http.MethodPost, "/v1/requests", origin)
+			accepted := h.callRecording("submit from the allowed origin", http.MethodPost, "/v1/requests", `{"target":"demo","payload":{"time-series":[]}}`, auth, requestHeaders...)
+			id, _ := accepted["id"].(string)
+			preflight("preflight to cancel", http.MethodDelete, "/v1/requests/"+id, origin)
+			preflight("preflight to delete a schedule", http.MethodDelete, "/v1/schedules/0123456789abcdef0123456789abcdef", origin)
+			preflight("preflight to download a result", http.MethodGet, "/v1/requests/"+id+"/result", origin)
+			h.await("the request runs meanwhile", id)
+			h.callRecording("read from the allowed origin", http.MethodGet, "/v1/requests/"+id, "", auth, requestHeaders...)
+			preflight("preflight from a foreign origin", http.MethodPost, "/v1/requests", foreign)
+			h.callRecording("read from a foreign origin", http.MethodGet, "/v1/requests/"+id, "", map[string]string{"Origin": foreign, "X-API-Key": clientKey}, requestHeaders...)
+			h.callRecording("an OPTIONS that is no preflight", http.MethodOptions, "/v1/requests", "", map[string]string{"Origin": origin}, "Allow", "Access-Control-Allow-Origin", "Vary")
+		},
+	},
+	{
 		// A delayed run: not_before keeps the request in received until the
 		// time arrives, visible in the audit trail and echoed by GET for the
 		// job's whole life; the queue then runs it like any other request.
