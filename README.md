@@ -133,7 +133,7 @@ built from the root [`Dockerfile`](Dockerfile) on every `v*` tag:
 ```bash
 docker run -d -p 8080:8080 \
   -v "$PWD/config.yaml:/etc/tentacron/config.yaml:ro" -v tentacron-data:/data \
-  --env-file secrets.env ghcr.io/enerplanet/tentacron:0.3.0-alpha
+  --env-file secrets.env ghcr.io/enerplanet/tentacron:0.4.0-alpha
 ```
 
 ## API

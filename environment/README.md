@@ -98,7 +98,7 @@ in `config.yaml` (`["http://localhost:5173"]`) and restart or send
 kill -s HUP api`). The [browser client example](../examples/browser/) is a
 page to try it with.
 
-Pin `RELEASE_IMAGE` to a version tag (`ghcr.io/enerplanet/tentacron:0.3.0-alpha`)
+Pin `RELEASE_IMAGE` to a version tag (`ghcr.io/enerplanet/tentacron:0.4.0-alpha`)
 rather than `latest` in production, and keep `environment/config.yaml`'s
 storage paths under `/data` (the defaults already resolve there). See
 [operations](../docs/operations.md#deployment) for the plain `docker run`

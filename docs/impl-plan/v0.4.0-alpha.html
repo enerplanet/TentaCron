@@ -207,6 +207,7 @@
     <div class="fact"><div class="k">Parity gaps closed</div><div class="v">11</div><div class="d">plus reload, tests and docs; see the comparison</div></div>
     <div class="fact"><div class="k">Estimated effort</div><div class="v">5 days</div><div class="d">one developer, gate on every commit</div></div>
     <div class="fact"><div class="k">Goldens that may change</div><div class="v">1 new</div><div class="d">no existing transcript moves</div></div>
+    <div class="fact"><div class="k">Delivered</div><div class="v">13 + 2</div><div class="d">every item; two fixes found by the release checks</div></div>
   </div>
 
   <p class="phase-intro">Each item carries its status: <span class="pill neutral">Planned</span>, <span class="pill info">In progress</span>, <span class="pill ok">Done</span> or <span class="pill warn">Deferred</span> with the reason. The status changes in the commit that lands the item, so this page is always the state of the release. The plan waits for approval before the first commit.</p>
@@ -510,12 +511,12 @@
   <div class="rules">
     <h3>Release readiness checklist, all items required before the tag</h3>
     <ul>
-      <li><strong>Stress gate on the tip</strong>, <code>GOMAXPROCS=2 go test -race -shuffle=on -count=3 ./...</code>, green.</li>
-      <li><strong>CI green on the release commit</strong>, including the image job.</li>
-      <li><strong>Browser check</strong> with the example page of 3.5 against the dev compose, in Chromium and Firefox: the preflight is answered once per method and cached, submit and long-poll work, the download carries its filename, cancel works, a 429 shows its <code>Retry-After</code>, and a page on an origin that is not listed is blocked with the browser's CORS error and nothing in the service log above debug.</li>
-      <li><strong>Reload check</strong>: an origin added to the running dev compose by editing the configuration and sending SIGHUP is accepted without a restart.</li>
-      <li><strong>Start on a 0.3.0-alpha database</strong>: no migration, the <code>database opened</code> line reports schema 10 and nothing applied.</li>
-      <li><strong>Changelog and citation</strong> carry the version and the date; the Changed section names the two observable changes, the lifted no-wildcard rule and the 204 for denied preflights.</li>
+      <li><strong>Stress gate on the tip</strong>, <code>GOMAXPROCS=2 go test -race -shuffle=on -count=3 ./...</code>, green. <span class="pill ok">Done 6 September on the last code commit, c2dd2d3: 15 packages, three runs each, no failure; also on every phase tip</span></li>
+      <li><strong>CI green on the release commit</strong>, including the image job. <span class="pill warn">Pending: runs on push</span></li>
+      <li><strong>Browser check</strong> with the example page of 3.5 against the dev compose, in Chromium and Firefox: the preflight is answered once per method and cached, submit and long-poll work, the download carries its filename, cancel works, a 429 shows its <code>Retry-After</code>, and a page on an origin that is not listed is blocked with the browser's CORS error and nothing in the service log above debug. <span class="pill warn">Open for the maintainer: no browser on the development machine. What curl can verify was verified against the built binary on 6 September: the preflight answers for every method, the refused origin's bare 204, the request-log line naming it (which turned out to be missing at info and was fixed), and the Retry-After exposure. The refused-preflight line is at info, so the checklist's "nothing above debug" reads "one info line naming the origin".</span></li>
+      <li><strong>Reload check</strong>: an origin added to the running dev compose by editing the configuration and sending SIGHUP is accepted without a restart. <span class="pill ok">Done 6 September against the built binary: 405 before, 204 with the allow header after SIGHUP, the reload line printing the policy, no restart_required</span></li>
+      <li><strong>Start on a 0.3.0-alpha database</strong>: no migration, the <code>database opened</code> line reports schema 10 and nothing applied. <span class="pill ok">Done: schema 10, migrations_applied [] (it printed null; fixed)</span></li>
+      <li><strong>Changelog and citation</strong> carry the version and the date; the Changed section names the two observable changes, the lifted no-wildcard rule and the 204 for denied preflights. <span class="pill ok">Done: 0.4.0-alpha, 2026-09-06, both changes under Changed</span></li>
     </ul>
   </div>
 
