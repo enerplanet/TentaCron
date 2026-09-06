@@ -208,8 +208,10 @@ A background sweeper (every `cache.cleanup_interval`):
 
 - removes expired series cache rows;
 - rescues jobs stranded in `resolving`/`forwarding` without a schedule (a
-  failed bookkeeping write) once they are untouched for twice
-  `worker.job_timeout`;
+  failed bookkeeping write) once they are untouched for twice their
+  target's attempt deadline — the target's `job_timeout` when it sets one,
+  `worker.job_timeout` otherwise — so a target whose attempts legitimately
+  run long is never pulled from under a working worker;
 - prunes terminal jobs older than `storage.retention` in batches of 1,000
   until the backlog is drained, deleting each batch's result files before
   its rows so a crash in between never orphans a file. A first sweep after a

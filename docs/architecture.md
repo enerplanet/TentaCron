@@ -215,7 +215,7 @@ answer read only up to 1 KiB.
 - The housekeeping sweeper additionally rescues jobs left in
   `resolving`/`forwarding` without a schedule while the process kept running
   (a failed bookkeeping write) once they have been untouched for twice
-  `worker.job_timeout`.
+  their target's attempt deadline (its own `job_timeout`, else the worker's).
 - On shutdown, the HTTP server drains first, then workers abort their
   upstream calls and park in-flight jobs back to `received`.
 

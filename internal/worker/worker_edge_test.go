@@ -1204,3 +1204,55 @@ func TestFetchOneWrapsTheCauseAndTheSentinel(t *testing.T) {
 		t.Fatalf("err = %v, want the decoder's syntax error reachable through errors.As", err)
 	}
 }
+
+// A target may set a job_timeout longer than the worker default, and its
+// attempts legitimately run that long. The sweeper's stuck-job rescue must
+// measure such a job against its own target's deadline: rescuing it by the
+// worker default requeues an attempt that is still running, and a second
+// worker forwards the same work again.
+func TestSweepLeavesALongTargetAttemptAlone(t *testing.T) {
+	var calls atomic.Int64
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls.Add(1)
+		select {
+		case <-time.After(600 * time.Millisecond):
+		case <-r.Context().Done():
+			return
+		}
+		_, _ = io.WriteString(w, `{"ok":true}`)
+	}))
+	defer srv.Close()
+	cfg := baseConfig(t)
+	cfg.Worker.JobTimeout = dur(200 * time.Millisecond)
+	cfg.Targets["demo"] = config.Target{URL: srv.URL, Method: "POST", Timeout: dur(time.Second),
+		JobTimeout: dur(2 * time.Second), TimeseriesPath: "time-series"}
+	st := openStore(t)
+	nudge := startPool(t, cfg, st)
+	id := createJob(t, st, "demo", `{"time-series":[]}`, 3)
+	nudge <- struct{}{}
+	// Well past twice the worker default, well inside the target's own.
+	time.Sleep(450 * time.Millisecond)
+	p := New(config.Static(cfg), st, upstream.New(1<<20, nil), discardLogger(), nil)
+	p.sweep(context.Background())
+	job := waitForTerminal(t, st, id)
+	if job.State != store.StateCompleted {
+		t.Fatalf("state = %s (%s), want completed", job.State, job.ErrorMessage)
+	}
+	if n := calls.Load(); n != 1 {
+		t.Fatalf("target received %d forwards, want exactly 1: the running attempt was rescued and re-forwarded", n)
+	}
+	for _, e := range mustEvents(t, st, id) {
+		if e.Detail == "rescued stuck job" {
+			t.Fatalf("a running attempt was rescued: %+v", e)
+		}
+	}
+}
+
+func mustEvents(t *testing.T, st *store.Store, id string) []store.Event {
+	t.Helper()
+	events, err := st.ListEvents(context.Background(), id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return events
+}

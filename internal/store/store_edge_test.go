@@ -364,7 +364,7 @@ func TestRescueStuckLeavesOtherStatesAlone(t *testing.T) {
 	if err := s.MarkCompleted(ctx, done.ID, 200, nil, "", "", ""); err != nil {
 		t.Fatal(err)
 	}
-	if n, err := s.RescueStuck(ctx, time.Now().Add(time.Hour)); err != nil || n != 0 {
+	if n, err := s.RescueStuck(ctx, cutoffAt(time.Now().Add(time.Hour))); err != nil || n != 0 {
 		t.Fatalf("rescued %d (err %v), want 0: only resolving/forwarding count as stuck", n, err)
 	}
 }
@@ -1126,5 +1126,37 @@ func TestMarkCancelled(t *testing.T) {
 	}
 	if !IsTerminal(StateCancelled) || IsTerminal(StateAwaitingTarget) {
 		t.Error("IsTerminal is wrong")
+	}
+}
+
+// The rescue asks for the cutoff per target: a job on a target with a long
+// attempt deadline stays in flight while a job on the default target of
+// the same age is rescued.
+func TestRescueStuckUsesEachTargetsCutoff(t *testing.T) {
+	s := openTest(t)
+	ctx := context.Background()
+	slow, quick := newJob(t, "slow"), newJob(t, "quick")
+	mustCreate(t, s, slow)
+	mustCreate(t, s, quick)
+	for range 2 {
+		if c, _ := s.ClaimNext(ctx, noPoll); c == nil {
+			t.Fatal("claim failed")
+		}
+	}
+	past, future := time.Now().Add(-time.Hour), time.Now().Add(time.Hour)
+	n, err := s.RescueStuck(ctx, func(target string) time.Time {
+		if target == "slow" {
+			return past // its deadline has not passed
+		}
+		return future
+	})
+	if err != nil || n != 1 {
+		t.Fatalf("rescued %d (err %v), want 1", n, err)
+	}
+	if got, _ := s.GetJob(ctx, slow.ID); got.State != StateResolving {
+		t.Errorf("slow job = %s, want still resolving", got.State)
+	}
+	if got, _ := s.GetJob(ctx, quick.ID); got.State != StateReceived {
+		t.Errorf("quick job = %s, want rescued to received", got.State)
 	}
 }

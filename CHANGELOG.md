@@ -8,6 +8,14 @@ under "Changed" with the keys or fields concerned.
 
 ## [Unreleased]
 
+### Fixed
+
+- The stuck-job rescue measured every in-flight job against twice
+  `worker.job_timeout`, although a target may set a longer `job_timeout`
+  and nothing refreshes a job while its attempt runs: a legitimate attempt
+  on such a target was requeued and forwarded a second time by another
+  worker. Each job is now measured against twice its own target's deadline.
+
 ## [0.2.0-alpha] - 2026-09-06
 
 ### Added

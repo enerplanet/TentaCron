@@ -51,11 +51,14 @@ func (p *Pool) purgeExpiredSeries(ctx context.Context) {
 
 // rescueStuckJobs requeues jobs a failed bookkeeping write left in
 // resolving/forwarding with no schedule — unclaimable forever otherwise.
-// Anything untouched for well over a full processing attempt cannot still
-// be in flight.
+// Anything untouched for twice its target's attempt deadline cannot still
+// be in flight; the deadline is the target's own job_timeout when it sets
+// one, so a target whose attempts legitimately run long is measured
+// against its own clock, never against the worker default.
 func (p *Pool) rescueStuckJobs(ctx context.Context) {
-	cutoff := time.Now().Add(-2 * p.config().Worker.JobTimeout.Std())
-	n, err := p.store.RescueStuck(ctx, cutoff)
+	cfg, now := p.config(), time.Now()
+	cutoffFor := func(target string) time.Time { return now.Add(-2 * cfg.JobTimeoutFor(target)) }
+	n, err := p.store.RescueStuck(ctx, cutoffFor)
 	if err != nil {
 		p.logger.Error("stuck job rescue failed", "error", err)
 		return

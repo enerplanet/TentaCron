@@ -511,11 +511,11 @@ func TestRescueStuck(t *testing.T) {
 	}
 	// The job now sits in "resolving". A rescue with a cutoff in the past
 	// must leave fresh in-flight work alone...
-	if n, err := s.RescueStuck(ctx, time.Now().Add(-time.Minute)); err != nil || n != 0 {
+	if n, err := s.RescueStuck(ctx, cutoffAt(time.Now().Add(-time.Minute))); err != nil || n != 0 {
 		t.Fatalf("fresh job rescued: n=%d err=%v", n, err)
 	}
 	// ...but a cutoff beyond its updated_at reclaims the abandoned job.
-	if n, err := s.RescueStuck(ctx, time.Now().Add(time.Minute)); err != nil || n != 1 {
+	if n, err := s.RescueStuck(ctx, cutoffAt(time.Now().Add(time.Minute))); err != nil || n != 1 {
 		t.Fatalf("stuck job not rescued: n=%d err=%v", n, err)
 	}
 	got, _ := s.GetJob(ctx, j.ID)
@@ -560,3 +560,6 @@ func TestSeriesCache(t *testing.T) {
 		t.Errorf("purged %d (err %v), want 1", n, err)
 	}
 }
+
+// cutoffAt is a RescueStuck cutoff that ignores the target.
+func cutoffAt(t time.Time) func(string) time.Time { return func(string) time.Time { return t } }

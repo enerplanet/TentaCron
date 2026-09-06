@@ -699,12 +699,35 @@ func (s *Store) RecoverInFlight(ctx context.Context) (int, error) {
 // RescueStuck requeues jobs abandoned mid-processing while the process kept
 // running — the rare case where a bookkeeping write failed and the worker
 // could only log: such jobs sit in resolving/forwarding with no schedule and
-// would otherwise never be claimed again. Only jobs untouched since olderThan
-// are rescued so in-flight work is left alone.
-func (s *Store) RescueStuck(ctx context.Context, olderThan time.Time) (int, error) {
-	ids, err := s.queryStrings(ctx, `SELECT id FROM jobs WHERE state IN (?, ?) AND updated_at < ?`,
-		StateResolving, StateForwarding, ts(olderThan))
+// would otherwise never be claimed again. cutoffFor gives the moment before
+// which a job of a target counts as abandoned; it is asked per target
+// because a target may allow attempts far longer than the worker default,
+// and a job measured against the wrong deadline would be pulled from under
+// a worker still working on it and forwarded a second time. The in-flight
+// rows are few (one per worker plus the stuck ones), so they are read and
+// judged in Go.
+func (s *Store) RescueStuck(ctx context.Context, cutoffFor func(target string) time.Time) (int, error) {
+	rows, err := s.db.QueryContext(ctx, `SELECT id, target, updated_at FROM jobs WHERE state IN (?, ?)`,
+		StateResolving, StateForwarding)
 	if err != nil {
+		return 0, err
+	}
+	defer rows.Close()
+	var ids []string
+	for rows.Next() {
+		var id, target, updated string
+		if err := rows.Scan(&id, &target, &updated); err != nil {
+			return 0, err
+		}
+		updatedAt, err := parseTS(updated)
+		if err != nil {
+			return 0, fmt.Errorf("job %s: bad updated_at: %w", id, err)
+		}
+		if updatedAt.Before(cutoffFor(target)) {
+			ids = append(ids, id)
+		}
+	}
+	if err := rows.Err(); err != nil {
 		return 0, err
 	}
 	return len(ids), s.requeueAll(ctx, ids, "rescued stuck job")
