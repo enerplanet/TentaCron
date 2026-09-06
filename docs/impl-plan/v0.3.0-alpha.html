@@ -208,6 +208,8 @@
     <div class="fact"><div class="k">Goldens that may change</div><div class="v">5</div><div class="d">each diff reviewed, never bulk-accepted</div></div>
   </div>
 
+  <p class="phase-intro">Each item carries its status: <span class="pill neutral">Planned</span>, <span class="pill info">In progress</span>, <span class="pill ok">Done</span> or <span class="pill warn">Deferred</span> with the reason. The status changes in the commit that lands the item, so this page is always the state of the release.</p>
+
   <div class="rules">
     <h3>Rules that apply to every item</h3>
     <ul>
@@ -243,7 +245,7 @@
   <div class="item">
     <div class="meta">
       <div class="id">0.1</div>
-      <dl><dt>Kind</dt><dd><span class="pill neutral">Hygiene</span></dd><dt>Size</dt><dd>S</dd><dt>Files</dt><dd class="files">.github/workflows/ci.yml<br>.github/workflows/docs.yml<br>Makefile</dd></dl>
+      <dl><dt>Status</dt><dd><span class="pill neutral" data-status>Planned</span></dd><dt>Kind</dt><dd><span class="pill neutral">Hygiene</span></dd><dt>Size</dt><dd>S</dd><dt>Files</dt><dd class="files">.github/workflows/ci.yml<br>.github/workflows/docs.yml<br>Makefile</dd></dl>
     </div>
     <div class="body">
       <h3>Pin the Redocly CLI and move the lint to Node 22</h3>
@@ -260,7 +262,7 @@
   <div class="item">
     <div class="meta">
       <div class="id">0.2</div>
-      <dl><dt>Kind</dt><dd><span class="pill neutral">Hygiene</span></dd><dt>Size</dt><dd>S</dd><dt>Files</dt><dd class="files">.golangci.yml<br>internal/api/handlers.go<br>internal/api/openapi_test.go<br>test/e2e/harness_test.go</dd></dl>
+      <dl><dt>Status</dt><dd><span class="pill neutral" data-status>Planned</span></dd><dt>Kind</dt><dd><span class="pill neutral">Hygiene</span></dd><dt>Size</dt><dd>S</dd><dt>Files</dt><dd class="files">.golangci.yml<br>internal/api/handlers.go<br>internal/api/openapi_test.go<br>test/e2e/harness_test.go</dd></dl>
     </div>
     <div class="body">
       <h3>Enforce gofmt and goimports in the linter</h3>
@@ -277,7 +279,7 @@
   <div class="item">
     <div class="meta">
       <div class="id">0.3</div>
-      <dl><dt>Kind</dt><dd><span class="pill neutral">Hygiene</span></dd><dt>Size</dt><dd>S</dd><dt>Files</dt><dd class="files">.golangci.yml<br>internal/worker/process.go</dd></dl>
+      <dl><dt>Status</dt><dd><span class="pill neutral" data-status>Planned</span></dd><dt>Kind</dt><dd><span class="pill neutral">Hygiene</span></dd><dt>Size</dt><dd>S</dd><dt>Files</dt><dd class="files">.golangci.yml<br>internal/worker/process.go</dd></dl>
     </div>
     <div class="body">
       <h3>Wrap errors with %w and lint for it</h3>
@@ -293,7 +295,7 @@
   <div class="item">
     <div class="meta">
       <div class="id">0.4</div>
-      <dl><dt>Kind</dt><dd><span class="pill neutral">Test infra</span></dd><dt>Size</dt><dd>S · timing · before 1.6</dd><dt>Files</dt><dd class="files">test/e2e/harness_test.go<br>test/e2e/golden_test.go</dd></dl>
+      <dl><dt>Status</dt><dd><span class="pill neutral" data-status>Planned</span></dd><dt>Kind</dt><dd><span class="pill neutral">Test infra</span></dd><dt>Size</dt><dd>S · timing · before 1.6</dd><dt>Files</dt><dd class="files">test/e2e/harness_test.go<br>test/e2e/golden_test.go</dd></dl>
     </div>
     <div class="body">
       <h3>Keep fake target delays far from the poll interval</h3>
@@ -310,7 +312,7 @@
   <div class="item">
     <div class="meta">
       <div class="id">0.5</div>
-      <dl><dt>Kind</dt><dd><span class="pill neutral">Test infra</span></dd><dt>Size</dt><dd>S</dd><dt>Files</dt><dd class="files">internal/api/openapi_test.go<br>internal/api/errors.go<br>internal/plan/plan.go<br>internal/worker/process.go</dd></dl>
+      <dl><dt>Status</dt><dd><span class="pill neutral" data-status>Planned</span></dd><dt>Kind</dt><dd><span class="pill neutral">Test infra</span></dd><dt>Size</dt><dd>S</dd><dt>Files</dt><dd class="files">internal/api/openapi_test.go<br>internal/api/errors.go<br>internal/plan/plan.go<br>internal/worker/process.go</dd></dl>
     </div>
     <div class="body">
       <h3>Keep the OpenAPI error codes equal to the constants</h3>
@@ -331,7 +333,7 @@
   <div class="item">
     <div class="meta">
       <div class="id">1.1</div>
-      <dl><dt>Severity</dt><dd><span class="pill crit">High</span></dd><dt>Size</dt><dd>M · timing</dd><dt>Files</dt><dd class="files">internal/worker/sweep.go<br>internal/store/jobs.go<br>internal/config/validate.go<br>docs/operations.md<br>docs/architecture.md</dd></dl>
+      <dl><dt>Status</dt><dd><span class="pill neutral" data-status>Planned</span></dd><dt>Severity</dt><dd><span class="pill crit">High</span></dd><dt>Size</dt><dd>M · timing</dd><dt>Files</dt><dd class="files">internal/worker/sweep.go<br>internal/store/jobs.go<br>internal/config/validate.go<br>docs/operations.md<br>docs/architecture.md</dd></dl>
     </div>
     <div class="body">
       <h3>Rescue stuck jobs by their target's own attempt deadline</h3>
@@ -353,7 +355,7 @@
   <div class="item">
     <div class="meta">
       <div class="id">1.2</div>
-      <dl><dt>Severity</dt><dd><span class="pill warn">Medium</span></dd><dt>Size</dt><dd>S</dd><dt>Files</dt><dd class="files">internal/worker/process.go<br>internal/worker/worker_edge_test.go</dd></dl>
+      <dl><dt>Status</dt><dd><span class="pill neutral" data-status>Planned</span></dd><dt>Severity</dt><dd><span class="pill warn">Medium</span></dd><dt>Size</dt><dd>S</dd><dt>Files</dt><dd class="files">internal/worker/process.go<br>internal/worker/worker_edge_test.go</dd></dl>
     </div>
     <div class="body">
       <h3>Discard a result file whose job ended first</h3>
@@ -374,7 +376,7 @@
   <div class="item">
     <div class="meta">
       <div class="id">1.3</div>
-      <dl><dt>Severity</dt><dd><span class="pill warn">Medium</span></dd><dt>Size</dt><dd>M</dd><dt>Files</dt><dd class="files">internal/config/config.go<br>internal/config/validate.go<br>internal/upstream/target.go<br>internal/worker/process.go<br>config.example.yaml<br>environment/config.yaml<br>docs/configuration.md<br>docs/operations.md</dd></dl>
+      <dl><dt>Status</dt><dd><span class="pill neutral" data-status>Planned</span></dd><dt>Severity</dt><dd><span class="pill warn">Medium</span></dd><dt>Size</dt><dd>M</dd><dt>Files</dt><dd class="files">internal/config/config.go<br>internal/config/validate.go<br>internal/upstream/target.go<br>internal/worker/process.go<br>config.example.yaml<br>environment/config.yaml<br>docs/configuration.md<br>docs/operations.md</dd></dl>
     </div>
     <div class="body">
       <h3>Bound a result download by its own result_timeout</h3>
@@ -396,7 +398,7 @@
   <div class="item">
     <div class="meta">
       <div class="id">1.4</div>
-      <dl><dt>Severity</dt><dd><span class="pill warn">Medium</span></dd><dt>Size</dt><dd>S</dd><dt>Files</dt><dd class="files">internal/api/middleware.go<br>internal/api/api_edge_test.go<br>docs/api.md</dd></dl>
+      <dl><dt>Status</dt><dd><span class="pill neutral" data-status>Planned</span></dd><dt>Severity</dt><dd><span class="pill warn">Medium</span></dd><dt>Size</dt><dd>S</dd><dt>Files</dt><dd class="files">internal/api/middleware.go<br>internal/api/api_edge_test.go<br>docs/api.md</dd></dl>
     </div>
     <div class="body">
       <h3>Allow DELETE in CORS preflights</h3>
@@ -412,7 +414,7 @@
   <div class="item">
     <div class="meta">
       <div class="id">1.5</div>
-      <dl><dt>Severity</dt><dd><span class="pill warn">Medium</span></dd><dt>Size</dt><dd>M · timing</dd><dt>Files</dt><dd class="files">internal/store/jobs.go<br>internal/store/store_edge_test.go<br>docs/architecture.md</dd></dl>
+      <dl><dt>Status</dt><dd><span class="pill neutral" data-status>Planned</span></dd><dt>Severity</dt><dd><span class="pill warn">Medium</span></dd><dt>Size</dt><dd>M · timing</dd><dt>Files</dt><dd class="files">internal/store/jobs.go<br>internal/store/store_edge_test.go<br>docs/architecture.md</dd></dl>
     </div>
     <div class="body">
       <h3>Skip clients at their ceiling when choosing claim candidates</h3>
@@ -435,7 +437,7 @@
   <div class="item">
     <div class="meta">
       <div class="id">1.6</div>
-      <dl><dt>Severity</dt><dd><span class="pill warn">Medium</span></dd><dt>Size</dt><dd>M · timing · after 1.3</dd><dt>Files</dt><dd class="files">internal/store/jobs.go<br>internal/worker/process.go<br>internal/worker/pool.go<br>docs/architecture.md</dd></dl>
+      <dl><dt>Status</dt><dd><span class="pill neutral" data-status>Planned</span></dd><dt>Severity</dt><dd><span class="pill warn">Medium</span></dd><dt>Size</dt><dd>M · timing · after 1.3</dd><dt>Files</dt><dd class="files">internal/store/jobs.go<br>internal/worker/process.go<br>internal/worker/pool.go<br>docs/architecture.md</dd></dl>
     </div>
     <div class="body">
       <h3>Lease a poll tick for its whole duration</h3>
@@ -463,7 +465,7 @@
   <div class="item">
     <div class="meta">
       <div class="id">2.1</div>
-      <dl><dt>Severity</dt><dd><span class="pill info">Low</span></dd><dt>Size</dt><dd>M</dd><dt>Files</dt><dd class="files">cmd/tentacron/main.go<br>cmd/tentacron/serve_test.go (new)</dd></dl>
+      <dl><dt>Status</dt><dd><span class="pill neutral" data-status>Planned</span></dd><dt>Severity</dt><dd><span class="pill info">Low</span></dd><dt>Size</dt><dd>M</dd><dt>Files</dt><dd class="files">cmd/tentacron/main.go<br>cmd/tentacron/serve_test.go (new)</dd></dl>
     </div>
     <div class="body">
       <h3>Run the process under an injectable context and test its lifecycle</h3>
@@ -480,7 +482,7 @@
   <div class="item">
     <div class="meta">
       <div class="id">2.2</div>
-      <dl><dt>Severity</dt><dd><span class="pill info">Low</span></dd><dt>Size</dt><dd>S · after 2.1</dd><dt>Files</dt><dd class="files">cmd/tentacron/main.go<br>internal/api/server.go<br>docs/operations.md</dd></dl>
+      <dl><dt>Status</dt><dd><span class="pill neutral" data-status>Planned</span></dd><dt>Severity</dt><dd><span class="pill info">Low</span></dd><dt>Size</dt><dd>S · after 2.1</dd><dt>Files</dt><dd class="files">cmd/tentacron/main.go<br>internal/api/server.go<br>docs/operations.md</dd></dl>
     </div>
     <div class="body">
       <h3>End long-polls at shutdown and let a second signal force exit</h3>
@@ -497,7 +499,7 @@
   <div class="item">
     <div class="meta">
       <div class="id">2.3</div>
-      <dl><dt>Severity</dt><dd><span class="pill info">Low</span></dd><dt>Size</dt><dd>S</dd><dt>Files</dt><dd class="files">internal/upstream/client.go<br>cmd/tentacron/main.go<br>internal/config/provider.go<br>docs/operations.md</dd></dl>
+      <dl><dt>Status</dt><dd><span class="pill neutral" data-status>Planned</span></dd><dt>Severity</dt><dd><span class="pill info">Low</span></dd><dt>Size</dt><dd>S</dd><dt>Files</dt><dd class="files">internal/upstream/client.go<br>cmd/tentacron/main.go<br>internal/config/provider.go<br>docs/operations.md</dd></dl>
     </div>
     <div class="body">
       <h3>Apply upstream.max_response_bytes on reload</h3>
@@ -513,7 +515,7 @@
   <div class="item">
     <div class="meta">
       <div class="id">2.4</div>
-      <dl><dt>Severity</dt><dd><span class="pill info">Low</span></dd><dt>Size</dt><dd>M</dd><dt>Files</dt><dd class="files">internal/config/config.go<br>internal/store/schedules.go<br>internal/api/schedules.go<br>internal/api/errors.go<br>docs/openapi/openapi.yaml<br>test/e2e/golden_test.go<br>docs/api.md<br>docs/configuration.md</dd></dl>
+      <dl><dt>Status</dt><dd><span class="pill neutral" data-status>Planned</span></dd><dt>Severity</dt><dd><span class="pill info">Low</span></dd><dt>Size</dt><dd>M</dd><dt>Files</dt><dd class="files">internal/config/config.go<br>internal/store/schedules.go<br>internal/api/schedules.go<br>internal/api/errors.go<br>docs/openapi/openapi.yaml<br>test/e2e/golden_test.go<br>docs/api.md<br>docs/configuration.md</dd></dl>
     </div>
     <div class="body">
       <h3>Cap schedules per key and refuse the next one with 409</h3>
@@ -535,7 +537,7 @@
   <div class="item">
     <div class="meta">
       <div class="id">2.5</div>
-      <dl><dt>Severity</dt><dd><span class="pill info">Low</span></dd><dt>Size</dt><dd>S</dd><dt>Files</dt><dd class="files">internal/callback/deliverer.go<br>internal/callback/deliverer_test.go<br>docs/operations.md</dd></dl>
+      <dl><dt>Status</dt><dd><span class="pill neutral" data-status>Planned</span></dd><dt>Severity</dt><dd><span class="pill info">Low</span></dd><dt>Size</dt><dd>S</dd><dt>Files</dt><dd class="files">internal/callback/deliverer.go<br>internal/callback/deliverer_test.go<br>docs/operations.md</dd></dl>
     </div>
     <div class="body">
       <h3>Keep delivering after a reload and fail what the allow-list no longer covers</h3>
@@ -552,7 +554,7 @@
   <div class="item">
     <div class="meta">
       <div class="id">2.6</div>
-      <dl><dt>Severity</dt><dd><span class="pill info">Low</span></dd><dt>Size</dt><dd>S</dd><dt>Files</dt><dd class="files">internal/api/middleware.go<br>internal/api/server.go<br>internal/api/api_edge_test.go<br>docs/operations.md</dd></dl>
+      <dl><dt>Status</dt><dd><span class="pill neutral" data-status>Planned</span></dd><dt>Severity</dt><dd><span class="pill info">Low</span></dd><dt>Size</dt><dd>S</dd><dt>Files</dt><dd class="files">internal/api/middleware.go<br>internal/api/server.go<br>internal/api/api_edge_test.go<br>docs/operations.md</dd></dl>
     </div>
     <div class="body">
       <h3>Log probes at debug, record panics as requests, vary on origin</h3>
@@ -569,7 +571,7 @@
   <div class="item">
     <div class="meta">
       <div class="id">2.7</div>
-      <dl><dt>Severity</dt><dd><span class="pill info">Low</span></dd><dt>Size</dt><dd>S</dd><dt>Files</dt><dd class="files">internal/store/migrations/0008_terminal_index.sql (new)<br>internal/store/store_edge_test.go</dd></dl>
+      <dl><dt>Status</dt><dd><span class="pill neutral" data-status>Planned</span></dd><dt>Severity</dt><dd><span class="pill info">Low</span></dd><dt>Size</dt><dd>S</dd><dt>Files</dt><dd class="files">internal/store/migrations/0008_terminal_index.sql (new)<br>internal/store/store_edge_test.go</dd></dl>
     </div>
     <div class="body">
       <h3>Index terminal jobs by completion time for retention</h3>
@@ -584,7 +586,7 @@
   <div class="item">
     <div class="meta">
       <div class="id">2.8</div>
-      <dl><dt>Severity</dt><dd><span class="pill info">Low</span></dd><dt>Size</dt><dd>S · timing</dd><dt>Files</dt><dd class="files">internal/upstream/client.go<br>internal/callback/deliverer.go<br>cmd/tentacron/main.go</dd></dl>
+      <dl><dt>Status</dt><dd><span class="pill neutral" data-status>Planned</span></dd><dt>Severity</dt><dd><span class="pill info">Low</span></dd><dt>Size</dt><dd>S · timing</dd><dt>Files</dt><dd class="files">internal/upstream/client.go<br>internal/callback/deliverer.go<br>cmd/tentacron/main.go</dd></dl>
     </div>
     <div class="body">
       <h3>Size the outbound connection pool to the worker fan-out</h3>
@@ -599,7 +601,7 @@
   <div class="item">
     <div class="meta">
       <div class="id">2.9</div>
-      <dl><dt>Severity</dt><dd><span class="pill info">Low</span></dd><dt>Size</dt><dd>S</dd><dt>Files</dt><dd class="files">internal/api/handlers.go<br>internal/api/schedules.go<br>internal/store/schedules.go</dd></dl>
+      <dl><dt>Status</dt><dd><span class="pill neutral" data-status>Planned</span></dd><dt>Severity</dt><dd><span class="pill info">Low</span></dd><dt>Size</dt><dd>S</dd><dt>Files</dt><dd class="files">internal/api/handlers.go<br>internal/api/schedules.go<br>internal/store/schedules.go</dd></dl>
     </div>
     <div class="body">
       <h3>Give schedules an Idempotency-Key like requests</h3>
@@ -614,7 +616,7 @@
   <div class="item">
     <div class="meta">
       <div class="id">2.10</div>
-      <dl><dt>Kind</dt><dd><span class="pill neutral">Test infra</span></dd><dt>Size</dt><dd>S · after 2.7 and 2.9</dd><dt>Files</dt><dd class="files">internal/store/migrate_test.go (new)<br>docs/operations.md<br>CHANGELOG.md</dd></dl>
+      <dl><dt>Status</dt><dd><span class="pill neutral" data-status>Planned</span></dd><dt>Kind</dt><dd><span class="pill neutral">Test infra</span></dd><dt>Size</dt><dd>S · after 2.7 and 2.9</dd><dt>Files</dt><dd class="files">internal/store/migrate_test.go (new)<br>docs/operations.md<br>CHANGELOG.md</dd></dl>
     </div>
     <div class="body">
       <h3>Migrate a populated 0.2.0-alpha database in a test</h3>
@@ -630,7 +632,7 @@
   <div class="item">
     <div class="meta">
       <div class="id">2.11</div>
-      <dl><dt>Severity</dt><dd><span class="pill warn">Medium</span></dd><dt>Size</dt><dd>S</dd><dt>Files</dt><dd class="files">internal/store/store.go<br>cmd/tentacron/main.go<br>cmd/tentacron/backup_test.go<br>docs/operations.md</dd></dl>
+      <dl><dt>Status</dt><dd><span class="pill neutral" data-status>Planned</span></dd><dt>Severity</dt><dd><span class="pill warn">Medium</span></dd><dt>Size</dt><dd>S</dd><dt>Files</dt><dd class="files">internal/store/store.go<br>cmd/tentacron/main.go<br>cmd/tentacron/backup_test.go<br>docs/operations.md</dd></dl>
     </div>
     <div class="body">
       <h3>Back up without migrating the database</h3>
@@ -651,7 +653,7 @@
   <div class="item">
     <div class="meta">
       <div class="id">3.1</div>
-      <dl><dt>Kind</dt><dd><span class="pill neutral">Supply chain</span></dd><dt>Size</dt><dd>S</dd><dt>Files</dt><dd class="files">.github/workflows/release.yml<br>docs/operations.md<br>SECURITY.md</dd></dl>
+      <dl><dt>Status</dt><dd><span class="pill neutral" data-status>Planned</span></dd><dt>Kind</dt><dd><span class="pill neutral">Supply chain</span></dd><dt>Size</dt><dd>S</dd><dt>Files</dt><dd class="files">.github/workflows/release.yml<br>docs/operations.md<br>SECURITY.md</dd></dl>
     </div>
     <div class="body">
       <h3>Attest build provenance for binaries and the image</h3>
@@ -666,7 +668,7 @@
   <div class="item">
     <div class="meta">
       <div class="id">3.2</div>
-      <dl><dt>Kind</dt><dd><span class="pill neutral">Operations</span></dd><dt>Size</dt><dd>S</dd><dt>Files</dt><dd class="files">cmd/tentacron/main.go<br>cmd/tentacron/main_test.go<br>Dockerfile<br>environment/docker-compose.yml<br>docs/operations.md</dd></dl>
+      <dl><dt>Status</dt><dd><span class="pill neutral" data-status>Planned</span></dd><dt>Kind</dt><dd><span class="pill neutral">Operations</span></dd><dt>Size</dt><dd>S</dd><dt>Files</dt><dd class="files">cmd/tentacron/main.go<br>cmd/tentacron/main_test.go<br>Dockerfile<br>environment/docker-compose.yml<br>docs/operations.md</dd></dl>
     </div>
     <div class="body">
       <h3>Add a healthcheck subcommand for the shell-less image</h3>
@@ -681,7 +683,7 @@
   <div class="item">
     <div class="meta">
       <div class="id">3.3</div>
-      <dl><dt>Kind</dt><dd><span class="pill neutral">Docs</span></dd><dt>Size</dt><dd>S</dd><dt>Files</dt><dd class="files">docs/operations.md<br>docs/architecture.md<br>docs/decisions/0002-sqlite-store-and-queue.md</dd></dl>
+      <dl><dt>Status</dt><dd><span class="pill neutral" data-status>Planned</span></dd><dt>Kind</dt><dd><span class="pill neutral">Docs</span></dd><dt>Size</dt><dd>S</dd><dt>Files</dt><dd class="files">docs/operations.md<br>docs/architecture.md<br>docs/decisions/0002-sqlite-store-and-queue.md</dd></dl>
     </div>
     <div class="body">
       <h3>State the durability of WAL with synchronous NORMAL</h3>
@@ -694,7 +696,7 @@
   <div class="item">
     <div class="meta">
       <div class="id">3.4</div>
-      <dl><dt>Kind</dt><dd><span class="pill neutral">Decision</span></dd><dt>Size</dt><dd>S</dd><dt>Files</dt><dd class="files">docs/decisions/0008-reverse-proxy-boundary.md (new)<br>docs/decisions/README.md<br>docs/operations.md<br>mkdocs.yml</dd></dl>
+      <dl><dt>Status</dt><dd><span class="pill neutral" data-status>Planned</span></dd><dt>Kind</dt><dd><span class="pill neutral">Decision</span></dd><dt>Size</dt><dd>S</dd><dt>Files</dt><dd class="files">docs/decisions/0008-reverse-proxy-boundary.md (new)<br>docs/decisions/README.md<br>docs/operations.md<br>mkdocs.yml</dd></dl>
     </div>
     <div class="body">
       <h3>Record the reverse-proxy boundary as ADR-0008</h3>
@@ -711,7 +713,7 @@
   <div class="item">
     <div class="meta">
       <div class="id">4.1</div>
-      <dl><dt>Kind</dt><dd><span class="pill ok">Safeguard</span></dd><dt>Size</dt><dd>M</dd><dt>Files</dt><dd class="files">internal/config/config.go<br>internal/store/jobs.go<br>internal/api/handlers.go<br>internal/api/errors.go<br>docs/openapi/openapi.yaml<br>test/e2e/golden_test.go<br>docs/api.md<br>docs/configuration.md</dd></dl>
+      <dl><dt>Status</dt><dd><span class="pill neutral" data-status>Planned</span></dd><dt>Kind</dt><dd><span class="pill ok">Safeguard</span></dd><dt>Size</dt><dd>M</dd><dt>Files</dt><dd class="files">internal/config/config.go<br>internal/store/jobs.go<br>internal/api/handlers.go<br>internal/api/errors.go<br>docs/openapi/openapi.yaml<br>test/e2e/golden_test.go<br>docs/api.md<br>docs/configuration.md</dd></dl>
     </div>
     <div class="body">
       <h3>Cap a key's queued requests with max_queued</h3>
@@ -726,7 +728,7 @@
   <div class="item">
     <div class="meta">
       <div class="id">4.2</div>
-      <dl><dt>Kind</dt><dd><span class="pill ok">Safeguard</span></dd><dt>Size</dt><dd>S</dd><dt>Files</dt><dd class="files">internal/metrics/metrics.go<br>internal/api/handlers.go<br>docs/operations.md</dd></dl>
+      <dl><dt>Status</dt><dd><span class="pill neutral" data-status>Planned</span></dd><dt>Kind</dt><dd><span class="pill ok">Safeguard</span></dd><dt>Size</dt><dd>S</dd><dt>Files</dt><dd class="files">internal/metrics/metrics.go<br>internal/api/handlers.go<br>docs/operations.md</dd></dl>
     </div>
     <div class="body">
       <h3>Expose long-poll and build gauges</h3>
