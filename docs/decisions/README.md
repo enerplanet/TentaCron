@@ -8,7 +8,7 @@ change it.
 
 | ADR | Decision | Status |
 |---|---|---|
-| [0001](0001-go-single-binary.md) | Implement tentacron in Go as one static binary | accepted |
+| [0001](0001-go-single-binary.md) | Implement tentacron in Go as one static binary | accepted, amended |
 | [0002](0002-sqlite-store-and-queue.md) | SQLite is the store and the job queue; one instance | accepted |
 | [0003](0003-async-job-api.md) | The client API is asynchronous: 202 plus polling | accepted |
 | [0004](0004-poll-async-targets-to-completion.md) | Tentacron polls asynchronous targets to completion | accepted |
@@ -20,5 +20,7 @@ change it.
 
 Copy [0000-template.md](0000-template.md) to the next free number, fill it
 in, add a row above, and link it from the pull request. A record is never
-edited once accepted; a later decision that replaces it gets a new number
-and marks the old one *superseded*.
+rewritten once accepted: a factual detail that has aged is corrected in a
+dated *Amendments* section at the end of the record (and the status notes
+it), and a decision that changes gets a new number and marks the old one
+*superseded*.

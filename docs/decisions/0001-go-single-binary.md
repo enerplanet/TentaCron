@@ -1,6 +1,6 @@
 # ADR-0001: Implement tentacron in Go as one static binary
 
-- **Status:** accepted
+- **Status:** accepted, amended 2026-09-06
 - **Date:** 2026-08-29
 
 ## Context
@@ -30,3 +30,15 @@ also what the release image ships.
 - JSON number fidelity had to be handled deliberately (`json.Number`
   everywhere a payload is decoded) because Go's default decoding would round
   large integers through float64.
+
+## Amendments
+
+**2026-09-06.** The binary now has four direct runtime dependencies rather
+than two: the pure-Go SQLite driver (`modernc.org/sqlite`), the YAML parser
+(`gopkg.in/yaml.v3`), the Prometheus client
+(`github.com/prometheus/client_golang`, for the metrics listener) and the
+cron parser (`github.com/robfig/cron/v3`, for schedules).
+`github.com/pb33f/libopenapi` and `libopenapi-validator` are imported by
+tests only and do not reach the binary. The static `CGO_ENABLED=0` build
+and the single artifact are unchanged; [`ATTRIBUTIONS.md`](https://github.com/enerplanet/tentacron/blob/main/ATTRIBUTIONS.md)
+is the current list.
