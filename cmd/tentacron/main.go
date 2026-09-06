@@ -12,6 +12,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"net"
 	"net/http"
 	"os"
 	"os/signal"
@@ -162,24 +163,42 @@ func runServe(args []string, stdout, stderr io.Writer) int {
 	return 0
 }
 
-// serveFromConfig wires the store, the worker pool, the API server and the
-// optional metrics listener from the configuration file and runs them until
-// shutdown.
-func serveFromConfig(path string, logger *slog.Logger, level *slog.LevelVar) error {
+// process is a configured service: its store, its HTTP servers, its
+// background loops and what a reload does. run drives it under a context —
+// runServe supplies the signal-bound one, a test supplies its own — so the
+// lifecycle (listen, serve, reload, drain, park) is exercised the same way
+// in both.
+type process struct {
+	cfg      *config.Config
+	provider *config.Provider
+	store    *store.Store
+	logger   *slog.Logger
+	servers  []*http.Server
+	loops    []runner
+	reload   func()
+	// started is closed once every server listens; bound then holds their
+	// addresses, which is how a test finds the port it asked for with :0.
+	started chan struct{}
+	bound   []string
+}
+
+// newProcess wires the store, the worker pool, the callback deliverer, the
+// API server and the optional metrics listener from the configuration file.
+func newProcess(path string, logger *slog.Logger, level *slog.LevelVar) (*process, error) {
 	provider, err := config.NewProvider(path)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	cfg := provider.Current()
 	level.Set(cfg.Server.SlogLevel())
 	logger.Info("configuration loaded", "path", path, "hash", provider.Hash()[:12])
 	st, err := store.Open(cfg.Storage.Path)
 	if err != nil {
-		return err
+		return nil, err
 	}
-	defer func() { _ = st.Close() }()
 	if err := os.MkdirAll(cfg.Storage.ResultsDir, 0o750); err != nil {
-		return err
+		_ = st.Close()
+		return nil, err
 	}
 
 	m := metrics.New(st)
@@ -194,8 +213,36 @@ func serveFromConfig(path string, logger *slog.Logger, level *slog.LevelVar) err
 	if ms := newMetricsServer(cfg, m); ms != nil {
 		servers = append(servers, ms)
 	}
-	reload := func() { reloadConfig(provider, logger, level, client) }
-	return serve(cfg, logger, servers, reload, pool, deliverer)
+	return &process{
+		cfg: cfg, provider: provider, store: st, logger: logger, servers: servers,
+		loops:   []runner{pool, deliverer},
+		reload:  func() { reloadConfig(provider, logger, level, client) },
+		started: make(chan struct{}),
+	}, nil
+}
+
+// serveFromConfig builds the process and runs it until a shutdown signal;
+// SIGHUP reloads the configuration.
+func serveFromConfig(path string, logger *slog.Logger, level *slog.LevelVar) error {
+	p, err := newProcess(path, logger, level)
+	if err != nil {
+		return err
+	}
+	rootCtx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+	hup := make(chan os.Signal, 1)
+	signal.Notify(hup, syscall.SIGHUP)
+	defer signal.Stop(hup)
+	reloads := make(chan struct{}, 1)
+	go func() {
+		for range hup {
+			select {
+			case reloads <- struct{}{}:
+			default: // a reload is already pending
+			}
+		}
+	}()
+	return p.run(rootCtx, reloads)
 }
 
 // reloadConfig re-reads the configuration on SIGHUP. A file that fails to
@@ -219,21 +266,6 @@ func reloadConfig(provider *config.Provider, logger *slog.Logger, level *slog.Le
 		return
 	}
 	logger.Info("configuration reloaded", attrs...)
-}
-
-// watchReload runs reload on every SIGHUP until ctx ends.
-func watchReload(ctx context.Context, reload func()) {
-	hup := make(chan os.Signal, 1)
-	signal.Notify(hup, syscall.SIGHUP)
-	defer signal.Stop(hup)
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case <-hup:
-			reload()
-		}
-	}
 }
 
 // runner is a background loop that stops when its context ends.
@@ -283,14 +315,12 @@ func newHTTPServer(cfg *config.Config, handler http.Handler) *http.Server {
 	}
 }
 
-// serve runs the worker pool and the HTTP servers until a shutdown signal or
-// a fatal server error, then stops them in the documented order: HTTP
-// drains first, workers are cancelled afterwards.
-func serve(cfg *config.Config, logger *slog.Logger, servers []*http.Server, reload func(), loops ...runner) error {
-	rootCtx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
-	defer stop()
-	go watchReload(rootCtx, reload)
-	// workerCtx is deliberately not derived from rootCtx: on shutdown the
+// run serves until ctx ends or a server fails, then stops in the documented
+// order: HTTP drains first, workers are cancelled afterwards. Every value on
+// reloads re-reads the configuration. The store is closed on return.
+func (p *process) run(ctx context.Context, reloads <-chan struct{}) error {
+	defer func() { _ = p.store.Close() }()
+	// workerCtx is deliberately not derived from ctx: on shutdown the
 	// workers must keep finishing in-flight jobs while the HTTP server
 	// drains, and are only cancelled explicitly afterwards (or immediately
 	// on a fatal server error).
@@ -300,7 +330,7 @@ func serve(cfg *config.Config, logger *slog.Logger, servers []*http.Server, relo
 	go func() {
 		defer close(poolDone)
 		var wg sync.WaitGroup
-		for _, l := range loops {
+		for _, l := range p.loops {
 			wg.Add(1)
 			go func() {
 				defer wg.Done()
@@ -309,37 +339,63 @@ func serve(cfg *config.Config, logger *slog.Logger, servers []*http.Server, relo
 		}
 		wg.Wait()
 	}()
-	serverErr := make(chan error, len(servers))
-	for _, srv := range servers {
-		listenAndServe(srv, serverErr)
-	}
-	logger.Info("tentacron started", "version", version, "addr", cfg.Server.Addr,
-		"metrics_addr", cfg.Server.MetricsAddr, "log_level", cfg.Server.LogLevel,
-		"targets", len(cfg.Targets), "resolvents", len(cfg.Resolvents))
-
-	select {
-	case <-rootCtx.Done():
-		logger.Info("shutdown signal received")
-	case err := <-serverErr:
+	serverErr := make(chan error, len(p.servers))
+	if err := p.listenAndServe(serverErr); err != nil {
 		cancelWorkers()
 		<-poolDone
 		return err
 	}
-	drainHTTP(cfg, logger, servers)
+	p.logger.Info("tentacron started", "version", version, "addr", p.bound[0],
+		"metrics_addr", p.cfg.Server.MetricsAddr, "log_level", p.cfg.Server.LogLevel,
+		"targets", len(p.cfg.Targets), "resolvents", len(p.cfg.Resolvents))
+
+	for {
+		select {
+		case <-reloads:
+			p.reload()
+			continue
+		case <-ctx.Done():
+			p.logger.Info("shutdown signal received")
+		case err := <-serverErr:
+			cancelWorkers()
+			<-poolDone
+			return err
+		}
+		break
+	}
+	drainHTTP(p.cfg, p.logger, p.servers)
 	cancelWorkers()
 	<-poolDone
-	logger.Info("tentacron stopped")
+	p.logger.Info("tentacron stopped")
 	return nil
 }
 
-// listenAndServe starts one HTTP server and reports a fatal listen error on
-// errc; a clean Shutdown is not an error.
-func listenAndServe(srv *http.Server, errc chan<- error) {
-	go func() {
-		if err := srv.ListenAndServe(); !errors.Is(err, http.ErrServerClosed) {
-			errc <- fmt.Errorf("listen %s: %w", srv.Addr, err)
+// listenAndServe binds every server first — so a taken port fails before
+// anything runs and a ":0" address reports the port it got — then serves
+// each on its own goroutine, reporting a fatal error on errc; a clean
+// Shutdown is not an error.
+func (p *process) listenAndServe(errc chan<- error) error {
+	listeners := make([]net.Listener, 0, len(p.servers))
+	for _, srv := range p.servers {
+		ln, err := net.Listen("tcp", srv.Addr)
+		if err != nil {
+			for _, open := range listeners {
+				_ = open.Close()
+			}
+			return fmt.Errorf("listen %s: %w", srv.Addr, err)
 		}
-	}()
+		listeners = append(listeners, ln)
+		p.bound = append(p.bound, ln.Addr().String())
+	}
+	for i, srv := range p.servers {
+		go func() {
+			if err := srv.Serve(listeners[i]); !errors.Is(err, http.ErrServerClosed) {
+				errc <- fmt.Errorf("serve %s: %w", srv.Addr, err)
+			}
+		}()
+	}
+	close(p.started)
+	return nil
 }
 
 // drainHTTP stops accepting requests and waits out in-flight ones within the
