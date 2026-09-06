@@ -142,6 +142,27 @@ READMEs. Keep wording clear and practical, prefer short
 examples, check links and commands, and match the style of the existing
 pages.
 
+## Releasing
+
+Releases are cut from `main` by a signed `vX.Y.Z` tag. The release
+workflow refuses a tag whose version has no matching changelog section, so
+the order is:
+
+1. Move the *Unreleased* entries of `CHANGELOG.md` under a new
+   `## [X.Y.Z] - YYYY-MM-DD` heading and leave *Unreleased* empty.
+2. Set `version` in `CITATION.cff` to `X.Y.Z`.
+3. Commit as `chore(release): X.Y.Z`, tag that commit
+   (`git tag -s vX.Y.Z -m "tentacron X.Y.Z"`) and push the branch and the
+   tag.
+
+The workflow then checks the changelog section, runs the race suite,
+publishes static binaries with checksums and the release notes extracted
+from that section on the GitHub release, and pushes the multi-architecture
+image to `ghcr.io/enerplanet/tentacron` tagged `X.Y.Z`, `X.Y` and, for a
+final version, `latest`. The checks run against the tagged commit, so a tag
+can only point at a commit whose changelog already carries the section:
+cut releases forward, never by tagging an older commit.
+
 ## Licensing of Contributions
 
 By contributing to this project, you confirm that your contribution is your
