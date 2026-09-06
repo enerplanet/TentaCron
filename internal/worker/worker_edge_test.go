@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -1174,5 +1175,32 @@ func TestCacheModesDriveReadsAndWrites(t *testing.T) {
 	}
 	if job := submit(""); job.State != store.StateCompleted || calls.Load() != 3 {
 		t.Fatalf("refresh must have written the cache: calls=%d", calls.Load())
+	}
+}
+
+// A malformed resource body is reported as invalid_resource_response, and
+// the error keeps the decoder's own error in its chain: both the sentinel
+// and the cause are reachable, which is what %w on both sides buys.
+func TestFetchOneWrapsTheCauseAndTheSentinel(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = io.WriteString(w, `{"values": [1, 2`)
+	}))
+	defer srv.Close()
+	cfg := baseConfig(t)
+	cfg.Targets["demo"] = config.Target{URL: srv.URL, Method: "POST", Timeout: dur(time.Second), TimeseriesPath: "time-series"}
+	cfg.Resolvents["resolvent-x"] = config.Resolvent{URL: srv.URL, Method: "POST", Timeout: dur(time.Second), CacheTTL: dur(time.Hour)}
+	pl := plan.Inspect(cfg, "demo", []byte(`{"time-series":[{"type":"resolvent-x","name":"a"}]}`))
+	if !pl.OK() || len(pl.Found) != 1 {
+		t.Fatalf("plan: %+v", pl.Problems)
+	}
+	p := New(config.Static(cfg), openStore(t), upstream.New(1<<20, nil), discardLogger(), nil)
+	ctx := context.Background()
+	_, _, err := (&run{Pool: p, cfg: cfg}).fetchOne(ctx, ctx, pl.Found[0], store.CacheUse)
+	if !errors.Is(err, errBadResourceBody) {
+		t.Fatalf("err = %v, want the invalid-resource sentinel in the chain", err)
+	}
+	var syntaxErr *json.SyntaxError
+	if !errors.As(err, &syntaxErr) {
+		t.Fatalf("err = %v, want the decoder's syntax error reachable through errors.As", err)
 	}
 }

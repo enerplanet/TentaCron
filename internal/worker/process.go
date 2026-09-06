@@ -347,7 +347,7 @@ func (p *run) fetchOne(ctx, bg context.Context, f *resolver.Found, cacheMode str
 	if rcfg.ResponsePath != "" {
 		extracted, err := upstream.ExtractPath(body, rcfg.ResponsePath)
 		if err != nil {
-			return nil, false, fmt.Errorf("resource %s response has no %q (%v): %w",
+			return nil, false, fmt.Errorf("resource %s response has no %q (%w): %w",
 				f.Type, rcfg.ResponsePath, err, errBadResourceBody)
 		}
 		body = extracted
@@ -357,13 +357,13 @@ func (p *run) fetchOne(ctx, bg context.Context, f *resolver.Found, cacheMode str
 		// the mapped object is what gets cached and substituted.
 		mapped, err := resolver.ApplyMap(body, rcfg.ResponseMap)
 		if err != nil {
-			return nil, false, fmt.Errorf("resource %s response does not fit its response_map (%v): %w", f.Type, err, errBadResourceBody)
+			return nil, false, fmt.Errorf("resource %s response does not fit its response_map (%w): %w", f.Type, err, errBadResourceBody)
 		}
 		body = mapped
 	}
 	var probe map[string]any
 	if err := json.Unmarshal(body, &probe); err != nil {
-		return nil, false, fmt.Errorf("resource %s returned malformed JSON (%v): %w", f.Type, err, errBadResourceBody)
+		return nil, false, fmt.Errorf("resource %s returned malformed JSON (%w): %w", f.Type, err, errBadResourceBody)
 	}
 	if probe == nil {
 		// json.Unmarshal accepts "null" into a map without error; caching it

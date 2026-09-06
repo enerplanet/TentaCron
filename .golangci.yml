@@ -16,6 +16,7 @@ linters:
     - misspell
     - gocritic
     - funlen
+    - errorlint
   settings:
     funlen:
       # Production functions stay short and single-purpose; table-driven
