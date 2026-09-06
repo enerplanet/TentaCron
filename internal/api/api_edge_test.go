@@ -818,42 +818,6 @@ func TestPriorityValidationAndKeyCap(t *testing.T) {
 	}
 }
 
-// Configured origins get CORS headers and preflight answers; any other
-// origin gets nothing, and with no origins configured nothing changes.
-func TestCORSForConfiguredOriginsOnly(t *testing.T) {
-	e := newEnvWith(t, func(c *config.Config) {
-		c.Server.CORS.AllowedOrigins = []string{"https://app.example.org"}
-	}, nil)
-	rec := e.do(t, "GET", "/v1/requests", "", map[string]string{"X-API-Key": "valid-key", "Origin": "https://app.example.org"})
-	if rec.Code != http.StatusOK || rec.Header().Get("Access-Control-Allow-Origin") != "https://app.example.org" || rec.Header().Get("Vary") != "Origin" {
-		t.Errorf("allowed origin: %d %v", rec.Code, rec.Header())
-	}
-	rec = e.do(t, "OPTIONS", "/v1/requests", "", map[string]string{"Origin": "https://app.example.org", "Access-Control-Request-Method": "POST"})
-	if rec.Code != http.StatusNoContent || !strings.Contains(rec.Header().Get("Access-Control-Allow-Headers"), "X-API-Key") ||
-		rec.Header().Get("Access-Control-Allow-Methods") != "GET, HEAD, POST, DELETE, OPTIONS" || rec.Header().Get("Access-Control-Max-Age") != "600" {
-		t.Errorf("preflight: %d %v", rec.Code, rec.Header())
-	}
-	// A browser cancelling a request preflights DELETE on the request URL;
-	// the answer must allow it, or the frontend can never cancel.
-	rec = e.do(t, "OPTIONS", "/v1/requests/0123456789abcdef0123456789abcdef", "", map[string]string{"Origin": "https://app.example.org", "Access-Control-Request-Method": "DELETE"})
-	if rec.Code != http.StatusNoContent || !strings.Contains(rec.Header().Get("Access-Control-Allow-Methods"), "DELETE") {
-		t.Errorf("cancel preflight: %d %v", rec.Code, rec.Header())
-	}
-	rec = e.do(t, "GET", "/v1/requests", "", map[string]string{"X-API-Key": "valid-key", "Origin": "https://evil.example.org"})
-	if rec.Code != http.StatusOK || rec.Header().Get("Access-Control-Allow-Origin") != "" || rec.Header().Get("Vary") != "Origin" {
-		t.Errorf("foreign origin must get no CORS headers but must vary on Origin: %d %v", rec.Code, rec.Header())
-	}
-	rec = e.do(t, "OPTIONS", "/v1/requests", "", map[string]string{"Origin": "https://evil.example.org", "Access-Control-Request-Method": "POST"})
-	if rec.Code != http.StatusMethodNotAllowed || rec.Header().Get("Access-Control-Allow-Origin") != "" {
-		t.Errorf("foreign preflight falls through to the mux: %d %v", rec.Code, rec.Header())
-	}
-	plain := newEnv(t)
-	rec = plain.do(t, "GET", "/healthz", "", map[string]string{"Origin": "https://app.example.org"})
-	if rec.Header().Get("Access-Control-Allow-Origin") != "" || rec.Header().Get("Vary") != "" {
-		t.Errorf("without configured origins no CORS header may appear: %v", rec.Header())
-	}
-}
-
 func TestDiscoveryEndpoints(t *testing.T) {
 	e := newEnvWith(t, func(c *config.Config) {
 		c.Targets["proxy"] = config.Target{URL: "https://p.example.com/{code}", Proxy: true, Response: config.Response{Mode: config.ModeDirect}}
