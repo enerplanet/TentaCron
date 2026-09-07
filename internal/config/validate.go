@@ -226,6 +226,12 @@ func (v *validator) target(p string, t Target) {
 	if t.Proxy && (t.TimeseriesPath != "" || t.AttachResolvent != nil) {
 		v.fail("%s: timeseries_path/attach_resolvent have no effect on a proxy target", p)
 	}
+	if t.QueryMap != nil {
+		if !t.Proxy || t.Method != "GET" {
+			v.fail("%s.query_map: only GET proxy targets map payload fields onto query parameters", p)
+		}
+		v.queryMapNames(p, t.QueryMap)
+	}
 	switch t.Response.Mode {
 	case ModeDirect:
 	case ModePoll:
@@ -243,6 +249,9 @@ func (v *validator) targetAuth(p string, t Target) {
 	}
 	if t.APIKeyInject != InjectNone && t.APIKey == "" {
 		v.fail("%s.api_key: required when api_key_inject is %q", p, t.APIKeyInject)
+	}
+	if t.APIKeyInject == InjectBodyField && t.Method == "GET" {
+		v.fail("%s.api_key_inject: body_field needs a request body; a GET target has none", p)
 	}
 }
 
@@ -316,24 +325,30 @@ func (v *validator) resolvents(resolvents map[string]Resolvent, targets map[stri
 	}
 }
 
+// queryMapNames checks a query_map for empty names and two fields mapping
+// onto one parameter. Shared by resolvent and target validation.
+func (v *validator) queryMapNames(p string, qm map[string]string) {
+	seen := map[string]string{}
+	for _, field := range slices.Sorted(maps.Keys(qm)) {
+		param := qm[field]
+		if field == "" || param == "" {
+			v.fail("%s.query_map: field and parameter names must not be empty", p)
+			continue
+		}
+		if other, dup := seen[param]; dup {
+			v.fail("%s.query_map: fields %q and %q both map to parameter %q", p, other, field, param)
+		}
+		seen[param] = field
+	}
+}
+
 // adapters checks the query_map and response_map of a resolvent.
 func (v *validator) adapters(p string, r Resolvent) {
 	if r.QueryMap != nil {
 		if r.Method != "GET" {
 			v.fail("%s.query_map: only GET resolvents map fields onto query parameters", p)
 		}
-		seen := map[string]string{}
-		for _, field := range slices.Sorted(maps.Keys(r.QueryMap)) {
-			param := r.QueryMap[field]
-			if field == "" || param == "" {
-				v.fail("%s.query_map: field and parameter names must not be empty", p)
-				continue
-			}
-			if other, dup := seen[param]; dup {
-				v.fail("%s.query_map: fields %q and %q both map to parameter %q", p, other, field, param)
-			}
-			seen[param] = field
-		}
+		v.queryMapNames(p, r.QueryMap)
 	}
 	if r.ResponseMap != nil {
 		if err := resolver.ValidateResponseMap(r.ResponseMap); err != nil {

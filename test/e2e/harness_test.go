@@ -70,19 +70,23 @@ type reply struct {
 // succeeded|failed, status and result on separate routes) so goldens never
 // teach a wrong contract.
 type fakes struct {
-	resource    func(call int64) reply              // POST <resource>/ (POST-style resolvents)
-	resourceGET func(path string, call int64) reply // GET <resource>/... (weather/city2tabula/ignis-style)
-	direct      func(call int64) reply              // POST <target>/run  (the "demo" direct target)
-	accept      func(call int64) reply              // POST <target>/simulate (the "meme" poll target)
-	status      func(call int64) reply              // GET  <target>/jobs/{id}/status
-	result      func(call int64) reply              // GET  <target>/jobs/{id} (result fetch)
-	gateway     func(call int64) reply              // POST <target>/api/v1/buem/buildings (the real buem contract)
-	building    func(call int64) reply              // POST <target>/api/v1/buem/building (single building; backs resolvent-buem)
-	calculate   func(call int64) reply              // POST <target>/api/v1/calculate/{code} (ignis; the proxy-target exemplar)
-	callback    func(call int64) reply              // POST <callbacks>/hook (the client's completion-callback receiver)
-	directDelay func(call int64) time.Duration      // latency before the demo target answers a given call (deadline and scheduling scenarios)
-	statusDelay func(call int64) time.Duration      // latency before a status poll answers; outside the poll-interval band, see pollDelay
-	resultDelay func(call int64) time.Duration      // latency before the result fetch answers; same rule
+	resource      func(call int64) reply              // POST <resource>/ (POST-style resolvents)
+	resourceGET   func(path string, call int64) reply // GET <resource>/... (weather/city2tabula/ignis-style)
+	direct        func(call int64) reply              // POST <target>/run  (the "demo" direct target)
+	accept        func(call int64) reply              // POST <target>/simulate (the "meme" poll target)
+	status        func(call int64) reply              // GET  <target>/jobs/{id}/status
+	result        func(call int64) reply              // GET  <target>/jobs/{id} (result fetch)
+	gateway       func(call int64) reply              // POST <target>/api/v1/buem/buildings (the real buem contract)
+	building      func(call int64) reply              // POST <target>/api/v1/buem/building (single building; backs resolvent-buem)
+	calculate     func(call int64) reply              // POST <target>/api/v1/calculate/{code} (ignis; the proxy-target exemplar)
+	variantsMatch func(call int64) reply              // GET  <target>/api/v1/variants/{iso2}/match (ignis; GET proxy target)
+	ignisData     func(call int64) reply              // GET  <target>/api/v1/data/{code} (ignis; GET proxy target)
+	ignisFields   func(call int64) reply              // GET  <target>/api/v1/fields (ignis; GET proxy target, empty payload)
+	ignisVariants func(call int64) reply              // GET  <target>/api/v1/variants/{iso2} (ignis; GET proxy target)
+	callback      func(call int64) reply              // POST <callbacks>/hook (the client's completion-callback receiver)
+	directDelay   func(call int64) time.Duration      // latency before the demo target answers a given call (deadline and scheduling scenarios)
+	statusDelay   func(call int64) time.Duration      // latency before a status poll answers; outside the poll-interval band, see pollDelay
+	resultDelay   func(call int64) time.Duration      // latency before the result fetch answers; same rule
 }
 
 // goldenPollInterval is the poll cadence of the corpus's poll-mode target.
@@ -166,6 +170,32 @@ func (f fakes) withTargetDefaults() fakes {
 			return reply{200, `{"variant_code":"DE.N.SFH.04.Gen.ReEx.001.001","q_h_nd":112.4,"unit":"kWh/(m2a)"}`, ""}
 		}
 	}
+	if f.variantsMatch == nil {
+		// ignis's variants/{iso2}/match: the archetypes covering the
+		// requested type and year; data[0] is the existing-state variant.
+		f.variantsMatch = func(int64) reply {
+			return reply{200, `{"country":"germany","prefix":"DE.N.SFH.06","data":[{"code":"DE.N.SFH.06.Gen.ReEx.001.001","label":"Existing state"},{"code":"DE.N.SFH.06.Gen.ReEx.001.002","label":"Usual refurbishment"}]}`, ""}
+		}
+	}
+	if f.ignisData == nil {
+		// ignis's data/{code}: the full TABULA parameter set for a variant.
+		f.ignisData = func(int64) reply {
+			return reply{200, `{"country":"germany","variant_code":"DE.N.SFH.06.Gen","expected_q_h_nd":282.7,"tabula_data":{"AdvancedParameters":{"Uvalues":{"U_Wall_1":0.51,"U_Roof_1":0.32,"U_Floor_1":0.43}}}}`, ""}
+		}
+	}
+	if f.ignisFields == nil {
+		// ignis's fields: the field-metadata catalogue under a "data" key,
+		// one object per TABULA field.
+		f.ignisFields = func(int64) reply {
+			return reply{200, `{"data":[{"key":"U_Wall_1","group":"Uvalues","path":"AdvancedParameters.Uvalues.U_Wall_1","unit":"W/(m2.K)","label":"Wall U-value"},{"key":"HeatingDays","group":"ClimateConditions","path":"AdvancedParameters.ClimateConditions.HeatingDays","unit":"d","label":"Heating days"}]}`, ""}
+		}
+	}
+	if f.ignisVariants == nil {
+		// ignis's variants/{iso2}: every variant code for the country.
+		f.ignisVariants = func(int64) reply {
+			return reply{200, `{"country":"germany","data":["DE.N.SFH.01.Gen.ReEx.001.001","DE.N.SFH.06.Gen.ReEx.001.001","DE.N.MFH.01.Gen.ReEx.001.001"]}`, ""}
+		}
+	}
 	return f
 }
 
@@ -177,6 +207,7 @@ type harness struct {
 	api *httptest.Server
 
 	resourceCalls, demoCalls, acceptCalls, statusCalls, resultCalls, cancelCalls, gatewayCalls, buildingCalls, calculateCalls atomic.Int64
+	variantsMatchCalls, ignisDataCalls, ignisFieldsCalls, ignisVariantsCalls                                                  atomic.Int64
 	callbackCalls                                                                                                             atomic.Int64
 	callbacks                                                                                                                 *httptest.Server // the client's TLS callback receiver
 	deliveries                                                                                                                []map[string]any // what the receiver saw, in order
@@ -335,6 +366,10 @@ func (h *harness) startTargetFake(f fakes) *httptest.Server {
 	mux.HandleFunc("POST /api/v1/buem/buildings", h.capturing("buem", &h.gatewayCalls, f.gateway, nil))
 	mux.HandleFunc("POST /api/v1/buem/building", h.capturing("buem-building", &h.buildingCalls, f.building, nil))
 	mux.HandleFunc("POST /api/v1/calculate/{code}", h.capturing("ignis-calculate", &h.calculateCalls, f.calculate, nil))
+	mux.HandleFunc("GET /api/v1/variants/{iso2}/match", h.capturing("ignis-variants-match", &h.variantsMatchCalls, f.variantsMatch, nil))
+	mux.HandleFunc("GET /api/v1/variants/{iso2}", h.capturing("ignis-variants", &h.ignisVariantsCalls, f.ignisVariants, nil))
+	mux.HandleFunc("GET /api/v1/data/{code}", h.capturing("ignis-data", &h.ignisDataCalls, f.ignisData, nil))
+	mux.HandleFunc("GET /api/v1/fields", h.capturing("ignis-fields", &h.ignisFieldsCalls, f.ignisFields, nil))
 	mux.HandleFunc("GET /jobs/{id}/status", func(w http.ResponseWriter, r *http.Request) {
 		call := h.statusCalls.Add(1)
 		if h.pollDelay(w, r, "status", f.statusDelay, call) {
@@ -374,7 +409,7 @@ func (h *harness) capturing(endpoint string, calls *atomic.Int64, replyFor func(
 		h.mu.Lock()
 		h.lastForwarded[endpoint] = body
 		h.lastTargetAuth[endpoint] = r.Header.Get("X-API-Key")
-		h.lastTargetPath[endpoint] = r.URL.Path
+		h.lastTargetPath[endpoint] = r.URL.RequestURI()
 		if marker.Who != "" {
 			h.callOrder[endpoint] = append(h.callOrder[endpoint], marker.Who)
 		}
@@ -498,6 +533,33 @@ func goldenTargets(base string) map[string]config.Target {
 		// is filled from (and stripped out of) the payload.
 		"ignis-calculate": {
 			URL: base + "/api/v1/calculate/{code}", Method: "POST", Timeout: dur(2 * time.Second),
+			Proxy:  true,
+			APIKey: ignisSecret, APIKeyInject: config.InjectHeader, APIKeyHeader: "X-Api-Key",
+			Response: config.Response{Mode: config.ModeDirect},
+		},
+		// GET proxy targets: the payload's iso2/code fill the URL path, the
+		// rest of its fields become query parameters, no body is sent.
+		"ignis-variants-match": {
+			URL: base + "/api/v1/variants/{iso2}/match", Method: "GET", Timeout: dur(2 * time.Second),
+			Proxy:  true,
+			APIKey: ignisSecret, APIKeyInject: config.InjectHeader, APIKeyHeader: "X-Api-Key",
+			Response: config.Response{Mode: config.ModeDirect},
+		},
+		"ignis-data": {
+			URL: base + "/api/v1/data/{code}", Method: "GET", Timeout: dur(2 * time.Second),
+			Proxy:  true,
+			APIKey: ignisSecret, APIKeyInject: config.InjectHeader, APIKeyHeader: "X-Api-Key",
+			Response: config.Response{Mode: config.ModeDirect},
+		},
+		// A GET proxy target with no path placeholder and an empty payload.
+		"ignis-fields": {
+			URL: base + "/api/v1/fields", Method: "GET", Timeout: dur(2 * time.Second),
+			Proxy:  true,
+			APIKey: ignisSecret, APIKeyInject: config.InjectHeader, APIKeyHeader: "X-Api-Key",
+			Response: config.Response{Mode: config.ModeDirect},
+		},
+		"ignis-variants": {
+			URL: base + "/api/v1/variants/{iso2}", Method: "GET", Timeout: dur(2 * time.Second),
 			Proxy:  true,
 			APIKey: ignisSecret, APIKeyInject: config.InjectHeader, APIKeyHeader: "X-Api-Key",
 			Response: config.Response{Mode: config.ModeDirect},
@@ -1073,6 +1135,10 @@ func (h *harness) countsStep(withPolls bool) map[string]any {
 		"buem_calls":                   h.gatewayCalls.Load(),
 		"buem_building_calls":          h.buildingCalls.Load(),
 		"ignis_calculate_calls":        h.calculateCalls.Load(),
+		"ignis_variants_match_calls":   h.variantsMatchCalls.Load(),
+		"ignis_data_calls":             h.ignisDataCalls.Load(),
+		"ignis_fields_calls":           h.ignisFieldsCalls.Load(),
+		"ignis_variants_calls":         h.ignisVariantsCalls.Load(),
 		"callback_calls":               h.callbackCalls.Load(),
 		"unexpected_upstream_requests": unexpected,
 	}

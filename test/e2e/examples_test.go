@@ -95,6 +95,56 @@ var exampleScenarios = []scenario{
 		},
 	},
 	{
+		// A GET proxy target: the payload's iso2 fills the URL path, type
+		// and year become query parameters (sorted, escaped), no body is
+		// sent. The frozen target_path proves the mapping; ignis's match
+		// response is stored verbatim.
+		name: "example-ignis-variants-match",
+		run: func(t *testing.T, h *harness) {
+			id := h.post("submit examples/ignis-variants-match.json", exampleRequest(t, "ignis-variants-match.json"), nil)
+			h.await("final state", id)
+			h.forwarded("request ignis received (iso2 in the path, type/year in the query)", "ignis-variants-match")
+			h.events("audit trail (handed through, nothing resolved)", id)
+			h.counts()
+		},
+	},
+	{
+		// A GET proxy target with only a path placeholder: code fills the
+		// path and no query parameters remain.
+		name: "example-ignis-data",
+		run: func(t *testing.T, h *harness) {
+			id := h.post("submit examples/ignis-data.json", exampleRequest(t, "ignis-data.json"), nil)
+			h.await("final state", id)
+			h.forwarded("request ignis received (code templated into the path)", "ignis-data")
+			h.events("audit trail (handed through, nothing resolved)", id)
+			h.counts()
+		},
+	},
+	{
+		// A GET proxy target with an empty payload: no path placeholder, no
+		// query, no body. ignis's field catalogue is stored verbatim.
+		name: "example-ignis-fields",
+		run: func(t *testing.T, h *harness) {
+			id := h.post("submit examples/ignis-fields.json", exampleRequest(t, "ignis-fields.json"), nil)
+			h.await("final state", id)
+			h.forwarded("request ignis received (no path, no query, no body)", "ignis-fields")
+			h.events("audit trail (handed through, nothing resolved)", id)
+			h.counts()
+		},
+	},
+	{
+		// A GET proxy target: iso2 fills the path, no other fields, no body.
+		// Distinct from ignis-variants-match: the whole country list.
+		name: "example-ignis-variants",
+		run: func(t *testing.T, h *harness) {
+			id := h.post("submit examples/ignis-variants.json", exampleRequest(t, "ignis-variants.json"), nil)
+			h.await("final state", id)
+			h.forwarded("request ignis received (iso2 templated into the path)", "ignis-variants")
+			h.events("audit trail (handed through, nothing resolved)", id)
+			h.counts()
+		},
+	},
+	{
 		// A real third-party backend without a shim: PVGIS's seriescalc
 		// answers with its own document shape; query_map renames the
 		// resolvent's fields onto PVGIS parameters (the exact request line

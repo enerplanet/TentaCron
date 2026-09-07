@@ -198,6 +198,46 @@ targets:
 	}
 }
 
+func TestProxyGetTargetQueryMap(t *testing.T) {
+	good := `
+auth:
+  api_keys: [{name: t, key: k}]
+targets:
+  ignis-variants-match:
+    url: "https://ignis.example.com/api/v1/variants/{iso2}/match"
+    method: GET
+    proxy: true
+    query_map: {iso2_field: iso2}
+`
+	cfg, err := Load(writeConfig(t, good))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Targets["ignis-variants-match"].QueryMap["iso2_field"] != "iso2" {
+		t.Errorf("query_map not loaded: %v", cfg.Targets["ignis-variants-match"].QueryMap)
+	}
+
+	cases := []struct{ name, yaml, wantErr string }{
+		{"non-proxy target", strings.Replace(good, "    proxy: true\n", "", 1),
+			"only GET proxy targets map payload fields"},
+		{"POST proxy target", strings.Replace(good, "method: GET", "method: POST", 1),
+			"only GET proxy targets map payload fields"},
+		{"two fields one param", strings.Replace(good, "{iso2_field: iso2}", "{a: iso2, b: iso2}", 1),
+			`fields "a" and "b" both map to parameter "iso2"`},
+		{"body_field key on a GET target", strings.Replace(good,
+			"    query_map: {iso2_field: iso2}\n",
+			"    api_key: secret\n    api_key_inject: body_field\n", 1),
+			"body_field needs a request body"},
+	}
+	for _, tt := range cases {
+		t.Run(tt.name, func(t *testing.T) {
+			if _, err := Load(writeConfig(t, tt.yaml)); err == nil || !strings.Contains(err.Error(), tt.wantErr) {
+				t.Fatalf("want error containing %q, got %v", tt.wantErr, err)
+			}
+		})
+	}
+}
+
 // Validation collects every problem instead of stopping at the first.
 func TestValidateReportsEveryProblemAtOnce(t *testing.T) {
 	_, err := Load(writeConfig(t, `
@@ -661,7 +701,7 @@ func TestDescribeListsEverythingWithoutSecrets(t *testing.T) {
 		t.Fatal(err)
 	}
 	out := Describe(cfg)
-	for _, want := range []string{"5 target(s)", "7 resolvent type(s)", "  buem ", "poll", "proxy",
+	for _, want := range []string{"9 target(s)", "7 resolvent type(s)", "  buem ", "poll", "proxy",
 		"not retried on timeout", "via target buem-building", "response path buem.thermal_load_profile.timeseries",
 		"resolvents in model.timeseries", "key via body_field"} {
 		if !strings.Contains(out, want) {

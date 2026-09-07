@@ -31,6 +31,26 @@
           "response_mode": "direct"
         },
         {
+          "name": "ignis-data",
+          "proxy": true,
+          "response_mode": "direct"
+        },
+        {
+          "name": "ignis-fields",
+          "proxy": true,
+          "response_mode": "direct"
+        },
+        {
+          "name": "ignis-variants",
+          "proxy": true,
+          "response_mode": "direct"
+        },
+        {
+          "name": "ignis-variants-match",
+          "proxy": true,
+          "response_mode": "direct"
+        },
+        {
           "attach_resolvent": true,
           "name": "meme",
           "proxy": false,

@@ -149,6 +149,60 @@ targets:
     response:
       mode: direct
 
+  ignis-variants-match:
+    # GET proxy target. The payload's "iso2" fills the URL path; every other
+    # top-level field ("type", "year") becomes a query parameter, and no body
+    # is sent. query_map renames a field when the API's parameter name differs
+    # (none needed here). GET proxy targets only.
+    url: "https://ignis.example.com/api/v1/variants/{iso2}/match"
+    method: GET
+    api_key: "${IGNIS_API_KEY}"
+    api_key_inject: header
+    api_key_header: X-Api-Key
+    timeout: 10s
+    proxy: true
+    response:
+      mode: direct
+
+  ignis-data:
+    # GET proxy target with a single path placeholder: "code" fills the path,
+    # nothing remains for the query string.
+    url: "https://ignis.example.com/api/v1/data/{code}"
+    method: GET
+    api_key: "${IGNIS_API_KEY}"
+    api_key_inject: header
+    api_key_header: X-Api-Key
+    timeout: 10s
+    proxy: true
+    response:
+      mode: direct
+
+  ignis-fields:
+    # GET proxy target with no path placeholder: an empty payload, no query,
+    # no body. Returns the TABULA field-metadata catalogue.
+    url: "https://ignis.example.com/api/v1/fields"
+    method: GET
+    api_key: "${IGNIS_API_KEY}"
+    api_key_inject: header
+    api_key_header: X-Api-Key
+    timeout: 10s
+    proxy: true
+    response:
+      mode: direct
+
+  ignis-variants:
+    # GET proxy target: "iso2" fills the path. The whole variant-code list for
+    # a country, distinct from ignis-variants-match (one type-and-year match).
+    url: "https://ignis.example.com/api/v1/variants/{iso2}"
+    method: GET
+    api_key: "${IGNIS_API_KEY}"
+    api_key_inject: header
+    api_key_header: X-Api-Key
+    timeout: 10s
+    proxy: true
+    response:
+      mode: direct
+
   demo:
     # Minimal direct-mode target illustrating the default "time-series"
     # array container; the generic example requests point here.

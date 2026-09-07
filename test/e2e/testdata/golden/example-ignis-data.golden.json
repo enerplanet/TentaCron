@@ -9,49 +9,63 @@
       "state": "received"
     },
     "status": 202,
-    "step": "submit"
+    "step": "submit examples/ignis-data.json"
   },
   {
     "request": "GET /v1/requests/{id}",
     "response": {
-      "attempts": 3,
+      "attempts": 1,
       "completed_at": "«ts»",
       "created_at": "«ts»",
       "error": null,
       "id": "«job-1»",
       "result": {
         "target_response": {
-          "ok": true
+          "country": "germany",
+          "expected_q_h_nd": 282.7,
+          "tabula_data": {
+            "AdvancedParameters": {
+              "Uvalues": {
+                "U_Floor_1": 0.43,
+                "U_Roof_1": 0.32,
+                "U_Wall_1": 0.51
+              }
+            }
+          },
+          "variant_code": "DE.N.SFH.06.Gen"
         },
         "target_status": 200
       },
       "state": "completed",
-      "target": "demo",
+      "target": "ignis-data",
       "updated_at": "«ts»"
     },
     "status": 200,
-    "step": "final state (completed on third attempt)"
+    "step": "final state"
+  },
+  {
+    "endpoint": "ignis-data",
+    "step": "request ignis received (code templated into the path)",
+    "target_auth_header": "ignis-golden-secret",
+    "target_path": "/api/v1/data/DE.N.SFH.06.Gen.ReEx.001.001",
+    "target_received": ""
   },
   {
     "audit_trail": [
       "∅ → received: job accepted",
       "received → resolving: claimed by worker",
-      "resolving → received: attempt 1/3 failed (resource resolvent-pv1: HTTP 500: {\"error\":\"flaky\"}), retrying in «dur»",
-      "received → resolving: claimed by worker",
-      "resolving → received: attempt 2/3 failed (resource resolvent-pv1: HTTP 500: {\"error\":\"flaky\"}), retrying in «dur»",
-      "received → resolving: claimed by worker",
-      "resolving → forwarding: resolved 1 resolvent(s), 0 from cache",
+      "resolving → forwarding: proxy target: payload handed through unresolved",
       "forwarding → completed: target responded with status 200"
     ],
-    "step": "audit trail with two backoff requeues"
+    "step": "audit trail (handed through, nothing resolved)"
   },
   {
     "buem_building_calls": 0,
     "buem_calls": 0,
     "callback_calls": 0,
-    "demo_calls": 1,
+    "demo_calls": 0,
     "ignis_calculate_calls": 0,
-    "ignis_data_calls": 0,
+    "ignis_data_calls": 1,
     "ignis_fields_calls": 0,
     "ignis_variants_calls": 0,
     "ignis_variants_match_calls": 0,
@@ -59,7 +73,7 @@
     "meme_cancel_calls": 0,
     "meme_result_calls": "not asserted (timing-dependent)",
     "meme_status_calls": "not asserted (timing-dependent)",
-    "resource_calls": 3,
+    "resource_calls": 0,
     "step": "upstream call counts",
     "unexpected_upstream_requests": []
   }

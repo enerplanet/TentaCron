@@ -106,6 +106,41 @@ targets:
     response:
       mode: direct
 
+  ignis-variants-match:
+    # GET proxy target: iso2 fills the path, type/year become query parameters.
+    url: "http://ignis-app:8080/api/v1/variants/{iso2}/match"
+    method: GET
+    timeout: 10s
+    proxy: true
+    response:
+      mode: direct
+
+  ignis-data:
+    url: "http://ignis-app:8080/api/v1/data/{code}"
+    method: GET
+    timeout: 10s
+    proxy: true
+    response:
+      mode: direct
+
+  ignis-fields:
+    # Empty payload, no path or query, no body: the field-metadata catalogue.
+    url: "http://ignis-app:8080/api/v1/fields"
+    method: GET
+    timeout: 10s
+    proxy: true
+    response:
+      mode: direct
+
+  ignis-variants:
+    # iso2 fills the path; the whole country variant list.
+    url: "http://ignis-app:8080/api/v1/variants/{iso2}"
+    method: GET
+    timeout: 10s
+    proxy: true
+    response:
+      mode: direct
+
 resolvents:
   # pv1/wind are illustrative POST entries; see ../config.example.yaml.
   resolvent-pv1:

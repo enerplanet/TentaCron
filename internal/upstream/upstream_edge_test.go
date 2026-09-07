@@ -260,6 +260,86 @@ func TestBuildResolventURLEdgeCases(t *testing.T) {
 	}
 }
 
+func TestPrepareProxyGet(t *testing.T) {
+	cases := []struct {
+		name, url, payload string
+		queryMap           map[string]string
+		want, wantErr      string
+	}{
+		{name: "iso2 in path, rest to query",
+			url: "https://i.example.com/api/v1/variants/{iso2}/match", payload: `{"iso2":"DE","type":"SFH","year":1975}`,
+			want: "https://i.example.com/api/v1/variants/DE/match?type=SFH&year=1975"},
+		{name: "only a path placeholder, no query",
+			url: "https://i.example.com/api/v1/data/{code}", payload: `{"code":"DE.N.SFH.06.Gen"}`,
+			want: "https://i.example.com/api/v1/data/DE.N.SFH.06.Gen"},
+		{name: "query_map renames a field",
+			url: "https://i.example.com/m", payload: `{"country":"germany"}`,
+			queryMap: map[string]string{"country": "cc"},
+			want:     "https://i.example.com/m?cc=germany"},
+		{name: "large integer keeps its digits",
+			url: "https://i.example.com/m", payload: `{"id":90071992547409999}`,
+			want: "https://i.example.com/m?id=90071992547409999"},
+		{name: "path value is escaped",
+			url: "https://i.example.com/d/{code}", payload: `{"code":"a/b c"}`,
+			want: "https://i.example.com/d/a%2Fb%20c"},
+		{name: "missing path field is an error", url: "https://i.example.com/d/{code}", payload: `{"other":1}`, wantErr: "placeholder"},
+		{name: "nested object as a query value is an error", url: "https://i.example.com/m", payload: `{"filter":{"a":1}}`, wantErr: "scalar"},
+		{name: "non-object payload is an error", url: "https://i.example.com/m", payload: `[1,2]`, wantErr: "must be a JSON object"},
+	}
+	for _, tt := range cases {
+		t.Run(tt.name, func(t *testing.T) {
+			tcfg := config.Target{URL: tt.url, Method: "GET", Proxy: true, QueryMap: tt.queryMap}
+			got, body, err := prepareProxyGet(tcfg, []byte(tt.payload))
+			if tt.wantErr != "" {
+				if err == nil || !strings.Contains(err.Error(), tt.wantErr) {
+					t.Fatalf("want error containing %q, got %v (url %q)", tt.wantErr, err, got)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got != tt.want {
+				t.Errorf("url = %s\nwant  %s", got, tt.want)
+			}
+			if body != nil {
+				t.Errorf("a GET proxy target must send no body, got %q", body)
+			}
+		})
+	}
+}
+
+func TestForwardToGETProxyTargetSendsNoBody(t *testing.T) {
+	var gotMethod, gotURI, gotCT string
+	var gotBody []byte
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotMethod, gotURI, gotCT = r.Method, r.URL.RequestURI(), r.Header.Get("Content-Type")
+		gotBody, _ = io.ReadAll(r.Body)
+		_, _ = io.WriteString(w, `{"data":[]}`)
+	}))
+	defer srv.Close()
+	tcfg := config.Target{
+		URL: srv.URL + "/api/v1/variants/{iso2}/match", Method: "GET", Proxy: true,
+		Timeout: dur(time.Second), APIKey: "k", APIKeyInject: config.InjectHeader, APIKeyHeader: "X-Api-Key",
+	}
+	res, err := testClient(1<<20).ForwardToTarget(context.Background(), "ignis-variants-match", tcfg, []byte(`{"iso2":"DE","type":"SFH","year":1975}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if gotMethod != "GET" {
+		t.Errorf("method = %s, want GET", gotMethod)
+	}
+	if gotURI != "/api/v1/variants/DE/match?type=SFH&year=1975" {
+		t.Errorf("request-uri = %s", gotURI)
+	}
+	if len(gotBody) != 0 || gotCT != "" {
+		t.Errorf("GET proxy target must send no body: body=%q content-type=%q", gotBody, gotCT)
+	}
+	if res.Status != 200 {
+		t.Errorf("status = %d", res.Status)
+	}
+}
+
 func rawDoc(t *testing.T, s string) map[string]json.RawMessage {
 	t.Helper()
 	var doc map[string]json.RawMessage
