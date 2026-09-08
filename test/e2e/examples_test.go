@@ -145,6 +145,72 @@ var exampleScenarios = []scenario{
 		},
 	},
 	{
+		// A GET proxy target with no path placeholder: all six payload
+		// fields (lat, lon, year, provider, use_case, format) map onto the
+		// query string, sorted and escaped, no body. weather-serve's
+		// {index, variables} block is stored verbatim.
+		name: "example-weather-point",
+		run: func(t *testing.T, h *harness) {
+			id := h.post("submit examples/weather-point.json", exampleRequest(t, "weather-point.json"), nil)
+			h.await("final state", id)
+			h.forwarded("request weather-serve received (every field in the query, no body)", "weather-point")
+			h.events("audit trail (handed through, nothing resolved)", id)
+			h.counts()
+		},
+	},
+	{
+		// A POST proxy target with no {field} placeholder: the whole bbox
+		// payload is forwarded as the JSON body verbatim. max_attempts 1 so a
+		// non-idempotent pipeline run is never resent.
+		name: "example-c2t-trigger-run",
+		run: func(t *testing.T, h *harness) {
+			id := h.post("submit examples/c2t-trigger-run.json", exampleRequest(t, "c2t-trigger-run.json"), nil)
+			h.await("final state", id)
+			h.forwarded("bbox city2tabula received (whole body, no placeholder)", "c2t-trigger-run")
+			h.events("audit trail (handed through, nothing resolved)", id)
+			h.counts()
+		},
+	},
+	{
+		// A GET proxy target: run_id fills the path, no query, no body.
+		name: "example-c2t-run-status",
+		run: func(t *testing.T, h *harness) {
+			id := h.post("submit examples/c2t-run-status.json", exampleRequest(t, "c2t-run-status.json"), nil)
+			h.await("final state", id)
+			h.forwarded("request city2tabula received (run_id in the path)", "c2t-run-status")
+			h.events("audit trail (handed through, nothing resolved)", id)
+			h.counts()
+		},
+	},
+	{
+		// A GET proxy target: country and osm_ids (a pre-joined comma string)
+		// both become query parameters, no path placeholder, no body.
+		name: "example-c2t-buildings",
+		run: func(t *testing.T, h *harness) {
+			id := h.post("submit examples/c2t-buildings.json", exampleRequest(t, "c2t-buildings.json"), nil)
+			h.await("final state", id)
+			h.forwarded("request city2tabula received (country/osm_ids in the query)", "c2t-buildings")
+			h.events("audit trail (handed through, nothing resolved)", id)
+			h.counts()
+		},
+	},
+	{
+		// buem-gateway's batch endpoint as a plain passthrough proxy: a
+		// large nested body (a buildings array with envelope elements and a
+		// pre-resolved weather block) forwarded byte-exact, no placeholder,
+		// no resolution. max_attempts 1 so a non-idempotent batch is never
+		// resent. Distinct from example-buem-buildings, which resolves a
+		// weather resolvent in the same body through the `buem` target.
+		name: "example-buem-batch",
+		run: func(t *testing.T, h *harness) {
+			id := h.post("submit examples/buem-batch.json", exampleRequest(t, "buem-batch.json"), nil)
+			h.await("final state", id)
+			h.forwarded("batch body buem-gateway received (verbatim, marker-free)", "buem-buildings")
+			h.events("audit trail (handed through, nothing resolved)", id)
+			h.counts()
+		},
+	},
+	{
 		// A real third-party backend without a shim: PVGIS's seriescalc
 		// answers with its own document shape; query_map renames the
 		// resolvent's fields onto PVGIS parameters (the exact request line

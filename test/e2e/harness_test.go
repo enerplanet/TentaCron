@@ -50,6 +50,8 @@ const (
 	demoSecret      = "demo-golden-secret"
 	buemSecret      = "buem-golden-secret"
 	ignisSecret     = "ignis-golden-secret"
+	weatherSecret   = "weather-golden-secret"
+	c2tSecret       = "c2t-golden-secret"
 	memeSecret      = "meme-golden-secret"
 	resourceSecret  = "resource-golden-secret"
 )
@@ -76,13 +78,18 @@ type fakes struct {
 	accept        func(call int64) reply              // POST <target>/simulate (the "meme" poll target)
 	status        func(call int64) reply              // GET  <target>/jobs/{id}/status
 	result        func(call int64) reply              // GET  <target>/jobs/{id} (result fetch)
-	gateway       func(call int64) reply              // POST <target>/api/v1/buem/buildings (the real buem contract)
+	gateway       func(call int64) reply              // POST <target>/api/v1/buem/buildings (the real buem contract, resolvent target)
+	buemBatch     func(call int64) reply              // POST <target>/api/v1/buem/batch (buem-buildings, the plain passthrough proxy target)
 	building      func(call int64) reply              // POST <target>/api/v1/buem/building (single building; backs resolvent-buem)
 	calculate     func(call int64) reply              // POST <target>/api/v1/calculate/{code} (ignis; the proxy-target exemplar)
 	variantsMatch func(call int64) reply              // GET  <target>/api/v1/variants/{iso2}/match (ignis; GET proxy target)
 	ignisData     func(call int64) reply              // GET  <target>/api/v1/data/{code} (ignis; GET proxy target)
 	ignisFields   func(call int64) reply              // GET  <target>/api/v1/fields (ignis; GET proxy target, empty payload)
 	ignisVariants func(call int64) reply              // GET  <target>/api/v1/variants/{iso2} (ignis; GET proxy target)
+	weatherPoint  func(call int64) reply              // GET  <target>/v1/weather/point (weather; GET proxy target)
+	c2tTriggerRun func(call int64) reply              // POST <target>/api/v1/runs (city2tabula; POST proxy target, no placeholder)
+	c2tRunStatus  func(call int64) reply              // GET  <target>/api/v1/runs/{run_id} (city2tabula; GET proxy target)
+	c2tBuildings  func(call int64) reply              // GET  <target>/api/v1/buildings (city2tabula; GET proxy target)
 	callback      func(call int64) reply              // POST <callbacks>/hook (the client's completion-callback receiver)
 	directDelay   func(call int64) time.Duration      // latency before the demo target answers a given call (deadline and scheduling scenarios)
 	statusDelay   func(call int64) time.Duration      // latency before a status poll answers; outside the poll-interval band, see pollDelay
@@ -156,6 +163,14 @@ func (f fakes) withTargetDefaults() fakes {
 			return reply{200, `[{"id":"b-1","buem":{"thermal_load_profile":{"summary":{"heating":{"total":{"value":12345.6,"unit":"kWh"}}}}}}]`, ""}
 		}
 	}
+	if f.buemBatch == nil {
+		// buem-gateway's batch response through the plain passthrough proxy:
+		// one result entry per building, always 200 (per-building errors are
+		// in-band).
+		f.buemBatch = func(int64) reply {
+			return reply{200, `[{"id":"b-1","buem":{"thermal_load_profile":{"summary":{"heating":{"total":{"value":12345.6,"unit":"kWh"}}}}}},{"id":"b-2","error":"no envelope elements resolved"}]`, ""}
+		}
+	}
 	if f.building == nil {
 		// The single-building endpoint returns one enriched buem block —
 		// the object shape a target-backed resolvent substitutes from.
@@ -196,6 +211,31 @@ func (f fakes) withTargetDefaults() fakes {
 			return reply{200, `{"country":"germany","data":["DE.N.SFH.01.Gen.ReEx.001.001","DE.N.SFH.06.Gen.ReEx.001.001","DE.N.MFH.01.Gen.ReEx.001.001"]}`, ""}
 		}
 	}
+	if f.weatherPoint == nil {
+		// weather-serve's point query for use_case=solar, format=json: the
+		// {index, variables} block, hourly solar irradiance and temperature.
+		f.weatherPoint = func(int64) reply {
+			return reply{200, `{"provider":"era5-land","index":["2018-01-01T00:30:00Z","2018-01-01T01:30:00Z"],"variables":{"GHI":[0.0,0.0],"DNI":[0.0,0.0],"DHI":[0.0,0.0],"T2m":[1.0,1.2]}}`, ""}
+		}
+	}
+	if f.c2tTriggerRun == nil {
+		// city2tabula's POST /api/v1/runs: 202 with the new run's id and state.
+		f.c2tTriggerRun = func(int64) reply {
+			return reply{202, `{"run_id":"run-golden-1","country":"germany","status":"queued"}`, ""}
+		}
+	}
+	if f.c2tRunStatus == nil {
+		// GET /api/v1/runs/{run_id}: the run's state, verbatim through the proxy.
+		f.c2tRunStatus = func(int64) reply {
+			return reply{200, `{"run_id":"run-golden-1","country":"germany","status":"no_data"}`, ""}
+		}
+	}
+	if f.c2tBuildings == nil {
+		// GET /api/v1/buildings: a bare JSON array of matched buildings.
+		f.c2tBuildings = func(int64) reply {
+			return reply{200, `[{"object_id":"DEHB01AL3AU0004T","number_of_storeys":2,"tabula_variant_code":"DE.N.SFH.04.Gen.ReEx.001.001"}]`, ""}
+		}
+	}
 	return f
 }
 
@@ -207,7 +247,9 @@ type harness struct {
 	api *httptest.Server
 
 	resourceCalls, demoCalls, acceptCalls, statusCalls, resultCalls, cancelCalls, gatewayCalls, buildingCalls, calculateCalls atomic.Int64
-	variantsMatchCalls, ignisDataCalls, ignisFieldsCalls, ignisVariantsCalls                                                  atomic.Int64
+	buemBatchCalls                                                                                                            atomic.Int64
+	variantsMatchCalls, ignisDataCalls, ignisFieldsCalls, ignisVariantsCalls, weatherPointCalls                               atomic.Int64
+	c2tTriggerRunCalls, c2tRunStatusCalls, c2tBuildingsCalls                                                                  atomic.Int64
 	callbackCalls                                                                                                             atomic.Int64
 	callbacks                                                                                                                 *httptest.Server // the client's TLS callback receiver
 	deliveries                                                                                                                []map[string]any // what the receiver saw, in order
@@ -364,12 +406,17 @@ func (h *harness) startTargetFake(f fakes) *httptest.Server {
 	mux.HandleFunc("POST /run", h.capturing("demo", &h.demoCalls, f.direct, f.directDelay))
 	mux.HandleFunc("POST /simulate", h.capturing("meme", &h.acceptCalls, f.accept, nil))
 	mux.HandleFunc("POST /api/v1/buem/buildings", h.capturing("buem", &h.gatewayCalls, f.gateway, nil))
+	mux.HandleFunc("POST /api/v1/buem/batch", h.capturing("buem-buildings", &h.buemBatchCalls, f.buemBatch, nil))
 	mux.HandleFunc("POST /api/v1/buem/building", h.capturing("buem-building", &h.buildingCalls, f.building, nil))
 	mux.HandleFunc("POST /api/v1/calculate/{code}", h.capturing("ignis-calculate", &h.calculateCalls, f.calculate, nil))
 	mux.HandleFunc("GET /api/v1/variants/{iso2}/match", h.capturing("ignis-variants-match", &h.variantsMatchCalls, f.variantsMatch, nil))
 	mux.HandleFunc("GET /api/v1/variants/{iso2}", h.capturing("ignis-variants", &h.ignisVariantsCalls, f.ignisVariants, nil))
 	mux.HandleFunc("GET /api/v1/data/{code}", h.capturing("ignis-data", &h.ignisDataCalls, f.ignisData, nil))
 	mux.HandleFunc("GET /api/v1/fields", h.capturing("ignis-fields", &h.ignisFieldsCalls, f.ignisFields, nil))
+	mux.HandleFunc("GET /v1/weather/point", h.capturing("weather-point", &h.weatherPointCalls, f.weatherPoint, nil))
+	mux.HandleFunc("POST /api/v1/runs", h.capturing("c2t-trigger-run", &h.c2tTriggerRunCalls, f.c2tTriggerRun, nil))
+	mux.HandleFunc("GET /api/v1/runs/{run_id}", h.capturing("c2t-run-status", &h.c2tRunStatusCalls, f.c2tRunStatus, nil))
+	mux.HandleFunc("GET /api/v1/buildings", h.capturing("c2t-buildings", &h.c2tBuildingsCalls, f.c2tBuildings, nil))
 	mux.HandleFunc("GET /jobs/{id}/status", func(w http.ResponseWriter, r *http.Request) {
 		call := h.statusCalls.Add(1)
 		if h.pollDelay(w, r, "status", f.statusDelay, call) {
@@ -520,6 +567,17 @@ func goldenTargets(base string) map[string]config.Target {
 			APIKey: buemSecret, APIKeyInject: config.InjectHeader, APIKeyHeader: "X-Api-Key",
 			Response: config.Response{Mode: config.ModeDirect},
 		},
+		// The batch endpoint again, this time as a plain passthrough proxy
+		// (no resolution). The real URL is /api/v1/buem/buildings, shared with
+		// the `buem` target above; the fake mux cannot register one route
+		// twice, so the test hits /api/v1/buem/batch instead. max_attempts 1
+		// so a non-idempotent batch is never resent.
+		"buem-buildings": {
+			URL: base + "/api/v1/buem/batch", Method: "POST", Timeout: dur(2 * time.Second),
+			Proxy: true, MaxAttempts: 1, RetryOnTimeout: boolPtr(false),
+			APIKey: buemSecret, APIKeyInject: config.InjectHeader, APIKeyHeader: "X-Api-Key",
+			Response: config.Response{Mode: config.ModeDirect},
+		},
 		// The single-building endpoint; backs resolvent-buem so a BuEM
 		// simulation can feed another target's payload.
 		"buem-building": {
@@ -562,6 +620,36 @@ func goldenTargets(base string) map[string]config.Target {
 			URL: base + "/api/v1/variants/{iso2}", Method: "GET", Timeout: dur(2 * time.Second),
 			Proxy:  true,
 			APIKey: ignisSecret, APIKeyInject: config.InjectHeader, APIKeyHeader: "X-Api-Key",
+			Response: config.Response{Mode: config.ModeDirect},
+		},
+		// A GET proxy target whose payload is all query parameters: no path
+		// placeholder, every field (lat, lon, year, provider, use_case,
+		// format) mapped onto the query string, no body.
+		"weather-point": {
+			URL: base + "/v1/weather/point", Method: "GET", Timeout: dur(2 * time.Second),
+			Proxy:  true,
+			APIKey: weatherSecret, APIKeyInject: config.InjectHeader, APIKeyHeader: "X-API-Key",
+			Response: config.Response{Mode: config.ModeDirect},
+		},
+		// city2tabula's on-request server. A POST proxy target with no {field}
+		// placeholder (whole body forwarded) that must never resend a
+		// non-idempotent pipeline run, plus two GET proxy reads.
+		"c2t-trigger-run": {
+			URL: base + "/api/v1/runs", Method: "POST", Timeout: dur(2 * time.Second),
+			Proxy: true, MaxAttempts: 1, RetryOnTimeout: boolPtr(false),
+			APIKey: c2tSecret, APIKeyInject: config.InjectHeader, APIKeyHeader: "X-Api-Key",
+			Response: config.Response{Mode: config.ModeDirect},
+		},
+		"c2t-run-status": {
+			URL: base + "/api/v1/runs/{run_id}", Method: "GET", Timeout: dur(2 * time.Second),
+			Proxy:  true,
+			APIKey: c2tSecret, APIKeyInject: config.InjectHeader, APIKeyHeader: "X-Api-Key",
+			Response: config.Response{Mode: config.ModeDirect},
+		},
+		"c2t-buildings": {
+			URL: base + "/api/v1/buildings", Method: "GET", Timeout: dur(2 * time.Second),
+			Proxy:  true,
+			APIKey: c2tSecret, APIKeyInject: config.InjectHeader, APIKeyHeader: "X-Api-Key",
 			Response: config.Response{Mode: config.ModeDirect},
 		},
 		// meme's verified poll contract: id in "id", status at
@@ -1133,12 +1221,17 @@ func (h *harness) countsStep(withPolls bool) map[string]any {
 		"meme_accept_calls":            h.acceptCalls.Load(),
 		"meme_cancel_calls":            h.cancelCalls.Load(),
 		"buem_calls":                   h.gatewayCalls.Load(),
+		"buem_buildings_calls":         h.buemBatchCalls.Load(),
 		"buem_building_calls":          h.buildingCalls.Load(),
 		"ignis_calculate_calls":        h.calculateCalls.Load(),
 		"ignis_variants_match_calls":   h.variantsMatchCalls.Load(),
 		"ignis_data_calls":             h.ignisDataCalls.Load(),
 		"ignis_fields_calls":           h.ignisFieldsCalls.Load(),
 		"ignis_variants_calls":         h.ignisVariantsCalls.Load(),
+		"weather_point_calls":          h.weatherPointCalls.Load(),
+		"c2t_trigger_run_calls":        h.c2tTriggerRunCalls.Load(),
+		"c2t_run_status_calls":         h.c2tRunStatusCalls.Load(),
+		"c2t_buildings_calls":          h.c2tBuildingsCalls.Load(),
 		"callback_calls":               h.callbackCalls.Load(),
 		"unexpected_upstream_requests": unexpected,
 	}

@@ -403,7 +403,7 @@ func TestLoadFullExample(t *testing.T) {
 	for _, v := range []string{
 		"TENTACRON_KEY_FRONTEND", "TENTACRON_KEY_BATCH",
 		"MEME_API_KEY", "BUEM_API_KEY", "PV1_API_KEY", "WIND_API_KEY",
-		"WEATHER_API_KEY", "IGNIS_API_KEY",
+		"WEATHER_API_KEY", "IGNIS_API_KEY", "CITY2TABULA_API_KEY",
 	} {
 		t.Setenv(v, "test-"+v)
 	}

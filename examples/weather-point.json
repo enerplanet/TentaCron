@@ -1,0 +1,12 @@
+{
+  "api_key": "your-tentacron-api-key",
+  "target": "weather-point",
+  "payload": {
+    "lat": 48.83,
+    "lon": 12.95,
+    "year": 2018,
+    "provider": "era5-land",
+    "use_case": "solar",
+    "format": "json"
+  }
+}

@@ -106,7 +106,11 @@
   },
   {
     "buem_building_calls": 0,
+    "buem_buildings_calls": 0,
     "buem_calls": 0,
+    "c2t_buildings_calls": 0,
+    "c2t_run_status_calls": 0,
+    "c2t_trigger_run_calls": 0,
     "callback_calls": 0,
     "demo_calls": 1,
     "ignis_calculate_calls": 0,
@@ -120,6 +124,7 @@
     "meme_status_calls": "not asserted (timing-dependent)",
     "resource_calls": 2,
     "step": "upstream call counts",
-    "unexpected_upstream_requests": []
+    "unexpected_upstream_requests": [],
+    "weather_point_calls": 0
   }
 ]

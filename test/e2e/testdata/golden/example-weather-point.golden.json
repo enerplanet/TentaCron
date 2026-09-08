@@ -9,7 +9,7 @@
       "state": "received"
     },
     "status": 202,
-    "step": "submit through a proxy target with body-field key injection"
+    "step": "submit examples/weather-point.json"
   },
   {
     "request": "GET /v1/requests/{id}",
@@ -21,32 +21,45 @@
       "id": "«job-1»",
       "result": {
         "target_response": {
-          "ok": true
+          "index": [
+            "2018-01-01T00:30:00Z",
+            "2018-01-01T01:30:00Z"
+          ],
+          "provider": "era5-land",
+          "variables": {
+            "DHI": [
+              0.0,
+              0.0
+            ],
+            "DNI": [
+              0.0,
+              0.0
+            ],
+            "GHI": [
+              0.0,
+              0.0
+            ],
+            "T2m": [
+              1.0,
+              1.2
+            ]
+          }
         },
         "target_status": 200
       },
       "state": "completed",
-      "target": "proxy-demo",
+      "target": "weather-point",
       "updated_at": "«ts»"
     },
     "status": 200,
     "step": "final state"
   },
   {
-    "endpoint": "demo",
-    "step": "payload the target received (key injected, resolvent untouched)",
-    "target_auth_header": "",
-    "target_path": "/run",
-    "target_received": {
-      "api_key": "demo-golden-secret",
-      "time-series": [
-        {
-          "lat": 48.83,
-          "type": "resolvent-pv1"
-        }
-      ],
-      "zeta": 1
-    }
+    "endpoint": "weather-point",
+    "step": "request weather-serve received (every field in the query, no body)",
+    "target_auth_header": "weather-golden-secret",
+    "target_path": "/v1/weather/point?format=json\u0026lat=48.83\u0026lon=12.95\u0026provider=era5-land\u0026use_case=solar\u0026year=2018",
+    "target_received": ""
   },
   {
     "audit_trail": [
@@ -55,7 +68,7 @@
       "resolving → forwarding: proxy target: payload handed through unresolved",
       "forwarding → completed: target responded with status 200"
     ],
-    "step": "audit trail"
+    "step": "audit trail (handed through, nothing resolved)"
   },
   {
     "buem_building_calls": 0,
@@ -65,7 +78,7 @@
     "c2t_run_status_calls": 0,
     "c2t_trigger_run_calls": 0,
     "callback_calls": 0,
-    "demo_calls": 1,
+    "demo_calls": 0,
     "ignis_calculate_calls": 0,
     "ignis_data_calls": 0,
     "ignis_fields_calls": 0,
@@ -73,11 +86,11 @@
     "ignis_variants_match_calls": 0,
     "meme_accept_calls": 0,
     "meme_cancel_calls": 0,
-    "meme_result_calls": 0,
-    "meme_status_calls": 0,
+    "meme_result_calls": "not asserted (timing-dependent)",
+    "meme_status_calls": "not asserted (timing-dependent)",
     "resource_calls": 0,
     "step": "upstream call counts",
     "unexpected_upstream_requests": [],
-    "weather_point_calls": 0
+    "weather_point_calls": 1
   }
 ]

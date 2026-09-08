@@ -94,6 +94,19 @@ targets:
     response:
       mode: direct
 
+  buem-buildings:
+    # Plain passthrough proxy for the batch endpoint; see ../config.example.yaml.
+    # Keyless: only buem-reverse-proxy (host 8443) reads X-Api-Key, not the
+    # app container.
+    url: "http://buem-gateway:8080/api/v1/buem/buildings"
+    method: POST
+    timeout: 570s # kept under the 10m outbound-client ceiling
+    proxy: true
+    max_attempts: 1
+    retry_on_timeout: false
+    response:
+      mode: direct
+
   ignis-calculate:
     # Proxy target; see ../config.example.yaml for the annotated (through-proxy)
     # entry. This environment reaches ignis-app directly on the
@@ -137,6 +150,51 @@ targets:
     url: "http://ignis-app:8080/api/v1/variants/{iso2}"
     method: GET
     timeout: 10s
+    proxy: true
+    response:
+      mode: direct
+
+  weather-point:
+    # GET proxy target; see ../config.example.yaml for the annotated entry.
+    # Unlike the ignis targets this environment still injects the key:
+    # weather-serve's Flask before_request checks X-API-Key on every route,
+    # same-network or not.
+    url: "http://weather-serve:8080/v1/weather/point"
+    method: GET
+    api_key: "${WEATHER_API_KEY}"
+    api_key_inject: header
+    api_key_header: X-API-Key
+    timeout: 45s
+    proxy: true
+    response:
+      mode: direct
+
+  c2t-trigger-run:
+    # POST proxy; see ../config.example.yaml. Keyless here: city2tabula's
+    # on-request server enforces no auth. max_attempts 1 + retry_on_timeout
+    # false because a run is expensive and not idempotent.
+    url: "http://city2tabula-server:5000/api/v1/runs"
+    method: POST
+    timeout: 30s
+    proxy: true
+    max_attempts: 1
+    retry_on_timeout: false
+    response:
+      mode: direct
+
+  c2t-run-status:
+    url: "http://city2tabula-server:5000/api/v1/runs/{run_id}"
+    method: GET
+    timeout: 10s
+    proxy: true
+    response:
+      mode: direct
+
+  c2t-buildings:
+    # country + osm_ids to the query; a JSON null body on an empty result.
+    url: "http://city2tabula-server:5000/api/v1/buildings"
+    method: GET
+    timeout: 30s
     proxy: true
     response:
       mode: direct

@@ -1,0 +1,11 @@
+{
+  "api_key": "your-tentacron-api-key",
+  "target": "c2t-trigger-run",
+  "payload": {
+    "country": "germany",
+    "xmin": 8.79,
+    "ymin": 53.06,
+    "xmax": 8.82,
+    "ymax": 53.08
+  }
+}

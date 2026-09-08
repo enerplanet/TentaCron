@@ -9,7 +9,7 @@
       "state": "received"
     },
     "status": 202,
-    "step": "submit examples/big-numbers.json"
+    "step": "submit examples/c2t-trigger-run.json"
   },
   {
     "request": "GET /v1/requests/{id}",
@@ -21,44 +21,40 @@
       "id": "«job-1»",
       "result": {
         "target_response": {
-          "ok": true
+          "country": "germany",
+          "run_id": "run-golden-1",
+          "status": "queued"
         },
-        "target_status": 200
+        "target_status": 202
       },
       "state": "completed",
-      "target": "demo",
+      "target": "c2t-trigger-run",
       "updated_at": "«ts»"
     },
     "status": 200,
     "step": "final state"
   },
   {
-    "endpoint": "demo",
-    "step": "payload with integers above 2^53 — digits must be exact",
-    "target_auth_header": "demo-golden-secret",
-    "target_path": "/run",
+    "endpoint": "c2t-trigger-run",
+    "step": "bbox city2tabula received (whole body, no placeholder)",
+    "target_auth_header": "c2t-golden-secret",
+    "target_path": "/api/v1/runs",
     "target_received": {
-      "meter_id": 1234567890123456789,
-      "scenario": "number-fidelity",
-      "site_ref": 9007199254740993,
-      "time-series": [
-        {
-          "resolvent": {
-            "asset_id": 9223372036854775807,
-            "capacity_kw": 12.5,
-            "name": "pv_metered",
-            "type": "resolvent-pv1"
-          },
-          "type": "time-series",
-          "unit": "kW",
-          "values": [
-            0.1,
-            0.7,
-            1.3
-          ]
-        }
-      ]
+      "country": "germany",
+      "xmax": 8.82,
+      "xmin": 8.79,
+      "ymax": 53.08,
+      "ymin": 53.06
     }
+  },
+  {
+    "audit_trail": [
+      "∅ → received: job accepted",
+      "received → resolving: claimed by worker",
+      "resolving → forwarding: proxy target: payload handed through unresolved",
+      "forwarding → completed: target responded with status 202"
+    ],
+    "step": "audit trail (handed through, nothing resolved)"
   },
   {
     "buem_building_calls": 0,
@@ -66,9 +62,9 @@
     "buem_calls": 0,
     "c2t_buildings_calls": 0,
     "c2t_run_status_calls": 0,
-    "c2t_trigger_run_calls": 0,
+    "c2t_trigger_run_calls": 1,
     "callback_calls": 0,
-    "demo_calls": 1,
+    "demo_calls": 0,
     "ignis_calculate_calls": 0,
     "ignis_data_calls": 0,
     "ignis_fields_calls": 0,
@@ -78,7 +74,7 @@
     "meme_cancel_calls": 0,
     "meme_result_calls": "not asserted (timing-dependent)",
     "meme_status_calls": "not asserted (timing-dependent)",
-    "resource_calls": 1,
+    "resource_calls": 0,
     "step": "upstream call counts",
     "unexpected_upstream_requests": [],
     "weather_point_calls": 0

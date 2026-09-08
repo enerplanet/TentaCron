@@ -9,7 +9,7 @@
       "state": "received"
     },
     "status": 202,
-    "step": "submit examples/buem-buildings.json"
+    "step": "submit examples/buem-batch.json"
   },
   {
     "request": "GET /v1/requests/{id}",
@@ -35,28 +35,26 @@
               }
             },
             "id": "b-1"
+          },
+          {
+            "error": "no envelope elements resolved",
+            "id": "b-2"
           }
         ],
         "target_status": 200
       },
       "state": "completed",
-      "target": "buem",
+      "target": "buem-buildings",
       "updated_at": "«ts»"
     },
     "status": 200,
     "step": "final state"
   },
   {
-    "resource_get_requests": [
-      "GET /point?format=json\u0026lat=48.831\u0026lon=12.957\u0026provider=era5-land\u0026use_case=solar\u0026year=2018"
-    ],
-    "step": "exact weather point query sent"
-  },
-  {
-    "endpoint": "buem",
-    "step": "payload buem-gateway received (weather substituted, marker-free)",
+    "endpoint": "buem-buildings",
+    "step": "batch body buem-gateway received (verbatim, marker-free)",
     "target_auth_header": "buem-golden-secret",
-    "target_path": "/api/v1/buem/buildings",
+    "target_path": "/api/v1/buem/batch",
     "target_received": {
       "buildings": [
         {
@@ -99,6 +97,47 @@
             "type": "Point"
           },
           "id": "b-1"
+        },
+        {
+          "building": {
+            "building_type": "MFH",
+            "construction_period": "06",
+            "country": "DE",
+            "envelope": {
+              "elements": [
+                {
+                  "U": {
+                    "unit": "W/(m2K)",
+                    "value": 1.2
+                  },
+                  "area": {
+                    "unit": "m2",
+                    "value": 120
+                  },
+                  "azimuth": {
+                    "unit": "deg",
+                    "value": 0
+                  },
+                  "id": "Roof_1",
+                  "name": "Flat Roof",
+                  "tilt": {
+                    "unit": "deg",
+                    "value": 0
+                  },
+                  "type": "roof"
+                }
+              ]
+            },
+            "n_storeys": 4
+          },
+          "geometry": {
+            "coordinates": [
+              12.958,
+              48.832
+            ],
+            "type": "Point"
+          },
+          "id": "b-2"
         }
       ],
       "end_date": "2018-12-31T23:00:00Z",
@@ -127,15 +166,15 @@
     "audit_trail": [
       "∅ → received: job accepted",
       "received → resolving: claimed by worker",
-      "resolving → forwarding: resolved 1 resolvent(s), 0 from cache",
+      "resolving → forwarding: proxy target: payload handed through unresolved",
       "forwarding → completed: target responded with status 200"
     ],
-    "step": "audit trail"
+    "step": "audit trail (handed through, nothing resolved)"
   },
   {
     "buem_building_calls": 0,
-    "buem_buildings_calls": 0,
-    "buem_calls": 1,
+    "buem_buildings_calls": 1,
+    "buem_calls": 0,
     "c2t_buildings_calls": 0,
     "c2t_run_status_calls": 0,
     "c2t_trigger_run_calls": 0,
@@ -150,7 +189,7 @@
     "meme_cancel_calls": 0,
     "meme_result_calls": "not asserted (timing-dependent)",
     "meme_status_calls": "not asserted (timing-dependent)",
-    "resource_calls": 1,
+    "resource_calls": 0,
     "step": "upstream call counts",
     "unexpected_upstream_requests": [],
     "weather_point_calls": 0

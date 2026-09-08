@@ -19,6 +19,26 @@
           "timeseries_path": "."
         },
         {
+          "name": "buem-buildings",
+          "proxy": true,
+          "response_mode": "direct"
+        },
+        {
+          "name": "c2t-buildings",
+          "proxy": true,
+          "response_mode": "direct"
+        },
+        {
+          "name": "c2t-run-status",
+          "proxy": true,
+          "response_mode": "direct"
+        },
+        {
+          "name": "c2t-trigger-run",
+          "proxy": true,
+          "response_mode": "direct"
+        },
+        {
           "attach_resolvent": true,
           "name": "demo",
           "proxy": false,
@@ -56,6 +76,11 @@
           "proxy": false,
           "response_mode": "poll",
           "timeseries_path": "model.timeseries"
+        },
+        {
+          "name": "weather-point",
+          "proxy": true,
+          "response_mode": "direct"
         }
       ]
     },

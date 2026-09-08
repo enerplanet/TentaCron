@@ -132,6 +132,27 @@ targets:
     response:
       mode: direct
 
+  buem-buildings:
+    # buem-gateway's batch endpoint as a PLAIN passthrough proxy: the whole
+    # request body ({start_date, end_date, resolution, model_id, weather,
+    # buildings:[...]}) is forwarded verbatim, no resolvent scanning. Distinct
+    # from the `buem` target above, which resolves a weather resolvent in the
+    # same body. Never retries: a resend re-runs every building through BuEM,
+    # and an overlapping resend risks a torn result write.
+    url: "https://buem-gateway.example.com/api/v1/buem/buildings"
+    method: POST
+    api_key: "${BUEM_API_KEY}"
+    api_key_inject: header
+    api_key_header: X-Api-Key
+    timeout: 570s # the gateway holds the connection for the whole batch;
+    # kept under the 10m outbound-client ceiling. A batch that runs longer
+    # fails with target_timeout (not retried).
+    proxy: true
+    max_attempts: 1
+    retry_on_timeout: false
+    response:
+      mode: direct
+
   ignis-calculate:
     # Proxy target: tentacron contributes auth, persistence, audit and
     # retries but hands the payload through unresolved — no resolvent
@@ -199,6 +220,68 @@ targets:
     api_key_inject: header
     api_key_header: X-Api-Key
     timeout: 10s
+    proxy: true
+    response:
+      mode: direct
+
+  weather-point:
+    # GET proxy target for enerplanet/weather's point-query API. All six
+    # top-level fields (lat, lon, year, provider, use_case, format) become
+    # query parameters; no path placeholder, no body, no query_map (the
+    # parameter names match the payload keys). The backend always sends
+    # use_case=solar and format=json; without format the API returns parquet
+    # bytes rather than JSON.
+    url: "https://weather.example.com/v1/weather/point"
+    method: GET
+    api_key: "${WEATHER_API_KEY}"
+    api_key_inject: header
+    api_key_header: X-API-Key
+    timeout: 45s # the first uncached point runs a slow pvlib reconstruction
+    proxy: true
+    response:
+      mode: direct
+
+  c2t-trigger-run:
+    # POST proxy target for city2tabula's on-request server. The whole
+    # payload ({country, xmin, ymin, xmax, ymax}) is forwarded as the JSON
+    # body; no {field} placeholder. A pipeline run is expensive and not
+    # idempotent (no idempotency key), so this target never retries: one
+    # POST is one run, a resend would start a second.
+    url: "https://city2tabula.example.com/api/v1/runs"
+    method: POST
+    api_key: "${CITY2TABULA_API_KEY}"
+    api_key_inject: header
+    api_key_header: X-Api-Key
+    timeout: 30s
+    proxy: true
+    max_attempts: 1 # never resend: a POST is a full pipeline run
+    retry_on_timeout: false # a mid-send timeout may still have started the run
+    response:
+      mode: direct
+
+  c2t-run-status:
+    # GET proxy target: run_id fills the path, no query, no body. A plain
+    # read, safe to retry on a transient failure.
+    url: "https://city2tabula.example.com/api/v1/runs/{run_id}"
+    method: GET
+    api_key: "${CITY2TABULA_API_KEY}"
+    api_key_inject: header
+    api_key_header: X-Api-Key
+    timeout: 10s
+    proxy: true
+    response:
+      mode: direct
+
+  c2t-buildings:
+    # GET proxy target: country and osm_ids (a pre-joined comma string) both
+    # become query parameters; no path placeholder, no body. An empty result
+    # is a JSON null body, forwarded verbatim.
+    url: "https://city2tabula.example.com/api/v1/buildings"
+    method: GET
+    api_key: "${CITY2TABULA_API_KEY}"
+    api_key_inject: header
+    api_key_header: X-Api-Key
+    timeout: 30s
     proxy: true
     response:
       mode: direct

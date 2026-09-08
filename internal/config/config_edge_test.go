@@ -471,7 +471,7 @@ func TestEnvironmentConfigLoads(t *testing.T) {
 	for _, v := range []string{
 		"TENTACRON_KEY_FRONTEND", "TENTACRON_KEY_BATCH",
 		"MEME_API_KEY", "BUEM_API_KEY", "PV1_API_KEY", "WIND_API_KEY",
-		"WEATHER_API_KEY", "IGNIS_API_KEY",
+		"WEATHER_API_KEY", "IGNIS_API_KEY", "CITY2TABULA_API_KEY",
 	} {
 		t.Setenv(v, "test-"+v)
 	}
@@ -693,7 +693,7 @@ targets:
 // and resolvent with its routing knobs, sorted, and never a credential.
 func TestDescribeListsEverythingWithoutSecrets(t *testing.T) {
 	for _, v := range []string{"TENTACRON_KEY_FRONTEND", "TENTACRON_KEY_BATCH", "MEME_API_KEY", "BUEM_API_KEY",
-		"PV1_API_KEY", "WIND_API_KEY", "WEATHER_API_KEY", "IGNIS_API_KEY"} {
+		"PV1_API_KEY", "WIND_API_KEY", "WEATHER_API_KEY", "IGNIS_API_KEY", "CITY2TABULA_API_KEY"} {
 		t.Setenv(v, "secret-"+v)
 	}
 	cfg, err := Load("../../config.example.yaml")
@@ -701,7 +701,7 @@ func TestDescribeListsEverythingWithoutSecrets(t *testing.T) {
 		t.Fatal(err)
 	}
 	out := Describe(cfg)
-	for _, want := range []string{"9 target(s)", "7 resolvent type(s)", "  buem ", "poll", "proxy",
+	for _, want := range []string{"14 target(s)", "7 resolvent type(s)", "  buem ", "poll", "proxy",
 		"not retried on timeout", "via target buem-building", "response path buem.thermal_load_profile.timeseries",
 		"resolvents in model.timeseries", "key via body_field"} {
 		if !strings.Contains(out, want) {
