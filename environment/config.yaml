@@ -46,13 +46,29 @@ cache:
 
 targets:
   meme:
-    url: "https://meme.example.com/simulate?target=all"
+    # The host stays a placeholder: meme runs no container in this stack, its
+    # compose declares no container_name, and this project joins neither its
+    # network nor spatialhub-net. Point it at the service once it is wired in.
+    #
+    # attach_resolvent false because meme decodes a timeseries entry with
+    # DisallowUnknownFields: the "resolvent" echo tentacron adds for
+    # traceability would be an unknown field and the job would 400. Each
+    # resolvent feeding this target also needs a response_map emitting only
+    # {source, values, unit} — see resolvent-buem.
+    #
+    # job_timeout covers resolution plus the forward, not the polling that
+    # follows (a poll tick is not a processing attempt). A few hundred
+    # buildings resolve worker.resolvent_concurrency at a time, so the budget
+    # has to cover ceil(N / concurrency) rounds of one buem run each.
+    url: "https://meme.example.com/simulate?target=pypsa"
     method: POST
     api_key: "${MEME_API_KEY}"
     api_key_inject: body_field
     api_key_field: api_key
     timeout: 60s
+    job_timeout: 45m
     timeseries_path: "model.timeseries"
+    attach_resolvent: false
     response:
       mode: poll
       poll:
@@ -482,7 +498,17 @@ resolvents:
 
   resolvent-buem:
     # See ../config.example.yaml for the annotated entry.
+    #
+    # response_map is a whitelist: only its own keys reach the substituted
+    # object. It is what keeps the slot to a meme TimeSeries, since the
+    # extracted BuEM profile carries heating and timestamps, which meme
+    # decodes with DisallowUnknownFields and rejects. Paths are relative to
+    # response_path, applied first.
     target: buem-building
     payload_field: payload
     response_path: "buem.thermal_load_profile.timeseries"
+    response_map:
+      source: inline
+      values: ".heating"
+      unit: ".unit"
     cache_ttl: 24h
