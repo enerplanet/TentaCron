@@ -162,6 +162,34 @@ var exampleScenarios = []scenario{
 		// A POST proxy target with no {field} placeholder: the whole bbox
 		// payload is forwarded as the JSON body verbatim. max_attempts 1 so a
 		// non-idempotent pipeline run is never resent.
+		// The per-building chain repeated: two buildings, each with its own
+		// city2tabula lookup, ignis typology and BuEM run, plus one weather
+		// resolvent both share. Every referenced name is distinct, which the
+		// reference binding requires. It exercises a name→object registry
+		// under model.timeseries; it is not the payload shape sent to a real
+		// MEME job, which carries aggregated node series and no resolvents.
+		name: "example-chain-per-building",
+		run: func(t *testing.T, h *harness) {
+			id := h.post("submit examples/chain-per-building.json", exampleRequest(t, "chain-per-building.json"), nil)
+			h.await("final state", id)
+			h.forwarded("composed payload the target received", "meme")
+			h.events("audit trail (seven resolvents over three chain levels)", id)
+			h.counts()
+		},
+	},
+	{
+		// A POST proxy target that creates something: the whole payload is
+		// handed to pylovo unresolved, and one attempt is all it gets.
+		name: "example-pylovo-generate-grid",
+		run: func(t *testing.T, h *harness) {
+			id := h.post("submit examples/pylovo-generate-grid.json", exampleRequest(t, "pylovo-generate-grid.json"), nil)
+			h.await("final state", id)
+			h.forwarded("polygon pylovo received (whole body, no placeholder)", "pylovo-generate-grid")
+			h.events("audit trail (handed through, nothing resolved)", id)
+			h.counts()
+		},
+	},
+	{
 		name: "example-c2t-trigger-run",
 		run: func(t *testing.T, h *harness) {
 			id := h.post("submit examples/c2t-trigger-run.json", exampleRequest(t, "c2t-trigger-run.json"), nil)

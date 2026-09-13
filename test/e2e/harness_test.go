@@ -90,6 +90,7 @@ type fakes struct {
 	c2tTriggerRun func(call int64) reply              // POST <target>/api/v1/runs (city2tabula; POST proxy target, no placeholder)
 	c2tRunStatus  func(call int64) reply              // GET  <target>/api/v1/runs/{run_id} (city2tabula; GET proxy target)
 	c2tBuildings  func(call int64) reply              // GET  <target>/api/v1/buildings (city2tabula; GET proxy target)
+	pylovoGrid    func(call int64) reply              // POST <target>/generate-grid (pylovo; POST proxy target, one attempt)
 	callback      func(call int64) reply              // POST <callbacks>/hook (the client's completion-callback receiver)
 	directDelay   func(call int64) time.Duration      // latency before the demo target answers a given call (deadline and scheduling scenarios)
 	statusDelay   func(call int64) time.Duration      // latency before a status poll answers; outside the poll-interval band, see pollDelay
@@ -236,6 +237,14 @@ func (f fakes) withTargetDefaults() fakes {
 			return reply{200, `[{"object_id":"DEHB01AL3AU0004T","number_of_storeys":2,"tabula_variant_code":"DE.N.SFH.04.Gen.ReEx.001.001"}]`, ""}
 		}
 	}
+	if f.pylovoGrid == nil {
+		// POST /generate-grid: the phase-1 grid with a footprint per
+		// building. The real response carries one such feature per building
+		// and no pagination, which is what keeps the model size bounded.
+		f.pylovoGrid = func(int64) reply {
+			return reply{200, `{"grid_id":"grid-golden-1","version_id":"v1","transformers":[{"id":1,"capacity_kva":630}],"buildings":{"type":"FeatureCollection","features":[{"type":"Feature","properties":{"osm_id":"way/123","peak_load_kw":12.5},"geometry":{"type":"Polygon","coordinates":[[[12.957,48.831],[12.958,48.831],[12.958,48.832],[12.957,48.831]]]}}]}}`, ""}
+		}
+	}
 	return f
 }
 
@@ -250,6 +259,7 @@ type harness struct {
 	buemBatchCalls                                                                                                            atomic.Int64
 	variantsMatchCalls, ignisDataCalls, ignisFieldsCalls, ignisVariantsCalls, weatherPointCalls                               atomic.Int64
 	c2tTriggerRunCalls, c2tRunStatusCalls, c2tBuildingsCalls                                                                  atomic.Int64
+	pylovoGridCalls                                                                                                           atomic.Int64
 	callbackCalls                                                                                                             atomic.Int64
 	callbacks                                                                                                                 *httptest.Server // the client's TLS callback receiver
 	deliveries                                                                                                                []map[string]any // what the receiver saw, in order
@@ -417,6 +427,7 @@ func (h *harness) startTargetFake(f fakes) *httptest.Server {
 	mux.HandleFunc("POST /api/v1/runs", h.capturing("c2t-trigger-run", &h.c2tTriggerRunCalls, f.c2tTriggerRun, nil))
 	mux.HandleFunc("GET /api/v1/runs/{run_id}", h.capturing("c2t-run-status", &h.c2tRunStatusCalls, f.c2tRunStatus, nil))
 	mux.HandleFunc("GET /api/v1/buildings", h.capturing("c2t-buildings", &h.c2tBuildingsCalls, f.c2tBuildings, nil))
+	mux.HandleFunc("POST /generate-grid", h.capturing("pylovo-generate-grid", &h.pylovoGridCalls, f.pylovoGrid, nil))
 	mux.HandleFunc("GET /jobs/{id}/status", func(w http.ResponseWriter, r *http.Request) {
 		call := h.statusCalls.Add(1)
 		if h.pollDelay(w, r, "status", f.statusDelay, call) {
@@ -650,6 +661,14 @@ func goldenTargets(base string) map[string]config.Target {
 			URL: base + "/api/v1/buildings", Method: "GET", Timeout: dur(2 * time.Second),
 			Proxy:  true,
 			APIKey: c2tSecret, APIKeyInject: config.InjectHeader, APIKeyHeader: "X-Api-Key",
+			Response: config.Response{Mode: config.ModeDirect},
+		},
+		// pylovo's grid generator. A POST proxy target that creates a grid,
+		// so one attempt and never re-submitted on a timeout. Keyless: the
+		// pylovo API enforces no auth.
+		"pylovo-generate-grid": {
+			URL: base + "/generate-grid", Method: "POST", Timeout: dur(2 * time.Second),
+			Proxy: true, MaxAttempts: 1, RetryOnTimeout: boolPtr(false),
 			Response: config.Response{Mode: config.ModeDirect},
 		},
 		// meme's verified poll contract: id in "id", status at

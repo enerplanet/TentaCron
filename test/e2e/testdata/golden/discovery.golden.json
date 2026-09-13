@@ -78,6 +78,11 @@
           "timeseries_path": "model.timeseries"
         },
         {
+          "name": "pylovo-generate-grid",
+          "proxy": true,
+          "response_mode": "direct"
+        },
+        {
           "name": "weather-point",
           "proxy": true,
           "response_mode": "direct"
