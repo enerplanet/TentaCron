@@ -199,6 +199,226 @@ targets:
     response:
       mode: direct
 
+  # pylovo (synthetic low-voltage grids), one proxy target per path and
+  # method. Keyless: the pylovo API enforces no auth. See
+  # ../config.example.yaml for the annotated entry.
+  #
+  # pylovo-api-dev is not on this stack's networks yet, so these URLs do not
+  # resolve from here until the environment compose file joins spatialhub-net.
+  #
+  # DELETE /custom-buildings/{building_id} has no entry: config.validMethod
+  # accepts GET, POST, PUT and PATCH only.
+
+  pylovo-generate-grid:
+    # Phase 1 grid generation. Expensive and not idempotent, so one attempt
+    # and no re-submission on a timeout. Models are capped near 300
+    # buildings, which keeps the footprint response under
+    # upstream.max_response_bytes; an uncapped city polygon would exceed it
+    # and fail the job with target_error.
+    url: "http://pylovo-api-dev:8086/generate-grid"
+    method: POST
+    timeout: 300s
+    job_timeout: 10m
+    proxy: true
+    max_attempts: 1
+    retry_on_timeout: false
+    response:
+      mode: direct
+
+  pylovo-estimate-energy:
+    url: "http://pylovo-api-dev:8086/estimate-energy"
+    method: POST
+    timeout: 30s
+    proxy: true
+    response:
+      mode: direct
+
+  pylovo-estimate-energy-batch:
+    url: "http://pylovo-api-dev:8086/estimate-energy-batch"
+    method: POST
+    timeout: 120s
+    proxy: true
+    response:
+      mode: direct
+
+  pylovo-grid-statistics:
+    url: "http://pylovo-api-dev:8086/grid-statistics"
+    method: POST
+    timeout: 60s
+    proxy: true
+    response:
+      mode: direct
+
+  pylovo-power-flow:
+    url: "http://pylovo-api-dev:8086/power-flow"
+    method: POST
+    timeout: 120s
+    proxy: true
+    response:
+      mode: direct
+
+  pylovo-hosting-capacity:
+    url: "http://pylovo-api-dev:8086/hosting-capacity"
+    method: POST
+    timeout: 120s
+    proxy: true
+    response:
+      mode: direct
+
+  pylovo-boundary:
+    # POST: the boundary of a caller-supplied polygon.
+    url: "http://pylovo-api-dev:8086/boundary"
+    method: POST
+    timeout: 60s
+    proxy: true
+    response:
+      mode: direct
+
+  pylovo-boundary-get:
+    # GET: lat, lon and optional admin_level become query parameters.
+    url: "http://pylovo-api-dev:8086/boundary"
+    method: GET
+    timeout: 30s
+    proxy: true
+    response:
+      mode: direct
+
+  pylovo-boundary-regions:
+    url: "http://pylovo-api-dev:8086/boundary/regions"
+    method: GET
+    timeout: 30s
+    proxy: true
+    response:
+      mode: direct
+
+  pylovo-boundary-states:
+    # country_code, version_id, geometry_mode and simplify_m to the query.
+    url: "http://pylovo-api-dev:8086/boundary/states"
+    method: GET
+    timeout: 60s # a state geometry, unsimplified, is large
+    proxy: true
+    response:
+      mode: direct
+
+  pylovo-boundary-available:
+    url: "http://pylovo-api-dev:8086/boundary/available"
+    method: GET
+    timeout: 30s
+    proxy: true
+    response:
+      mode: direct
+
+  pylovo-add-custom-building:
+    # Creates a row; one attempt, never re-submitted on a timeout.
+    url: "http://pylovo-api-dev:8086/add-custom-building"
+    method: POST
+    timeout: 30s
+    proxy: true
+    max_attempts: 1
+    retry_on_timeout: false
+    response:
+      mode: direct
+
+  pylovo-custom-buildings-get:
+    # user_id fills the path segment and is stripped from the forwarded body.
+    url: "http://pylovo-api-dev:8086/custom-buildings/{user_id}"
+    method: GET
+    timeout: 30s
+    proxy: true
+    response:
+      mode: direct
+
+  pylovo-add-transformer:
+    url: "http://pylovo-api-dev:8086/add-transformer"
+    method: POST
+    timeout: 30s
+    proxy: true
+    max_attempts: 1
+    retry_on_timeout: false
+    response:
+      mode: direct
+
+  pylovo-assign-building:
+    url: "http://pylovo-api-dev:8086/assign-building"
+    method: POST
+    timeout: 30s
+    proxy: true
+    max_attempts: 1
+    retry_on_timeout: false
+    response:
+      mode: direct
+
+  pylovo-delete-transformer:
+    url: "http://pylovo-api-dev:8086/delete-transformer"
+    method: POST
+    timeout: 30s
+    proxy: true
+    max_attempts: 1
+    retry_on_timeout: false
+    response:
+      mode: direct
+
+  pylovo-move-transformer:
+    url: "http://pylovo-api-dev:8086/move-transformer"
+    method: POST
+    timeout: 30s
+    proxy: true
+    max_attempts: 1
+    retry_on_timeout: false
+    response:
+      mode: direct
+
+  pylovo-finalize-transformers:
+    url: "http://pylovo-api-dev:8086/finalize-transformers"
+    method: POST
+    timeout: 60s
+    proxy: true
+    max_attempts: 1
+    retry_on_timeout: false
+    response:
+      mode: direct
+
+  # Reference data: no parameters, no body.
+  pylovo-transformer-sizes:
+    url: "http://pylovo-api-dev:8086/transformer-sizes"
+    method: GET
+    timeout: 10s
+    proxy: true
+    response:
+      mode: direct
+
+  pylovo-consumer-categories:
+    url: "http://pylovo-api-dev:8086/consumer-categories"
+    method: GET
+    timeout: 10s
+    proxy: true
+    response:
+      mode: direct
+
+  pylovo-cable-types:
+    url: "http://pylovo-api-dev:8086/cable-types"
+    method: GET
+    timeout: 10s
+    proxy: true
+    response:
+      mode: direct
+
+  pylovo-equipment-costs:
+    url: "http://pylovo-api-dev:8086/equipment-costs"
+    method: GET
+    timeout: 10s
+    proxy: true
+    response:
+      mode: direct
+
+  pylovo-voltage-settings:
+    url: "http://pylovo-api-dev:8086/voltage-settings"
+    method: GET
+    timeout: 10s
+    proxy: true
+    response:
+      mode: direct
+
 resolvents:
   # pv1/wind are illustrative POST entries; see ../config.example.yaml.
   resolvent-pv1:

@@ -286,6 +286,37 @@ targets:
     response:
       mode: direct
 
+  pylovo-generate-grid:
+    # One proxy target per pylovo path and method, named
+    # pylovo-<path-kebab>, with -get or -delete where a path serves two
+    # verbs (pylovo-boundary is the POST, pylovo-boundary-get the GET).
+    # environment/config.yaml carries the full set; this is the annotated
+    # one, and the one with constraints worth stating.
+    #
+    # Grid generation creates a grid and is expensive, so max_attempts 1 and
+    # retry_on_timeout false: a re-submission would run it twice.
+    #
+    # The response returns a building footprint per building, roughly 1 KB
+    # each, with no pagination. A direct-mode target reads the response into
+    # memory under upstream.max_response_bytes, so a request whose polygon
+    # covers a whole city exceeds the cap and fails the job with
+    # target_error, without truncation and without a retry. Keep the model
+    # within a few hundred buildings, or raise the cap.
+    #
+    # A path parameter is a {field} placeholder filled from the payload's
+    # top level and stripped from the forwarded body; on a GET target every
+    # remaining field becomes a query parameter. Values are escaped for one
+    # path segment, so a placeholder cannot span a "/".
+    url: "https://pylovo.example.com/generate-grid"
+    method: POST
+    timeout: 300s
+    job_timeout: 10m
+    proxy: true
+    max_attempts: 1
+    retry_on_timeout: false
+    response:
+      mode: direct
+
   demo:
     # Minimal direct-mode target illustrating the default "time-series"
     # array container; the generic example requests point here.
