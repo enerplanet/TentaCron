@@ -215,6 +215,26 @@ targets:
     response:
       mode: direct
 
+  c2t-coverage:
+    # How many city2tabula buildings in an extent are linked to a pylovo input
+    # building, which is what makes an area modellable. Requires country plus
+    # xmin/ymin/xmax/ymax; all five are plain payload fields and reach the
+    # query unchanged, so no query_map. The answer is a single count, a few
+    # bytes.
+    #
+    # max_attempts 2 because the failure that matters here is not transient: a
+    # country whose building_link table has not been built answers 500, which
+    # the client classifies as retryable, and five attempts would spend about
+    # 30s of backoff before reporting it. This backs a synchronous
+    # availability check, so it should fail fast enough to answer the caller.
+    url: "http://city2tabula-server:5000/api/v1/coverage"
+    method: GET
+    timeout: 10s
+    proxy: true
+    max_attempts: 2
+    response:
+      mode: direct
+
   # pylovo (synthetic low-voltage grids), one proxy target per path and
   # method. Keyless: the pylovo API enforces no auth. See
   # ../config.example.yaml for the annotated entry.
