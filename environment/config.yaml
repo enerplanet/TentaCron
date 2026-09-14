@@ -222,11 +222,14 @@ targets:
     # query unchanged, so no query_map. The answer is a single count, a few
     # bytes.
     #
-    # max_attempts 2 because the failure that matters here is not transient: a
-    # country whose building_link table has not been built answers 500, which
-    # the client classifies as retryable, and five attempts would spend about
-    # 30s of backoff before reporting it. This backs a synchronous
-    # availability check, so it should fail fast enough to answer the caller.
+    # max_attempts 2, deliberately unlike the sibling c2t entries. A country
+    # whose building_link table has not been built answers 500, which is
+    # classified as retryable, so the default ladder spends about 30s of
+    # backoff before reporting it. That is not an exceptional failure here: an
+    # unlinked country is one of the states this target exists to report, so
+    # the retries are being spent on an expected answer, behind a synchronous
+    # availability check. Two attempts settle in about 6s and still absorb a
+    # genuine blip.
     url: "http://city2tabula-server:5000/api/v1/coverage"
     method: GET
     timeout: 10s
