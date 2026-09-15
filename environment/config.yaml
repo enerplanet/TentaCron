@@ -238,6 +238,41 @@ targets:
     response:
       mode: direct
 
+  c2t-geometry:
+    # Footprint geometry for named buildings. Requires country and object_ids,
+    # a comma-separated list; both are plain payload fields and reach the
+    # query unchanged, so no query_map.
+    #
+    # Two things a caller has to plan for, both measured against the live
+    # service over the 617-building Dutch fixture rather than estimated.
+    #
+    # The response is large. 617 buildings return about 308 KB, past the
+    # 256 KiB an answer may be stored inline, so the result arrives as
+    # result.href with no target_response body and the caller must follow the
+    # link. A few dozen buildings stay inline. Well under
+    # upstream.max_response_bytes either way.
+    #
+    # The request is long. Object ids are 32 characters, so 617 of them make a
+    # query string of about 20 KB. City2TABULA answers that in single-digit
+    # milliseconds, because Go bounds the request line by MaxHeaderBytes at
+    # 1 MB rather than the 8 KB common to nginx and Apache. It will therefore
+    # keep working here and fail with a 414 the moment either side is put
+    # behind a conventional reverse proxy. Batch the ids if that is a risk.
+    #
+    # timeout 30s is the sibling value and is not a measurement: the fixture
+    # answers in about 8ms. It is headroom, not an expectation.
+    #
+    # The GeoJSON comes back in the country's storage CRS, not WGS84: the
+    # query calls ST_AsGeoJSON without ST_Transform, so Dutch data arrives in
+    # EPSG:28992 with coordinates near 198203, 458493. This target proxies it
+    # faithfully; reprojection is the caller's problem or City2TABULA's.
+    url: "http://city2tabula-server:5000/api/v1/geometry"
+    method: GET
+    timeout: 30s
+    proxy: true
+    response:
+      mode: direct
+
   # pylovo (synthetic low-voltage grids), one proxy target per path and
   # method. Keyless: the pylovo API enforces no auth. See
   # ../config.example.yaml for the annotated entry.
