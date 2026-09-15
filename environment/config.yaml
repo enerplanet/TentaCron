@@ -255,9 +255,15 @@ targets:
     # The request is long. Object ids are 32 characters, so 617 of them make a
     # query string of about 20 KB. City2TABULA answers that in single-digit
     # milliseconds, because Go bounds the request line by MaxHeaderBytes at
-    # 1 MB rather than the 8 KB common to nginx and Apache. It will therefore
-    # keep working here and fail with a 414 the moment either side is put
-    # behind a conventional reverse proxy. Batch the ids if that is a risk.
+    # 1 MB rather than the 8 KB common to nginx and Apache.
+    #
+    # Measured through the Caddy 2.11 proxy this stack already runs: a request
+    # line is accepted up to 64 KiB and the connection is dropped above it, so
+    # the ceiling is roughly 1,980 ids and the 617-building case uses about a
+    # third of it. nginx or Apache in that position would refuse anything past
+    # 8 KB, about 240 ids, with a 414. So the limit follows whichever proxy is
+    # in front rather than the payload, and batching is only needed if one of
+    # those is introduced.
     #
     # timeout 30s is the sibling value and is not a measurement: the fixture
     # answers in about 8ms. It is headroom, not an expectation.
