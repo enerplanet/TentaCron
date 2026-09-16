@@ -13,7 +13,7 @@
 
 services:
   # Long-running API service.
-  api:
+  tentacron:
     build:
       context: ..
       dockerfile: environment/Dockerfile
@@ -54,7 +54,7 @@ services:
   # volume for the SQLite store and result files, non-root. Select the tag
   # with RELEASE_IMAGE in the env file.
   #   make -C environment run-release ENV=prod
-  api-release:
+  tentacron-release:
     image: ${RELEASE_IMAGE:-ghcr.io/enerplanet/tentacron:latest}
     environment:
       - PORT=${PORT:-8080}
