@@ -12,3 +12,8 @@ bin/
 data/
 *.db
 coverage.out
+
+# Local runtime config: `cp config.example.yaml config.yaml`, and the
+# enerplanet orchestrator writes its own copy here. Anchored, so the tracked
+# environment/config.yaml is unaffected.
+/config.yaml
