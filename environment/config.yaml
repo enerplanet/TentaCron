@@ -86,6 +86,13 @@ targets:
     # Singular route; see ../config.example.yaml for the annotated entry.
     # Keyless like buem-buildings: only buem-reverse-proxy (host 8443) reads
     # X-Api-Key, not the app container.
+    #
+    # Direct mode, so the response is read whole under
+    # upstream.max_response_bytes. One building-year of hourly series measures
+    # ~666 KB, putting the cap at roughly fifteen building-years; the
+    # simulation period and the resolution each multiply it. Over the cap the
+    # job fails with target_error naming neither the size nor the period.
+    # Extrapolated from one measurement.
     url: "http://buem-gateway:8080/api/v1/buem/building"
     method: POST
     timeout: 300s
@@ -99,6 +106,11 @@ targets:
     # Plain passthrough proxy for the batch endpoint; see ../config.example.yaml.
     # Keyless: only buem-reverse-proxy (host 8443) reads X-Api-Key, not the
     # app container.
+    #
+    # Direct mode under upstream.max_response_bytes like its sibling, and the
+    # same ~666 KB per building-year: a caller setting keep_timeseries here
+    # fails the whole batch past roughly fifteen buildings at one year each.
+    # Extrapolated from one measurement.
     url: "http://buem-gateway:8080/api/v1/buem/buildings"
     method: POST
     timeout: 570s # kept under the 10m outbound-client ceiling
