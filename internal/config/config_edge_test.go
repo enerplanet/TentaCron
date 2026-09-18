@@ -482,7 +482,7 @@ func TestEnvironmentConfigLoads(t *testing.T) {
 	if cfg.Server.Addr != ":9999" {
 		t.Errorf("addr = %q, want the PORT interpolation", cfg.Server.Addr)
 	}
-	for _, name := range []string{"meme", "buem", "buem-building", "ignis-calculate"} {
+	for _, name := range []string{"meme", "buem-building", "buem-buildings", "ignis-calculate"} {
 		if _, ok := cfg.Targets[name]; !ok {
 			t.Errorf("target %q missing from the environment config", name)
 		}

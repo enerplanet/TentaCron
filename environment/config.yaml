@@ -82,21 +82,6 @@ targets:
         timeout: 30m
         result_timeout: 15m # the bundle download as a whole; the target's timeout bounds each read of it
 
-  buem:
-    # BuEM via buem-gateway; see ../config.example.yaml for the annotated entry.
-    url: "https://buem-gateway.example.com/api/v1/buem/buildings"
-    method: POST
-    api_key: "${BUEM_API_KEY}"
-    api_key_inject: header
-    api_key_header: X-Api-Key
-    timeout: 300s
-    job_timeout: 10m
-    retry_on_timeout: false # never re-submit a batch simulation cut off by a deadline
-    timeseries_path: "."
-    attach_resolvent: false
-    response:
-      mode: direct
-
   buem-building:
     # Singular route; see ../config.example.yaml for the annotated entry.
     # Keyless like buem-buildings: only buem-reverse-proxy (host 8443) reads
