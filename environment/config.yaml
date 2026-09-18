@@ -234,8 +234,14 @@ targets:
     # The response is large. 617 buildings return about 308 KB, past the
     # 256 KiB an answer may be stored inline, so the result arrives as
     # result.href with no target_response body and the caller must follow the
-    # link. A few dozen buildings stay inline. Well under
+    # link. A few dozen buildings stay inline. Footprint-only is well under
     # upstream.max_response_bytes either way.
+    #
+    # include=surfaces is bounded by city2tabula's maxSurfaceBuildings, 1 as
+    # of 0.6.0: more ids on that path get a 400, not a large response, so the
+    # worst case is one building at a measured 131 KB. Raising that constant
+    # puts response size back in play against upstream.max_response_bytes,
+    # which fails a job whole rather than truncating it.
     #
     # The request is long. Object ids are 32 characters, so 617 of them make a
     # query string of about 20 KB. City2TABULA answers that in single-digit
