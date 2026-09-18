@@ -98,11 +98,11 @@ targets:
       mode: direct
 
   buem-building:
-    url: "https://buem-gateway.example.com/api/v1/buem/building"
+    # Singular route; see ../config.example.yaml for the annotated entry.
+    # Keyless like buem-buildings: only buem-reverse-proxy (host 8443) reads
+    # X-Api-Key, not the app container.
+    url: "http://buem-gateway:8080/api/v1/buem/building"
     method: POST
-    api_key: "${BUEM_API_KEY}"
-    api_key_inject: header
-    api_key_header: X-Api-Key
     timeout: 300s
     retry_on_timeout: false
     timeseries_path: "."
