@@ -41,10 +41,9 @@ services:
       - "${HOST_PORT:-8080}:${PORT:-8080}"
     networks:
       - default
-      - tentacron-net # ignis-http
+      - tentacron-net # ignis-http, city2tabula
       # Reached by container name from the owning project's own network,
       # until each of these moves onto tentacron-net.
-      - building-simulation_default # city2tabula-server
       - buem-gateway-http_default # buem-gateway
       - spatialhub-net # pylovo-api-dev
     # weather-serve is reached over its published host port instead: its own
@@ -150,8 +149,6 @@ networks:
     name: tentacron-net
   # Owned by the downstream deployments, not by this file. Each must already
   # exist or tentacron will not start, so bring those services up first.
-  building-simulation_default:
-    external: true
   buem-gateway-http_default:
     external: true
   spatialhub-net:
