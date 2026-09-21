@@ -176,7 +176,8 @@ targets:
     # weather's own compose keeps the service out of any consumer's network
     # namespace and documents host.docker.internal as the cross-project path;
     # environment/docker-compose.yml sets the matching extra_hosts entry.
-    url: "http://host.docker.internal:8090/v1/weather/point"
+    # Port must match WEATHER_PORT in repos.conf in the enerplanet umbrella repo.
+    url: "http://host.docker.internal:8406/v1/weather/point"
     method: GET
     api_key: "${WEATHER_API_KEY}"
     api_key_inject: header
