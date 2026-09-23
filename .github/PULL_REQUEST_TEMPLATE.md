@@ -20,7 +20,7 @@
       loops take an injected clock
 - [ ] Documentation is updated where behaviour or usage changed:
       `docs/`, `docs/openapi/openapi.yaml`, `config.example.yaml`,
-      `environment/enerplanet/config.yaml`, `README.md`
+      `environment/config.yaml`, `README.md`
 - [ ] `CHANGELOG.md` has an entry under *Unreleased*; a stricter validation
       rule or a changed response is listed under *Changed* with the keys or
       fields concerned

@@ -15,5 +15,5 @@ coverage.out
 
 # Local runtime config: `cp config.example.yaml config.yaml`, and the
 # enerplanet orchestrator writes its own copy here. Anchored, so the tracked
-# environment/enerplanet/config.yaml is unaffected.
+# environment/config.yaml is unaffected.
 /config.yaml

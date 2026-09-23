@@ -17,7 +17,7 @@ it is the manual browser check of every release.
        allowed_origins: ["http://localhost:5173"]
    ```
 
-   With the development compose, set it in `environment/enerplanet/config.yaml` and
+   With the development compose, set it in `environment/config.yaml` and
    `make -C environment run`.
 
 2. Serve this directory and open it:

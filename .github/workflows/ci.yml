@@ -46,7 +46,7 @@ jobs:
           IGNIS_API_KEY: ci
         run: |
           ./tentacron validate -config config.example.yaml
-          ./tentacron validate -config environment/enerplanet/config.yaml
+          ./tentacron validate -config environment/config.yaml
 
   fuzz:
     runs-on: ubuntu-latest

@@ -30,5 +30,5 @@ EXPOSE 8080
 
 # Default: build then run the API via the project Makefile so the container
 # runs the same commands as a local checkout. CONFIG is supplied by compose
-# (environment/enerplanet/config.yaml). Override the command in compose for `make test`.
+# (environment/config.yaml). Override the command in compose for `make test`.
 CMD ["make", "run"]

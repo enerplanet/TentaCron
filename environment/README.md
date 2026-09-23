@@ -46,7 +46,7 @@ make -C environment shell ENV=dev   # go / make / sqlite3
 
 Ports, the config file, the image tag and every credential are read from an
 env file rather than hard-coded in the compose file. The variables use the
-**same names** that [`config.yaml`](enerplanet/config.yaml) interpolates via `${...}`,
+**same names** that [`config.yaml`](config.yaml) interpolates via `${...}`,
 so one vocabulary works whether you run via compose or invoke the binary
 directly (source the env file first).
 
@@ -54,7 +54,7 @@ directly (source the env file first).
 |---|---|---|---|---|
 | `PORT` | 8080 | 8080 | port the API listens on inside the container | compose + config |
 | `HOST_PORT` | 8080 | 80 | port published on your machine | compose |
-| `CONFIG` | `environment/enerplanet/config.yaml` | `environment/enerplanet/config.yaml` | config file the API loads | compose → root `make run` |
+| `CONFIG` | `environment/config.yaml` | `environment/config.yaml` | config file the API loads | compose → root `make run` |
 | `IMAGE_TAG` | `tentacron-env:dev` | `tentacron-env:prod` | tag of the development image | compose |
 | `RELEASE_IMAGE` | `ghcr.io/enerplanet/tentacron:latest` | pin a version | published release image for `run-release` | compose |
 | `TENTACRON_KEY_*` | dev placeholders | **change-me** | client keys tentacron accepts | config |
@@ -99,7 +99,7 @@ kill -s HUP tentacron`). The [browser client example](../examples/browser/) is a
 page to try it with.
 
 Pin `RELEASE_IMAGE` to a version tag (`ghcr.io/enerplanet/tentacron:0.4.0-alpha`)
-rather than `latest` in production, and keep `environment/enerplanet/config.yaml`'s
+rather than `latest` in production, and keep `environment/config.yaml`'s
 storage paths under `/data` (the defaults already resolve there). See
 [operations](../docs/operations.md#deployment) for the plain `docker run`
 form.
@@ -110,17 +110,15 @@ form.
   `${VAR}` referenced by its config is unset or when a required credential is
   empty — the compose file marks those variables as required, so a missing
   value fails fast with a clear message instead of booting an open service.
-- [`enerplanet/config.yaml`](enerplanet/config.yaml) mirrors
+- [`config.yaml`](config.yaml) in this folder mirrors
   [`config.example.yaml`](../config.example.yaml) but takes its listen port
   and all credentials from the env file, and its target and resource URLs
-  are the EnerPlanET stack's own hosts rather than example ones. One
-  directory per consuming application: a second application pointing the
-  same orchestrator at a different set of services gets its own directory
-  beside this one, selected with `CONFIG`. The compose file marks
+  are the EnerPlanET stack's own hosts rather than example ones. The
+  compose file marks
   every credential variable as required, so a new `${VAR}` reference in the
   config needs a matching line in both env files and in
   [`docker-compose.yml`](docker-compose.yml).
-- [`config.yaml`](enerplanet/config.yaml) serves Prometheus metrics on `:9090`
+- [`config.yaml`](config.yaml) serves Prometheus metrics on `:9090`
   (`server.metrics_addr`) inside the compose network only; publish that
   port deliberately if you scrape from the host.
 - The `tentacron` service writes its SQLite database and result files to
