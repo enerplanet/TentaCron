@@ -46,9 +46,19 @@ cache:
 
 targets:
   meme:
-    # The host stays a placeholder: meme runs no container in this stack, its
-    # compose declares no container_name, and this project joins neither its
-    # network nor spatialhub-net. Point it at the service once it is wired in.
+    # meme's compose declares no container_name, so the host is the name its
+    # own project composes: project meme-env, service api, index 1. The
+    # enerplanet Makefile's `meme` target attaches that container to
+    # tentacron-net.
+    #
+    # ?target= is fixed here rather than per request, because a request
+    # selects a target by name and never a URL. adopt-net0 is excluded: meme
+    # fails a multi-target request as a whole if one framework rejects it,
+    # and adopt-net0 supports neither mode "operate" nor multi-port
+    # conversion ("flows", how every heat pump, chiller and DHW unit is
+    # expressed). Optimise versus simulate is not selected here at all: it
+    # travels in the payload as experiment.mode, outside timeseries_path, so
+    # tentacron forwards it untouched.
     #
     # attach_resolvent false because meme decodes a timeseries entry with
     # DisallowUnknownFields: the "resolvent" echo tentacron adds for
@@ -60,7 +70,7 @@ targets:
     # follows (a poll tick is not a processing attempt). A few hundred
     # buildings resolve worker.resolvent_concurrency at a time, so the budget
     # has to cover ceil(N / concurrency) rounds of one buem run each.
-    url: "https://meme.example.com/simulate?target=pypsa"
+    url: "http://meme-env-api-1:8080/simulate?target=pypsa,calliope"
     method: POST
     api_key: "${MEME_API_KEY}"
     api_key_inject: body_field
@@ -73,11 +83,11 @@ targets:
       mode: poll
       poll:
         id_json_path: "id"
-        url_template: "https://meme.example.com/jobs/{id}/status"
+        url_template: "http://meme-env-api-1:8080/jobs/{id}/status"
         status_json_path: "state"
         done_values: [succeeded]
         failed_values: [failed]
-        result_url_template: "https://meme.example.com/jobs/{id}"
+        result_url_template: "http://meme-env-api-1:8080/jobs/{id}"
         interval: 10s
         timeout: 30m
         result_timeout: 15m # the bundle download as a whole; the target's timeout bounds each read of it
@@ -508,22 +518,10 @@ targets:
       mode: direct
 
 resolvents:
-  # pv1/wind are illustrative POST entries; see ../config.example.yaml.
-  resolvent-pv1:
-    url: "https://pvsim.example.com/v1/generate"
-    method: POST
-    api_key: "${PV1_API_KEY}"
-    api_key_header: X-API-Key
-    timeout: 30s
-    cache_ttl: 24h
-
-  resolvent-wind:
-    url: "https://windsim.example.com/v1/series"
-    method: POST
-    api_key: "${WIND_API_KEY}"
-    api_key_header: X-API-Key
-    timeout: 30s
-    cache_ttl: 24h
+  # pv1/wind stay out of this deployment: no such service runs in the stack,
+  # and a listed entry is one a client may submit and have fail on DNS. The
+  # PV backend here is resolvent-pvgis. See ../config.example.yaml for the
+  # illustrative POST shape.
 
   resolvent-pvgis:
     # PVGIS; see ../config.example.yaml for the annotated entry.
@@ -546,7 +544,7 @@ resolvents:
       source: ".inputs.meteo_data.radiation_db"
 
   resolvent-weather:
-    url: "https://weather.example.com/v1/weather/point?format=json"
+    url: "http://host.docker.internal:8406/v1/weather/point?format=json"
     method: GET
     api_key: "${WEATHER_API_KEY}"
     api_key_header: X-API-Key
@@ -554,14 +552,14 @@ resolvents:
     cache_ttl: 24h
 
   resolvent-city2tabula:
-    url: "https://city2tabula.example.com/api/v1/buildings"
+    url: "http://city2tabula:5000/api/v1/buildings"
     method: GET
     timeout: 60s
     response_path: "0"
     cache_ttl: 24h
 
   resolvent-ignis:
-    url: "https://ignis.example.com/api/v1/data/{code}"
+    url: "http://ignis-http:8080/api/v1/data/{code}"
     method: GET
     api_key: "${IGNIS_API_KEY}"
     api_key_header: X-Api-Key

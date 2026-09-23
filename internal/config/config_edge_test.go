@@ -487,7 +487,7 @@ func TestEnvironmentConfigLoads(t *testing.T) {
 			t.Errorf("target %q missing from the environment config", name)
 		}
 	}
-	for _, name := range []string{"resolvent-pv1", "resolvent-wind", "resolvent-weather",
+	for _, name := range []string{"resolvent-pvgis", "resolvent-weather",
 		"resolvent-city2tabula", "resolvent-ignis", "resolvent-buem"} {
 		if _, ok := cfg.Resolvents[name]; !ok {
 			t.Errorf("resolvent %q missing from the environment config", name)
