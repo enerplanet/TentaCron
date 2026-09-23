@@ -73,7 +73,7 @@ Or drive compose directly with `--env-file`:
 
 ```bash
 docker compose --env-file environment/.env.prod \
-  -f environment/docker-compose.yml up api
+  -f environment/docker-compose.yml up tentacron
 ```
 
 Copy either file to add more environments (e.g. `.env.staging`) and select it
@@ -83,7 +83,7 @@ with `ENV=staging`.
 
 Deployments use the image the release workflow publishes from the root
 [`Dockerfile`](../Dockerfile) — distroless, non-root, nothing but the
-binary — instead of the development image above. The `api-release` compose
+binary — instead of the development image above. The `tentacron-release` compose
 service wires it with this folder's config mounted read-only and a named
 volume at `/data` for the SQLite store and result files:
 
@@ -95,7 +95,7 @@ A frontend served from your machine, say Vite on port 5173, calls the
 compose service across origins: list it under `server.cors.allowed_origins`
 in `config.yaml` (`["http://localhost:5173"]`) and restart or send
 `SIGHUP` to the container (`docker compose -f environment/docker-compose.yml
-kill -s HUP api`). The [browser client example](../examples/browser/) is a
+kill -s HUP tentacron`). The [browser client example](../examples/browser/) is a
 page to try it with.
 
 Pin `RELEASE_IMAGE` to a version tag (`ghcr.io/enerplanet/tentacron:0.4.0-alpha`)
@@ -123,7 +123,7 @@ form.
 - [`config.yaml`](enerplanet/config.yaml) serves Prometheus metrics on `:9090`
   (`server.metrics_addr`) inside the compose network only; publish that
   port deliberately if you scrape from the host.
-- The `api` service writes its SQLite database and result files to
+- The `tentacron` service writes its SQLite database and result files to
   `/src/data` (the bind mount), which is gitignored. The development
   container runs as root, so `data/` contents it creates are root-owned on
   the host; the release image runs as `nonroot` and writes to its `/data`
