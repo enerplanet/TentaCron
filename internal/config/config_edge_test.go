@@ -475,9 +475,9 @@ func TestEnvironmentConfigLoads(t *testing.T) {
 	} {
 		t.Setenv(v, "test-"+v)
 	}
-	cfg, err := Load("../../environment/config.yaml")
+	cfg, err := Load("../../environment/enerplanet/config.yaml")
 	if err != nil {
-		t.Fatalf("environment/config.yaml must load cleanly: %v", err)
+		t.Fatalf("environment/enerplanet/config.yaml must load cleanly: %v", err)
 	}
 	if cfg.Server.Addr != ":9999" {
 		t.Errorf("addr = %q, want the PORT interpolation", cfg.Server.Addr)

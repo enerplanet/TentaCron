@@ -24,7 +24,7 @@ services:
       # the root Makefile's run target. The client/upstream keys must be
       # non-empty — tentacron refuses to start with missing credentials.
       - PORT=${PORT:-8080}
-      - CONFIG=${CONFIG:-environment/config.yaml}
+      - CONFIG=${CONFIG:-environment/enerplanet/config.yaml}
       - TENTACRON_KEY_FRONTEND=${TENTACRON_KEY_FRONTEND:?set in environment/.env.dev|prod}
       - TENTACRON_KEY_BATCH=${TENTACRON_KEY_BATCH:?set in environment/.env.dev|prod}
       - MEME_API_KEY=${MEME_API_KEY:?set in environment/.env.dev|prod}
@@ -71,7 +71,7 @@ services:
       - WEATHER_API_KEY=${WEATHER_API_KEY:?set in environment/.env.dev|prod}
       - IGNIS_API_KEY=${IGNIS_API_KEY:?set in environment/.env.dev|prod}
     volumes:
-      - ./config.yaml:/etc/tentacron/config.yaml:ro
+      - ./enerplanet/config.yaml:/etc/tentacron/config.yaml:ro
       - tentacron-data:/data
     ports:
       - "${HOST_PORT:-8080}:${PORT:-8080}"
@@ -94,7 +94,7 @@ services:
     working_dir: /src
     environment:
       - PORT=${PORT:-8080}
-      - CONFIG=${CONFIG:-environment/config.yaml}
+      - CONFIG=${CONFIG:-environment/enerplanet/config.yaml}
       - TENTACRON_KEY_FRONTEND=${TENTACRON_KEY_FRONTEND:?set in environment/.env.dev|prod}
       - TENTACRON_KEY_BATCH=${TENTACRON_KEY_BATCH:?set in environment/.env.dev|prod}
       - MEME_API_KEY=${MEME_API_KEY:?set in environment/.env.dev|prod}
