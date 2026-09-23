@@ -70,7 +70,13 @@ callbacks:
 
 targets:
   meme:
-    url: "https://meme.example.com/simulate?target=all"
+    # ?target= is fixed per entry: a request selects a target by name, never a
+    # URL. target=all is rejected for any heat model, because meme fails a
+    # multi-target request whole if one framework rejects it and AdOpT-NET0
+    # supports neither mode "operate" nor multi-port conversion ("flows", how
+    # every heat pump, chiller and DHW unit is expressed). Add a second entry
+    # (meme-calliope, meme-pypsa) to let a client pin one framework.
+    url: "https://meme.example.com/simulate?target=pypsa,calliope"
     method: POST
     api_key: "${MEME_API_KEY}"
     api_key_inject: body_field # meme expects a top-level api_key in the body

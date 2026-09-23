@@ -170,7 +170,7 @@ contract (`202` + `{"id": …, "state": "queued"}`, states
 ```yaml
 targets:
   meme:
-    url: "https://meme.example.com/simulate?target=all"
+    url: "https://meme.example.com/simulate?target=pypsa,calliope"
     method: POST
     api_key: "${MEME_API_KEY}"
     api_key_inject: body_field          # meme expects a top-level api_key in the body
@@ -189,6 +189,16 @@ targets:
         interval: 10s
         timeout: 30m
 ```
+
+The framework selection sits in the URL, so it belongs to the entry rather than
+to the request: a client picks a target by name and can never supply a URL. To
+offer a choice, define one entry per selection (`meme-calliope`, `meme-pypsa`),
+identical but for the query string.
+
+`?target=all` is not a usable default for heat models. meme fails a
+multi-target request as a whole if one framework rejects it, and AdOpT-NET0
+supports neither `mode: operate` nor multi-port conversion (`flows`), which is
+how every heat pump, chiller and DHW unit is expressed.
 
 A synchronous target — the real BuEM integration via
 [buem-gateway](https://github.com/enerplanet/buem-gateway):
