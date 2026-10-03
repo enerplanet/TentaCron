@@ -84,6 +84,7 @@
         "building": {
           "area_total_roof": 98.2,
           "area_total_wall": 214.5,
+          "dataset_id": "de-hb-lod2",
           "number_of_storeys": 2,
           "object_id": "DEHB01AL3AU0004T",
           "resolvent": {

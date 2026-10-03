@@ -49,8 +49,8 @@ var exampleScenarios = []scenario{
 		// GET resolvents against the verified city2tabula and ignis
 		// contracts, in a name→object registry: country/osm_ids map onto
 		// query parameters (arrays joined comma-separated), {code} onto
-		// ignis's path, and city2tabula's list response is indexed via
-		// response_path "0". The frozen request lines prove the mapping.
+		// ignis's path, and city2tabula's building list is indexed via
+		// response_path "buildings.0". The frozen request lines prove the mapping.
 		name: "example-city2tabula-ignis",
 		run: func(t *testing.T, h *harness) {
 			id := h.post("submit examples/city2tabula-ignis.json", exampleRequest(t, "city2tabula-ignis.json"), nil)

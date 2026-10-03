@@ -219,7 +219,8 @@ targets:
       mode: direct
 
   c2t-buildings:
-    # country + osm_ids to the query; a JSON null body on an empty result.
+    # country + osm_ids to the query; an empty result is
+    # {"buildings": [], "attributions": []}.
     url: "http://city2tabula:5000/api/v1/buildings"
     method: GET
     timeout: 30s
@@ -555,7 +556,7 @@ resolvents:
     url: "http://city2tabula:5000/api/v1/buildings"
     method: GET
     timeout: 60s
-    response_path: "0"
+    response_path: "buildings.0"
     cache_ttl: 24h
 
   resolvent-ignis:

@@ -42,7 +42,7 @@ type's `cache_ttl`.
 | `resolvent-pv1` | PV profile API | POST | `location {lat, lon}`, `capacity_kw`, `azimuth`, `tilt` | hourly capacity-factor / generation series |
 | `resolvent-wind` | wind profile API | POST | `location {lat, lon}`, `hub_height_m`, `rotor_diameter_m` | hourly generation series |
 | `resolvent-weather` | [weather](https://github.com/enerplanet/weather) | GET | `provider`, `lat`, `lon`, `year`, `use_case` | standardised hourly weather series |
-| `resolvent-city2tabula` | [city2tabula](https://github.com/THD-Spatial-AI/city2tabula) | GET | `country`, `osm_ids` (array) | building attribute record (`response_path: "0"` selects the first) |
+| `resolvent-city2tabula` | [city2tabula](https://github.com/THD-Spatial-AI/city2tabula) | GET | `country`, `osm_ids` (array) | building attribute record (`response_path: "buildings.0"` selects the first) |
 | `resolvent-ignis` | [ignis](https://github.com/THD-Spatial-AI/ignis) `GET /api/v1/data/{code}` | GET | `code` (TABULA variant code) | TABULA parameter set — see below |
 | `resolvent-buem` | `buem-building` target | target | `payload` (one BuEM building request) | thermal load profile (`response_path` extracts `buem.thermal_load_profile.timeseries`) |
 

@@ -71,7 +71,7 @@ by the golden E2E suite; replace the example hosts with your deployments.
 | `targets.ignis-calculate` | proxy target, `{code}` templated into the URL | [ignis](https://github.com/THD-Spatial-AI/ignis) `POST /api/v1/calculate/{code}` |
 | `targets.demo` | direct target for the generic examples | illustrative |
 | `resolvents.resolvent-weather` | GET resolvent (point query → `{index, variables}`) | [weather](https://github.com/enerplanet/weather) |
-| `resolvents.resolvent-city2tabula` | GET resolvent, list response indexed via `response_path: "0"` | [city2tabula](https://github.com/THD-Spatial-AI/city2tabula) |
+| `resolvents.resolvent-city2tabula` | GET resolvent, building list indexed via `response_path: "buildings.0"` | [city2tabula](https://github.com/THD-Spatial-AI/city2tabula) |
 | `resolvents.resolvent-ignis` | GET resolvent, `{code}` templated into the path | ignis `GET /api/v1/data/{code}` |
 | `resolvents.resolvent-buem` | target-backed resolvent (BuEM run feeding another model) | buem-gateway via `buem-building` |
 | `resolvents.resolvent-pvgis` | GET resolvent adapted with `query_map` + `response_map` | [PVGIS](https://re.jrc.ec.europa.eu/pvg_tools/en/) `seriescalc`, hourly PV production (public, no key) |

@@ -459,7 +459,7 @@ func TestLoadFullExample(t *testing.T) {
 	if w := cfg.Resolvents["resolvent-weather"]; w.Method != "GET" || !strings.Contains(w.URL, "format=json") {
 		t.Errorf("resolvent-weather = %+v, want GET point query with format=json", w)
 	}
-	if c := cfg.Resolvents["resolvent-city2tabula"]; c.Method != "GET" || c.ResponsePath != "0" || c.APIKey != "" {
+	if c := cfg.Resolvents["resolvent-city2tabula"]; c.Method != "GET" || c.ResponsePath != "buildings.0" || c.APIKey != "" {
 		t.Errorf("resolvent-city2tabula = %+v", c)
 	}
 	if i := cfg.Resolvents["resolvent-ignis"]; i.Method != "GET" ||

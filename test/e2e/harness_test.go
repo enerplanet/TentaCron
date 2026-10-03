@@ -124,7 +124,7 @@ func (f fakes) withResourceDefaults() fakes {
 			case strings.HasPrefix(path, "/point"):
 				return reply{200, weatherBody, ""}
 			case strings.HasPrefix(path, "/buildings"):
-				return reply{200, `[{"object_id":"DEHB01AL3AU0004T","number_of_storeys":2,"area_total_wall":214.5,"area_total_roof":98.2,"tabula_variant_code":"DE.N.SFH.04.Gen.ReEx.001.001"}]`, ""}
+				return reply{200, `{"buildings":[{"object_id":"DEHB01AL3AU0004T","dataset_id":"de-hb-lod2","number_of_storeys":2,"area_total_wall":214.5,"area_total_roof":98.2,"tabula_variant_code":"DE.N.SFH.04.Gen.ReEx.001.001"}],"attributions":[{"dataset_id":"de-hb-lod2","provider":"Example survey office","dataset":"LoD2 example","licence":"CC BY 4.0","licence_url":"https://creativecommons.org/licenses/by/4.0/","credit":"Example survey office, LoD2","changes":"surfaces derived"}]}`, ""}
 			case strings.HasPrefix(path, "/data/"):
 				return reply{200, `{"country":"DE","variant_code":"DE.N.SFH.04.Gen.ReEx.001.001","expected_q_h_nd":112.4,"tabula_data":{"u_wall":1.6,"u_roof":1.2}}`, ""}
 			case strings.HasPrefix(path, "/seriescalc"):
@@ -232,9 +232,9 @@ func (f fakes) withTargetDefaults() fakes {
 		}
 	}
 	if f.c2tBuildings == nil {
-		// GET /api/v1/buildings: a bare JSON array of matched buildings.
+		// GET /api/v1/buildings: the matched buildings and their datasets' credits.
 		f.c2tBuildings = func(int64) reply {
-			return reply{200, `[{"object_id":"DEHB01AL3AU0004T","number_of_storeys":2,"tabula_variant_code":"DE.N.SFH.04.Gen.ReEx.001.001"}]`, ""}
+			return reply{200, `{"buildings":[{"object_id":"DEHB01AL3AU0004T","dataset_id":"de-hb-lod2","number_of_storeys":2,"tabula_variant_code":"DE.N.SFH.04.Gen.ReEx.001.001"}],"attributions":[{"dataset_id":"de-hb-lod2","provider":"Example survey office","dataset":"LoD2 example","licence":"CC BY 4.0","licence_url":"https://creativecommons.org/licenses/by/4.0/","credit":"Example survey office, LoD2","changes":"surfaces derived"}]}`, ""}
 		}
 	}
 	if f.pylovoGrid == nil {
@@ -702,7 +702,7 @@ func goldenResolvents(base string) map[string]config.Resolvent {
 			APIKey: resourceSecret, APIKeyHeader: "X-API-Key",
 			Timeout: dur(2 * time.Second), CacheTTL: dur(time.Hour)},
 		"resolvent-city2tabula": {URL: base + "/buildings", Method: "GET",
-			Timeout: dur(2 * time.Second), CacheTTL: dur(time.Hour), ResponsePath: "0"},
+			Timeout: dur(2 * time.Second), CacheTTL: dur(time.Hour), ResponsePath: "buildings.0"},
 		"resolvent-ignis": {URL: base + "/data/{code}", Method: "GET",
 			APIKey: resourceSecret, APIKeyHeader: "X-Api-Key",
 			Timeout: dur(2 * time.Second), CacheTTL: dur(time.Hour)},

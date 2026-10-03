@@ -19,7 +19,7 @@
       "created_at": "«ts»",
       "error": {
         "code": "invalid_resource_response",
-        "message": "resource resolvent-city2tabula response has no \"0.tabula.missing\" (segment \"tabula\": not found): resource response is not a JSON object"
+        "message": "resource resolvent-city2tabula response has no \"buildings.0.tabula.missing\" (segment \"tabula\": not found): resource response is not a JSON object"
       },
       "id": "«job-1»",
       "result": null,
@@ -34,7 +34,7 @@
     "audit_trail": [
       "∅ → received: job accepted",
       "received → resolving: claimed by worker",
-      "resolving → failed: invalid_resource_response: resource resolvent-city2tabula response has no \"0.tabula.missing\" (segment \"tabula\": not found): resource response is not a JSON object"
+      "resolving → failed: invalid_resource_response: resource resolvent-city2tabula response has no \"buildings.0.tabula.missing\" (segment \"tabula\": not found): resource response is not a JSON object"
     ],
     "step": "audit trail"
   },
