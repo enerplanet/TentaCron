@@ -169,8 +169,8 @@ contract (`202` + `{"id": …, "state": "queued"}`, states
 
 ```yaml
 targets:
-  meme:
-    url: "https://meme.example.com/simulate?target=pypsa,calliope"
+  meme-calliope:
+    url: "https://meme.example.com/simulate?target=calliope"
     method: POST
     api_key: "${MEME_API_KEY}"
     api_key_inject: body_field          # meme expects a top-level api_key in the body

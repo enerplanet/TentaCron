@@ -16,7 +16,8 @@ ENV GOTOOLCHAIN=local
 RUN apt-get update && apt-get install -y --no-install-recommends \
         make \
         sqlite3 \
-    && rm -rf /var/lib/apt/lists/*
+    && rm -rf /var/lib/apt/lists/* \
+    && git config --system --add safe.directory /src
 
 WORKDIR /src
 

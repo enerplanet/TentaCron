@@ -45,32 +45,21 @@ cache:
   cleanup_interval: 15m
 
 targets:
-  meme:
-    # meme's compose declares no container_name, so the host is the name its
-    # own project composes: project meme-env, service api, index 1. The
-    # enerplanet Makefile's `meme` target attaches that container to
-    # tentacron-net.
+  meme-calliope:
+    # Calliope-only MEME run: the DEFAULT leg. MEME serves two per-framework
+    # targets (meme-calliope, meme-pypsa); the combined pypsa,calliope target was
+    # removed (its PyPSA leg emitted no lines.csv, never called pf(), and the
+    # EnerPlanET ingest discarded its single snapshot).
     #
     # ?target= is fixed here rather than per request, because a request
-    # selects a target by name and never a URL. adopt-net0 is excluded: meme
-    # fails a multi-target request as a whole if one framework rejects it,
-    # and adopt-net0 supports neither mode "operate" nor multi-port
-    # conversion ("flows", how every heat pump, chiller and DHW unit is
-    # expressed). Optimise versus simulate is not selected here at all: it
-    # travels in the payload as experiment.mode, outside timeseries_path, so
-    # tentacron forwards it untouched.
+    # selects a target by name and never a URL.
     #
     # attach_resolvent false because meme decodes a timeseries entry with
     # DisallowUnknownFields: the "resolvent" echo tentacron adds for
     # traceability would be an unknown field and the job would 400. Each
     # resolvent feeding this target also needs a response_map emitting only
     # {source, values, unit} — see resolvent-buem.
-    #
-    # job_timeout covers resolution plus the forward, not the polling that
-    # follows (a poll tick is not a processing attempt). A few hundred
-    # buildings resolve worker.resolvent_concurrency at a time, so the budget
-    # has to cover ceil(N / concurrency) rounds of one buem run each.
-    url: "http://meme-env-api-1:8080/simulate?target=pypsa,calliope"
+    url: "http://meme-env-api-1:8080/simulate?target=calliope"
     method: POST
     api_key: "${MEME_API_KEY}"
     api_key_inject: body_field
@@ -91,6 +80,33 @@ targets:
         interval: 10s
         timeout: 30m
         result_timeout: 15m # the bundle download as a whole; the target's timeout bounds each read of it
+
+  # PyPSA-only MEME run: identical to `meme-calliope` except the framework set, so
+  # a model's power-flow leg can be solved separately from the Calliope default.
+  # Selected per request by the backend (internal/jobs/dispatch_meme.go); default
+  # stays `meme-calliope`.
+  meme-pypsa:
+    url: "http://meme-env-api-1:8080/simulate?target=pypsa"
+    method: POST
+    api_key: "${MEME_API_KEY}"
+    api_key_inject: body_field
+    api_key_field: api_key
+    timeout: 60s
+    job_timeout: 45m
+    timeseries_path: "model.timeseries"
+    attach_resolvent: false
+    response:
+      mode: poll
+      poll:
+        id_json_path: "id"
+        url_template: "http://meme-env-api-1:8080/jobs/{id}/status"
+        status_json_path: "state"
+        done_values: [succeeded]
+        failed_values: [failed]
+        result_url_template: "http://meme-env-api-1:8080/jobs/{id}"
+        interval: 10s
+        timeout: 30m
+        result_timeout: 15m
 
   buem-building:
     # Singular route; see ../config.example.yaml for the annotated entry.
