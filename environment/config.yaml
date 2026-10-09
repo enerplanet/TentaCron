@@ -318,9 +318,6 @@ targets:
   # method. Keyless: the pylovo API enforces no auth. See
   # ../config.example.yaml for the annotated entry.
   #
-  # pylovo-api-dev is not on this stack's networks yet, so these URLs do not
-  # resolve from here until the environment compose file joins spatialhub-net.
-  #
   # DELETE /custom-buildings/{building_id} has no entry: config.validMethod
   # accepts GET, POST, PUT and PATCH only.
 
