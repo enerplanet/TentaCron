@@ -195,12 +195,11 @@ targets:
     # weather-serve's Flask before_request checks X-API-Key on every route,
     # same-network or not.
     #
-    # Reached over the published host port rather than by container name.
-    # weather's own compose keeps the service out of any consumer's network
-    # namespace and documents host.docker.internal as the cross-project path;
-    # environment/docker-compose.yml sets the matching extra_hosts entry.
-    # Port must match WEATHER_PORT in repos.conf in the enerplanet umbrella repo.
-    url: "http://host.docker.internal:8406/v1/weather/point"
+    #
+    # format=json is a default a request field of the same name overrides.
+    # Everything else (provider, lat, lon, exactly one of year or scenario,
+    # variables or use_case) comes from the request.
+    url: "http://weather-serve:8080/v1/weather/point?format=json"
     method: GET
     api_key: "${WEATHER_API_KEY}"
     api_key_inject: header
@@ -555,7 +554,7 @@ resolvents:
       source: ".inputs.meteo_data.radiation_db"
 
   resolvent-weather:
-    url: "http://host.docker.internal:8406/v1/weather/point?format=json"
+    url: "http://weather-serve:8080/v1/weather/point?format=json"
     method: GET
     api_key: "${WEATHER_API_KEY}"
     api_key_header: X-API-Key

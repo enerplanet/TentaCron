@@ -41,13 +41,8 @@ services:
       - "${HOST_PORT:-8080}:${PORT:-8080}"
     networks:
       - default
-      - tentacron-net # ignis-http, city2tabula, buem-gateway-http
+      - tentacron-net # ignis-http, city2tabula, buem-gateway-http, weather-serve
       - spatialhub-net # pylovo-api-dev
-    # weather-serve is reached over its published host port instead: its own
-    # compose keeps it out of any consumer's namespace and documents this as
-    # the cross-project path.
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
     command: make run
 
   # Production deployment: the published distroless image (built by the
@@ -72,8 +67,6 @@ services:
       - tentacron-data:/data
     ports:
       - "${HOST_PORT:-8080}:${PORT:-8080}"
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
     healthcheck:
       test: ["CMD", "/usr/local/bin/tentacron", "healthcheck", "-addr", "127.0.0.1:${PORT:-8080}"]
       interval: 30s
