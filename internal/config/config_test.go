@@ -437,7 +437,7 @@ func TestLoadFullExample(t *testing.T) {
 	// The meme poll block mirrors meme's verified contract: id in "id",
 	// status at /jobs/{id}/status with a "state" of queued|running|
 	// succeeded|failed, the zip bundle at /jobs/{id}.
-	meme := cfg.Targets["meme"]
+	meme := cfg.Targets["meme-calliope"]
 	if meme.Response.Mode != ModePoll {
 		t.Errorf("meme response mode = %q, want poll", meme.Response.Mode)
 	}
