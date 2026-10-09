@@ -562,8 +562,6 @@ resolvents:
   resolvent-ignis:
     url: "http://ignis-http:8080/api/v1/data/{code}"
     method: GET
-    api_key: "${IGNIS_API_KEY}"
-    api_key_header: X-Api-Key
     timeout: 30s
     cache_ttl: 168h
 
