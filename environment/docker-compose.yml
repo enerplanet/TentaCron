@@ -41,10 +41,7 @@ services:
       - "${HOST_PORT:-8080}:${PORT:-8080}"
     networks:
       - default
-      - tentacron-net # ignis-http, city2tabula
-      # Reached by container name from the owning project's own network,
-      # until each of these moves onto tentacron-net.
-      - buem-gateway-http_default # buem-gateway
+      - tentacron-net # ignis-http, city2tabula, buem-gateway-http
       - spatialhub-net # pylovo-api-dev
     # weather-serve is reached over its published host port instead: its own
     # compose keeps it out of any consumer's namespace and documents this as
@@ -147,9 +144,7 @@ networks:
   # network's own label, so the key must stay spelled as the network name.
   tentacron-net:
     name: tentacron-net
-  # Owned by the downstream deployments, not by this file. Each must already
-  # exist or tentacron will not start, so bring those services up first.
-  buem-gateway-http_default:
-    external: true
+  # Owned by the platform deployment, not by this file. It must already exist
+  # or tentacron will not start, so bring the platform up first.
   spatialhub-net:
     external: true
