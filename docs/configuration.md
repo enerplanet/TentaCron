@@ -339,7 +339,7 @@ a body — the contract of the verified
   resolvent-city2tabula:
     url: "https://city2tabula.example.com/api/v1/buildings"
     method: GET                         # no API key per its spec
-    response_path: "0"                  # the API returns a list
+    response_path: "buildings.0"        # the list sits under "buildings"
     cache_ttl: 24h
 
   resolvent-ignis:
@@ -363,7 +363,8 @@ a body — the contract of the verified
   tentacron's marker and never sent; nested objects are an authoring error
   (nest complex data under a POST resolvent instead);
 - `response_path` accepts numeric segments to index array responses —
-  city2tabula's building list resolves one building via `response_path: "0"`.
+  city2tabula's building list resolves one building via
+  `response_path: "buildings.0"`.
 
 ### Adapting third-party APIs (`query_map`, `response_map`)
 

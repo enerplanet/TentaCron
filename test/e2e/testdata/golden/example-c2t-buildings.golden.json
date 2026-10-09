@@ -20,13 +20,27 @@
       "error": null,
       "id": "«job-1»",
       "result": {
-        "target_response": [
-          {
-            "number_of_storeys": 2,
-            "object_id": "DEHB01AL3AU0004T",
-            "tabula_variant_code": "DE.N.SFH.04.Gen.ReEx.001.001"
-          }
-        ],
+        "target_response": {
+          "attributions": [
+            {
+              "changes": "surfaces derived",
+              "credit": "Example survey office, LoD2",
+              "dataset": "LoD2 example",
+              "dataset_id": "de-hb-lod2",
+              "licence": "CC BY 4.0",
+              "licence_url": "https://creativecommons.org/licenses/by/4.0/",
+              "provider": "Example survey office"
+            }
+          ],
+          "buildings": [
+            {
+              "dataset_id": "de-hb-lod2",
+              "number_of_storeys": 2,
+              "object_id": "DEHB01AL3AU0004T",
+              "tabula_variant_code": "DE.N.SFH.04.Gen.ReEx.001.001"
+            }
+          ]
+        },
         "target_status": 200
       },
       "state": "completed",

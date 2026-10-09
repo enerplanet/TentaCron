@@ -280,7 +280,7 @@ targets:
   c2t-buildings:
     # GET proxy target: country and osm_ids (a pre-joined comma string) both
     # become query parameters; no path placeholder, no body. An empty result
-    # is a JSON null body, forwarded verbatim.
+    # is {"buildings": [], "attributions": []}, forwarded verbatim.
     url: "https://city2tabula.example.com/api/v1/buildings"
     method: GET
     api_key: "${CITY2TABULA_API_KEY}"
@@ -394,12 +394,13 @@ resolvents:
     # THD-Spatial-AI/city2tabula: geometric building attributes and the
     # TABULA variant classification from 3D city models. GET with the
     # resolvent's fields as query parameters (country plus osm_ids or an
-    # xmin/ymin/xmax/ymax bbox); the API returns a list, so response_path
-    # "0" selects the matched building. No API key per its spec.
+    # xmin/ymin/xmax/ymax bbox); the API wraps its list in
+    # {"buildings": [...], "attributions": [...]}, so response_path
+    # "buildings.0" selects the matched building. No API key per its spec.
     url: "https://city2tabula.example.com/api/v1/buildings"
     method: GET
     timeout: 60s
-    response_path: "0"
+    response_path: "buildings.0"
     cache_ttl: 24h
 
   resolvent-ignis:
