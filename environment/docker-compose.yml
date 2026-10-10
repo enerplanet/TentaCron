@@ -67,6 +67,10 @@ services:
       - tentacron-data:/data
     ports:
       - "${HOST_PORT:-8080}:${PORT:-8080}"
+    networks:
+      - default
+      - tentacron-net # ignis-http, city2tabula, buem-gateway-http, weather-serve
+      - spatialhub-net # pylovo-api-dev
     healthcheck:
       test: ["CMD", "/usr/local/bin/tentacron", "healthcheck", "-addr", "127.0.0.1:${PORT:-8080}"]
       interval: 30s
