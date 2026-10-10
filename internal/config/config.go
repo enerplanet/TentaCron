@@ -301,8 +301,13 @@ type Target struct {
 	// byte-exact; {field} placeholders in the URL are filled from top-level
 	// payload fields, which are then stripped from the forwarded body
 	// (they address the call, they are not payload).
-	Proxy    bool     `yaml:"proxy"`
-	Response Response `yaml:"response"`
+	Proxy bool `yaml:"proxy"`
+	// QueryMap renames top-level payload fields to the query-parameter names
+	// a GET backend expects ({iso2: country}); unmapped fields keep their
+	// name. GET proxy targets only: every field not consumed by a URL
+	// placeholder becomes a query parameter, and no body is sent.
+	QueryMap map[string]string `yaml:"query_map"`
+	Response Response          `yaml:"response"`
 }
 
 // MaxConcurrentFor returns the in-flight ceiling of a client key (0 = none).

@@ -45,48 +45,81 @@ cache:
   cleanup_interval: 15m
 
 targets:
-  meme:
-    url: "https://meme.example.com/simulate?target=all"
+  meme-calliope:
+    # Calliope-only MEME run: the DEFAULT leg. MEME serves two per-framework
+    # targets (meme-calliope, meme-pypsa); the combined pypsa,calliope target was
+    # removed (its PyPSA leg emitted no lines.csv, never called pf(), and the
+    # EnerPlanET ingest discarded its single snapshot).
+    #
+    # ?target= is fixed here rather than per request, because a request
+    # selects a target by name and never a URL.
+    #
+    # attach_resolvent false because meme decodes a timeseries entry with
+    # DisallowUnknownFields: the "resolvent" echo tentacron adds for
+    # traceability would be an unknown field and the job would 400. Each
+    # resolvent feeding this target also needs a response_map emitting only
+    # {source, values, unit} — see resolvent-buem.
+    url: "http://meme-env-api-1:8080/simulate?target=calliope"
     method: POST
     api_key: "${MEME_API_KEY}"
     api_key_inject: body_field
     api_key_field: api_key
     timeout: 60s
+    job_timeout: 45m
     timeseries_path: "model.timeseries"
+    attach_resolvent: false
     response:
       mode: poll
       poll:
         id_json_path: "id"
-        url_template: "https://meme.example.com/jobs/{id}/status"
+        url_template: "http://meme-env-api-1:8080/jobs/{id}/status"
         status_json_path: "state"
         done_values: [succeeded]
         failed_values: [failed]
-        result_url_template: "https://meme.example.com/jobs/{id}"
+        result_url_template: "http://meme-env-api-1:8080/jobs/{id}"
         interval: 10s
         timeout: 30m
         result_timeout: 15m # the bundle download as a whole; the target's timeout bounds each read of it
 
-  buem:
-    # BuEM via buem-gateway; see ../config.example.yaml for the annotated entry.
-    url: "https://buem-gateway.example.com/api/v1/buem/buildings"
+  # PyPSA-only MEME run: identical to `meme-calliope` except the framework set, so
+  # a model's power-flow leg can be solved separately from the Calliope default.
+  # Selected per request by the backend (internal/jobs/dispatch_meme.go); default
+  # stays `meme-calliope`.
+  meme-pypsa:
+    url: "http://meme-env-api-1:8080/simulate?target=pypsa"
     method: POST
-    api_key: "${BUEM_API_KEY}"
-    api_key_inject: header
-    api_key_header: X-Api-Key
-    timeout: 300s
-    job_timeout: 10m
-    retry_on_timeout: false # never re-submit a batch simulation cut off by a deadline
-    timeseries_path: "."
+    api_key: "${MEME_API_KEY}"
+    api_key_inject: body_field
+    api_key_field: api_key
+    timeout: 60s
+    job_timeout: 45m
+    timeseries_path: "model.timeseries"
     attach_resolvent: false
     response:
-      mode: direct
+      mode: poll
+      poll:
+        id_json_path: "id"
+        url_template: "http://meme-env-api-1:8080/jobs/{id}/status"
+        status_json_path: "state"
+        done_values: [succeeded]
+        failed_values: [failed]
+        result_url_template: "http://meme-env-api-1:8080/jobs/{id}"
+        interval: 10s
+        timeout: 30m
+        result_timeout: 15m
 
   buem-building:
-    url: "https://buem-gateway.example.com/api/v1/buem/building"
+    # Singular route; see ../config.example.yaml for the annotated entry.
+    # buem-gateway-http is buem-gateway's alias on tentacron-net.
+    #
+    # Direct mode, so the response is read whole under
+    # upstream.max_response_bytes. One building-year of hourly series measures
+    # ~666 KB, putting the cap at roughly fifteen building-years; the
+    # simulation period and the resolution each multiply it. Over the cap the
+    # job fails with target_error naming neither the size nor the period.
+    # Extrapolated from one measurement.
+    url: "http://buem-gateway-http:8080/api/v1/buem/building"
     method: POST
-    api_key: "${BUEM_API_KEY}"
-    api_key_inject: header
-    api_key_header: X-Api-Key
     timeout: 300s
     retry_on_timeout: false
     timeseries_path: "."
@@ -94,35 +127,411 @@ targets:
     response:
       mode: direct
 
-  ignis-calculate:
-    # Proxy target; see ../config.example.yaml for the annotated entry.
-    url: "https://ignis.example.com/api/v1/calculate/{code}"
+  buem-buildings:
+    # Plain passthrough proxy for the batch endpoint; see ../config.example.yaml.
+    #
+    # Direct mode under upstream.max_response_bytes like its sibling, and the
+    # same ~666 KB per building-year: a caller setting keep_timeseries here
+    # fails the whole batch past roughly fifteen buildings at one year each.
+    # Extrapolated from one measurement.
+    url: "http://buem-gateway-http:8080/api/v1/buem/buildings"
     method: POST
-    api_key: "${IGNIS_API_KEY}"
+    timeout: 570s # kept under the 10m outbound-client ceiling
+    proxy: true
+    max_attempts: 1
+    retry_on_timeout: false
+    response:
+      mode: direct
+
+  ignis-calculate:
+    # Proxy target; see ../config.example.yaml for the annotated (through-proxy)
+    # entry. This environment reaches ignis-http directly on tentacron-net,
+    # with no reverse proxy in that path, so no credential is injected.
+    url: "http://ignis-http:8080/api/v1/calculate/{code}"
+    method: POST
+    timeout: 10s # ignis enforces a 5s per-request handler deadline
+    proxy: true
+    response:
+      mode: direct
+
+  ignis-variants-match:
+    # GET proxy target: iso2 fills the path, type/year become query parameters.
+    url: "http://ignis-http:8080/api/v1/variants/{iso2}/match"
+    method: GET
+    timeout: 10s
+    proxy: true
+    response:
+      mode: direct
+
+  ignis-data:
+    url: "http://ignis-http:8080/api/v1/data/{code}"
+    method: GET
+    timeout: 10s
+    proxy: true
+    response:
+      mode: direct
+
+  ignis-fields:
+    # Empty payload, no path or query, no body: the field-metadata catalogue.
+    url: "http://ignis-http:8080/api/v1/fields"
+    method: GET
+    timeout: 10s
+    proxy: true
+    response:
+      mode: direct
+
+  ignis-variants:
+    # iso2 fills the path; the whole country variant list.
+    url: "http://ignis-http:8080/api/v1/variants/{iso2}"
+    method: GET
+    timeout: 10s
+    proxy: true
+    response:
+      mode: direct
+
+  weather-point:
+    # GET proxy target; see ../config.example.yaml for the annotated entry.
+    # Unlike the ignis targets this environment still injects the key:
+    # weather-serve's Flask before_request checks X-API-Key on every route,
+    # same-network or not.
+    #
+    #
+    # format=json is a default a request field of the same name overrides.
+    # Everything else (provider, lat, lon, exactly one of year or scenario,
+    # variables or use_case) comes from the request.
+    url: "http://weather-serve:8080/v1/weather/point?format=json"
+    method: GET
+    api_key: "${WEATHER_API_KEY}"
     api_key_inject: header
-    api_key_header: X-Api-Key
+    api_key_header: X-API-Key
+    timeout: 45s
+    proxy: true
+    response:
+      mode: direct
+
+  c2t-trigger-run:
+    # POST proxy; see ../config.example.yaml. Keyless here: city2tabula's
+    # on-request server enforces no auth. max_attempts 1 + retry_on_timeout
+    # false because a run is expensive and not idempotent.
+    url: "http://city2tabula:5000/api/v1/runs"
+    method: POST
+    timeout: 30s
+    proxy: true
+    max_attempts: 1
+    retry_on_timeout: false
+    response:
+      mode: direct
+
+  c2t-run-status:
+    url: "http://city2tabula:5000/api/v1/runs/{run_id}"
+    method: GET
+    timeout: 10s
+    proxy: true
+    response:
+      mode: direct
+
+  c2t-buildings:
+    # country + osm_ids to the query; an empty result is
+    # {"buildings": [], "attributions": []}.
+    url: "http://city2tabula:5000/api/v1/buildings"
+    method: GET
+    timeout: 30s
+    proxy: true
+    response:
+      mode: direct
+
+  c2t-coverage:
+    # How many city2tabula buildings in an extent are linked to a pylovo input
+    # building, which is what makes an area modellable. Requires country plus
+    # xmin/ymin/xmax/ymax; all five are plain payload fields and reach the
+    # query unchanged, so no query_map. The answer is a single count, a few
+    # bytes.
+    #
+    # max_attempts 2, deliberately unlike the sibling c2t entries. A country
+    # whose building_link table has not been built answers 500, which is
+    # classified as retryable, so the default ladder spends about 30s of
+    # backoff before reporting it. That is not an exceptional failure here: an
+    # unlinked country is one of the states this target exists to report, so
+    # the retries are being spent on an expected answer, behind a synchronous
+    # availability check. Two attempts settle in about 6s and still absorb a
+    # genuine blip.
+    url: "http://city2tabula:5000/api/v1/coverage"
+    method: GET
+    timeout: 10s
+    proxy: true
+    max_attempts: 2
+    response:
+      mode: direct
+
+  c2t-geometry:
+    # Footprint geometry for named buildings. Requires country and object_ids,
+    # a comma-separated list; both are plain payload fields and reach the
+    # query unchanged, so no query_map.
+    #
+    # Two things a caller has to plan for, both measured against the live
+    # service over the 617-building Dutch fixture rather than estimated.
+    #
+    # The response is large. 617 buildings return about 308 KB, past the
+    # 256 KiB an answer may be stored inline, so the result arrives as
+    # result.href with no target_response body and the caller must follow the
+    # link. A few dozen buildings stay inline. Footprint-only is well under
+    # upstream.max_response_bytes either way.
+    #
+    # include=surfaces is bounded by city2tabula's maxSurfaceBuildings, 1 as
+    # of 0.6.0: more ids on that path get a 400, not a large response, so the
+    # worst case is one building at a measured 131 KB. Raising that constant
+    # puts response size back in play against upstream.max_response_bytes,
+    # which fails a job whole rather than truncating it.
+    #
+    # The request is long. Object ids are 32 characters, so 617 of them make a
+    # query string of about 20 KB. City2TABULA answers that in single-digit
+    # milliseconds, because Go bounds the request line by MaxHeaderBytes at
+    # 1 MB rather than the 8 KB common to nginx and Apache.
+    #
+    # Measured through the Caddy 2.11 proxy this stack already runs: a request
+    # line is accepted up to 64 KiB and the connection is dropped above it, so
+    # the ceiling is roughly 1,980 ids and the 617-building case uses about a
+    # third of it. nginx or Apache in that position would refuse anything past
+    # 8 KB, about 240 ids, with a 414. So the limit follows whichever proxy is
+    # in front rather than the payload, and batching is only needed if one of
+    # those is introduced.
+    #
+    # timeout 30s is the sibling value and is not a measurement: the fixture
+    # answers in about 8ms. It is headroom, not an expectation.
+    #
+    # The GeoJSON comes back in the country's storage CRS, not WGS84: the
+    # query calls ST_AsGeoJSON without ST_Transform, so Dutch data arrives in
+    # EPSG:28992 with coordinates near 198203, 458493. This target proxies it
+    # faithfully; reprojection is the caller's problem or City2TABULA's.
+    url: "http://city2tabula:5000/api/v1/geometry"
+    method: GET
+    timeout: 30s
+    proxy: true
+    response:
+      mode: direct
+
+  # pylovo (synthetic low-voltage grids), one proxy target per path and
+  # method. Keyless: the pylovo API enforces no auth. See
+  # ../config.example.yaml for the annotated entry.
+  #
+  # DELETE /custom-buildings/{building_id} has no entry: config.validMethod
+  # accepts GET, POST, PUT and PATCH only.
+
+  pylovo-generate-grid:
+    # Phase 1 grid generation. Expensive and not idempotent, so one attempt
+    # and no re-submission on a timeout. Models are capped near 300
+    # buildings, which keeps the footprint response under
+    # upstream.max_response_bytes; an uncapped city polygon would exceed it
+    # and fail the job with target_error.
+    url: "http://pylovo-api-dev:8086/generate-grid"
+    method: POST
+    timeout: 300s
+    job_timeout: 10m
+    proxy: true
+    max_attempts: 1
+    retry_on_timeout: false
+    response:
+      mode: direct
+
+  pylovo-estimate-energy:
+    url: "http://pylovo-api-dev:8086/estimate-energy"
+    method: POST
+    timeout: 30s
+    proxy: true
+    response:
+      mode: direct
+
+  pylovo-estimate-energy-batch:
+    url: "http://pylovo-api-dev:8086/estimate-energy-batch"
+    method: POST
+    timeout: 120s
+    proxy: true
+    response:
+      mode: direct
+
+  pylovo-grid-statistics:
+    url: "http://pylovo-api-dev:8086/grid-statistics"
+    method: POST
     timeout: 60s
     proxy: true
     response:
       mode: direct
 
-resolvents:
-  # pv1/wind are illustrative POST entries; see ../config.example.yaml.
-  resolvent-pv1:
-    url: "https://pvsim.example.com/v1/generate"
+  pylovo-power-flow:
+    url: "http://pylovo-api-dev:8086/power-flow"
     method: POST
-    api_key: "${PV1_API_KEY}"
-    api_key_header: X-API-Key
-    timeout: 30s
-    cache_ttl: 24h
+    timeout: 120s
+    proxy: true
+    response:
+      mode: direct
 
-  resolvent-wind:
-    url: "https://windsim.example.com/v1/series"
+  pylovo-hosting-capacity:
+    url: "http://pylovo-api-dev:8086/hosting-capacity"
     method: POST
-    api_key: "${WIND_API_KEY}"
-    api_key_header: X-API-Key
+    timeout: 120s
+    proxy: true
+    response:
+      mode: direct
+
+  pylovo-boundary:
+    # POST: the boundary of a caller-supplied polygon.
+    url: "http://pylovo-api-dev:8086/boundary"
+    method: POST
+    timeout: 60s
+    proxy: true
+    response:
+      mode: direct
+
+  pylovo-boundary-get:
+    # GET: lat, lon and optional admin_level become query parameters.
+    url: "http://pylovo-api-dev:8086/boundary"
+    method: GET
     timeout: 30s
-    cache_ttl: 24h
+    proxy: true
+    response:
+      mode: direct
+
+  pylovo-boundary-regions:
+    url: "http://pylovo-api-dev:8086/boundary/regions"
+    method: GET
+    timeout: 30s
+    proxy: true
+    response:
+      mode: direct
+
+  pylovo-boundary-states:
+    # country_code, version_id, geometry_mode and simplify_m to the query.
+    url: "http://pylovo-api-dev:8086/boundary/states"
+    method: GET
+    timeout: 60s # a state geometry, unsimplified, is large
+    proxy: true
+    response:
+      mode: direct
+
+  pylovo-boundary-available:
+    url: "http://pylovo-api-dev:8086/boundary/available"
+    method: GET
+    timeout: 30s
+    proxy: true
+    response:
+      mode: direct
+
+  pylovo-add-custom-building:
+    # Creates a row; one attempt, never re-submitted on a timeout.
+    url: "http://pylovo-api-dev:8086/add-custom-building"
+    method: POST
+    timeout: 30s
+    proxy: true
+    max_attempts: 1
+    retry_on_timeout: false
+    response:
+      mode: direct
+
+  pylovo-custom-buildings-get:
+    # user_id fills the path segment and is stripped from the forwarded body.
+    url: "http://pylovo-api-dev:8086/custom-buildings/{user_id}"
+    method: GET
+    timeout: 30s
+    proxy: true
+    response:
+      mode: direct
+
+  pylovo-add-transformer:
+    url: "http://pylovo-api-dev:8086/add-transformer"
+    method: POST
+    timeout: 30s
+    proxy: true
+    max_attempts: 1
+    retry_on_timeout: false
+    response:
+      mode: direct
+
+  pylovo-assign-building:
+    url: "http://pylovo-api-dev:8086/assign-building"
+    method: POST
+    timeout: 30s
+    proxy: true
+    max_attempts: 1
+    retry_on_timeout: false
+    response:
+      mode: direct
+
+  pylovo-delete-transformer:
+    url: "http://pylovo-api-dev:8086/delete-transformer"
+    method: POST
+    timeout: 30s
+    proxy: true
+    max_attempts: 1
+    retry_on_timeout: false
+    response:
+      mode: direct
+
+  pylovo-move-transformer:
+    url: "http://pylovo-api-dev:8086/move-transformer"
+    method: POST
+    timeout: 30s
+    proxy: true
+    max_attempts: 1
+    retry_on_timeout: false
+    response:
+      mode: direct
+
+  pylovo-finalize-transformers:
+    url: "http://pylovo-api-dev:8086/finalize-transformers"
+    method: POST
+    timeout: 60s
+    proxy: true
+    max_attempts: 1
+    retry_on_timeout: false
+    response:
+      mode: direct
+
+  # Reference data: no parameters, no body.
+  pylovo-transformer-sizes:
+    url: "http://pylovo-api-dev:8086/transformer-sizes"
+    method: GET
+    timeout: 10s
+    proxy: true
+    response:
+      mode: direct
+
+  pylovo-consumer-categories:
+    url: "http://pylovo-api-dev:8086/consumer-categories"
+    method: GET
+    timeout: 10s
+    proxy: true
+    response:
+      mode: direct
+
+  pylovo-cable-types:
+    url: "http://pylovo-api-dev:8086/cable-types"
+    method: GET
+    timeout: 10s
+    proxy: true
+    response:
+      mode: direct
+
+  pylovo-equipment-costs:
+    url: "http://pylovo-api-dev:8086/equipment-costs"
+    method: GET
+    timeout: 10s
+    proxy: true
+    response:
+      mode: direct
+
+  pylovo-voltage-settings:
+    url: "http://pylovo-api-dev:8086/voltage-settings"
+    method: GET
+    timeout: 10s
+    proxy: true
+    response:
+      mode: direct
+
+resolvents:
+  # pv1/wind stay out of this deployment: no such service runs in the stack,
+  # and a listed entry is one a client may submit and have fail on DNS. The
+  # PV backend here is resolvent-pvgis. See ../config.example.yaml for the
+  # illustrative POST shape.
 
   resolvent-pvgis:
     # PVGIS; see ../config.example.yaml for the annotated entry.
@@ -145,7 +554,7 @@ resolvents:
       source: ".inputs.meteo_data.radiation_db"
 
   resolvent-weather:
-    url: "https://weather.example.com/v1/weather/point?format=json"
+    url: "http://weather-serve:8080/v1/weather/point?format=json"
     method: GET
     api_key: "${WEATHER_API_KEY}"
     api_key_header: X-API-Key
@@ -153,23 +562,31 @@ resolvents:
     cache_ttl: 24h
 
   resolvent-city2tabula:
-    url: "https://city2tabula.example.com/api/v1/buildings"
+    url: "http://city2tabula:5000/api/v1/buildings"
     method: GET
     timeout: 60s
-    response_path: "0"
+    response_path: "buildings.0"
     cache_ttl: 24h
 
   resolvent-ignis:
-    url: "https://ignis.example.com/api/v1/data/{code}"
+    url: "http://ignis-http:8080/api/v1/data/{code}"
     method: GET
-    api_key: "${IGNIS_API_KEY}"
-    api_key_header: X-Api-Key
     timeout: 30s
     cache_ttl: 168h
 
   resolvent-buem:
     # See ../config.example.yaml for the annotated entry.
+    #
+    # response_map is a whitelist: only its own keys reach the substituted
+    # object. It is what keeps the slot to a meme TimeSeries, since the
+    # extracted BuEM profile carries heating and timestamps, which meme
+    # decodes with DisallowUnknownFields and rejects. Paths are relative to
+    # response_path, applied first.
     target: buem-building
     payload_field: payload
     response_path: "buem.thermal_load_profile.timeseries"
+    response_map:
+      source: inline
+      values: ".heating"
+      unit: ".unit"
     cache_ttl: 24h

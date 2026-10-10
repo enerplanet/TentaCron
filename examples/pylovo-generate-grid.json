@@ -1,0 +1,20 @@
+{
+  "api_key": "your-tentacron-api-key",
+  "target": "pylovo-generate-grid",
+  "payload": {
+    "user_id": "demo-user",
+    "version_id": "v1",
+    "boundary": {
+      "type": "Polygon",
+      "coordinates": [
+        [
+          [12.9565, 48.8305],
+          [12.9585, 48.8305],
+          [12.9585, 48.8325],
+          [12.9565, 48.8325],
+          [12.9565, 48.8305]
+        ]
+      ]
+    }
+  }
+}

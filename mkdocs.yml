@@ -126,6 +126,7 @@ nav:
   - Service:
       - Architecture: architecture.md
       - API Reference: api.md
+      - Integration Contract: integration.md
       - Configuration: configuration.md
       - Operations: operations.md
       - Browser clients: browser-clients.md

@@ -253,7 +253,8 @@ answer read only up to 1 KiB.
 - Inbound bodies are capped by `server.max_body_bytes`, upstream JSON
   responses by `upstream.max_response_bytes` and result downloads by
   `storage.max_result_bytes`; TLS termination is expected at a reverse
-  proxy.
+  proxy. An upstream response above its cap is discarded whole: the job
+  fails with `target_error`, without truncation and without a retry.
 
 ## Operability
 

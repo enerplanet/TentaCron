@@ -273,8 +273,8 @@ var resolutionScenarios = []scenario{
 	{
 		// GET resolvents against the verified city2tabula and ignis
 		// contracts: object fields map onto query parameters and the {code}
-		// path template, and response_path "0" selects the single matched
-		// building out of city2tabula's list response. The frozen request
+		// path template, and response_path "buildings.0" selects the single
+		// matched building out of city2tabula's buildings list. The frozen request
 		// lines are the proof of the URL mapping.
 		name: "get-resolvents-city2tabula-ignis",
 		run: func(t *testing.T, h *harness) {

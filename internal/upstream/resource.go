@@ -59,16 +59,30 @@ var placeholderPattern = regexp.MustCompile(`\{([A-Za-z0-9_]+)\}`)
 //   - parameters are appended in sorted field order, so the produced URL —
 //     and anything derived from it (logs, goldens) — is deterministic.
 func buildResolventURL(rawURL string, payload map[string]any, queryMap map[string]string) (string, error) {
-	templated, consumed, err := fillPathPlaceholders(rawURL, payload)
+	// type (the marker) and name (the label) are tentacron's own, never sent.
+	return buildGetURL(rawURL, payload, queryMap, map[string]bool{"type": true, "name": true})
+}
+
+// buildGetURL maps a flat field map onto a GET URL: {field} placeholders
+// take the path-escaped scalar value of that field; every field not consumed
+// by a placeholder or already in preConsumed becomes a query parameter
+// (renamed by queryMap), appended to any query already in rawURL, in sorted
+// field order for a deterministic result.
+//
+// Shared by GET resolvents and GET proxy targets so both escape query values
+// the same way and honour query_map; a proxy target passes an empty
+// preConsumed (it has no markers of its own).
+func buildGetURL(rawURL string, fields map[string]any, queryMap map[string]string, preConsumed map[string]bool) (string, error) {
+	templated, consumed, err := fillPathPlaceholders(rawURL, fields, preConsumed)
 	if err != nil {
 		return "", err
 	}
 	u, err := url.Parse(templated)
 	if err != nil {
-		return "", fmt.Errorf("resolvent url: %w", err)
+		return "", fmt.Errorf("get url: %w", err)
 	}
 	q := u.Query()
-	if err := addQueryFields(q, payload, consumed, queryMap); err != nil {
+	if err := addQueryFields(q, fields, consumed, queryMap); err != nil {
 		return "", err
 	}
 	u.RawQuery = q.Encode()
@@ -76,10 +90,13 @@ func buildResolventURL(rawURL string, payload map[string]any, queryMap map[strin
 }
 
 // fillPathPlaceholders replaces every {field} placeholder with the
-// path-escaped scalar value of that field and reports the consumed fields
-// (the type marker and the name label count as consumed: never sent).
-func fillPathPlaceholders(rawURL string, payload map[string]any) (string, map[string]bool, error) {
-	consumed := map[string]bool{"type": true, "name": true}
+// path-escaped scalar value of that field and reports the consumed fields.
+// preConsumed seeds fields that must never be sent (a resolvent's type/name).
+func fillPathPlaceholders(rawURL string, payload map[string]any, preConsumed map[string]bool) (string, map[string]bool, error) {
+	consumed := maps.Clone(preConsumed)
+	if consumed == nil {
+		consumed = map[string]bool{}
+	}
 	var missing []string
 	filled := placeholderPattern.ReplaceAllStringFunc(rawURL, func(match string) string {
 		field := match[1 : len(match)-1]
@@ -92,7 +109,7 @@ func fillPathPlaceholders(rawURL string, payload map[string]any) (string, map[st
 		return url.PathEscape(s)
 	})
 	if len(missing) > 0 {
-		return "", nil, fmt.Errorf("url placeholder(s) %v need scalar resolvent fields", missing)
+		return "", nil, fmt.Errorf("url placeholder(s) %v need a scalar (string, number or bool) field", missing)
 	}
 	return filled, consumed, nil
 }

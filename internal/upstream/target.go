@@ -71,6 +71,12 @@ func CheckTargetPayload(tcfg config.Target, payload []byte) error {
 // a decode into map[string]any would round large integers through float64
 // and silently corrupt model data.
 func prepareOutbound(tcfg config.Target, payload []byte) (callURL string, body []byte, err error) {
+	// A GET proxy target maps its payload onto the URL the resolvent way
+	// (path segment plus query parameters, query-escaped) and sends no body;
+	// the fillTargetURL path below path-escapes and would keep a body.
+	if tcfg.Proxy && tcfg.Method == http.MethodGet {
+		return prepareProxyGet(tcfg, payload)
+	}
 	templated := placeholderPattern.MatchString(tcfg.URL)
 	inject := tcfg.APIKeyInject == config.InjectBodyField
 	if !templated && !inject {
@@ -97,6 +103,25 @@ func prepareOutbound(tcfg config.Target, payload []byte) (callURL string, body [
 		return "", nil, err
 	}
 	return callURL, body, nil
+}
+
+// prepareProxyGet maps a GET proxy target's flat payload onto the request
+// URL — {field} placeholders take a top-level scalar (path-escaped), every
+// other top-level field becomes a query parameter (query_map renames it) —
+// and sends no body. Numbers decode as json.Number so a large integer id
+// reaches the URL with its digits intact.
+func prepareProxyGet(tcfg config.Target, payload []byte) (string, []byte, error) {
+	dec := json.NewDecoder(bytes.NewReader(payload))
+	dec.UseNumber()
+	var fields map[string]any
+	if err := dec.Decode(&fields); err != nil || fields == nil {
+		return "", nil, fmt.Errorf("payload for a GET proxy target must be a JSON object: %w", errNotObject(err))
+	}
+	callURL, err := buildGetURL(tcfg.URL, fields, tcfg.QueryMap, nil)
+	if err != nil {
+		return "", nil, err
+	}
+	return callURL, nil, nil
 }
 
 // errNotObject names the decode failure, or the fact that a valid "null"

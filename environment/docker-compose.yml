@@ -13,7 +13,7 @@
 
 services:
   # Long-running API service.
-  api:
+  tentacron:
     build:
       context: ..
       dockerfile: environment/Dockerfile
@@ -39,6 +39,10 @@ services:
       - go-mod:/root/go/pkg/mod
     ports:
       - "${HOST_PORT:-8080}:${PORT:-8080}"
+    networks:
+      - default
+      - tentacron-net # ignis-http, city2tabula, buem-gateway-http, weather-serve
+      - spatialhub-net # pylovo-api-dev
     command: make run
 
   # Production deployment: the published distroless image (built by the
@@ -46,7 +50,7 @@ services:
   # volume for the SQLite store and result files, non-root. Select the tag
   # with RELEASE_IMAGE in the env file.
   #   make -C environment run-release ENV=prod
-  api-release:
+  tentacron-release:
     image: ${RELEASE_IMAGE:-ghcr.io/enerplanet/tentacron:latest}
     environment:
       - PORT=${PORT:-8080}
@@ -63,6 +67,10 @@ services:
       - tentacron-data:/data
     ports:
       - "${HOST_PORT:-8080}:${PORT:-8080}"
+    networks:
+      - default
+      - tentacron-net # ignis-http, city2tabula, buem-gateway-http, weather-serve
+      - spatialhub-net # pylovo-api-dev
     healthcheck:
       test: ["CMD", "/usr/local/bin/tentacron", "healthcheck", "-addr", "127.0.0.1:${PORT:-8080}"]
       interval: 30s
@@ -125,3 +133,15 @@ volumes:
   go-build:
   go-mod:
   tentacron-data:
+
+networks:
+  default: {}
+  # Shared network for the heat stack. Declared rather than external, so any
+  # attached repo can create it. Compose matches the key against the
+  # network's own label, so the key must stay spelled as the network name.
+  tentacron-net:
+    name: tentacron-net
+  # Owned by the platform deployment, not by this file. It must already exist
+  # or tentacron will not start, so bring the platform up first.
+  spatialhub-net:
+    external: true

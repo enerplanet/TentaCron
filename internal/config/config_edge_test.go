@@ -198,6 +198,46 @@ targets:
 	}
 }
 
+func TestProxyGetTargetQueryMap(t *testing.T) {
+	good := `
+auth:
+  api_keys: [{name: t, key: k}]
+targets:
+  ignis-variants-match:
+    url: "https://ignis.example.com/api/v1/variants/{iso2}/match"
+    method: GET
+    proxy: true
+    query_map: {iso2_field: iso2}
+`
+	cfg, err := Load(writeConfig(t, good))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Targets["ignis-variants-match"].QueryMap["iso2_field"] != "iso2" {
+		t.Errorf("query_map not loaded: %v", cfg.Targets["ignis-variants-match"].QueryMap)
+	}
+
+	cases := []struct{ name, yaml, wantErr string }{
+		{"non-proxy target", strings.Replace(good, "    proxy: true\n", "", 1),
+			"only GET proxy targets map payload fields"},
+		{"POST proxy target", strings.Replace(good, "method: GET", "method: POST", 1),
+			"only GET proxy targets map payload fields"},
+		{"two fields one param", strings.Replace(good, "{iso2_field: iso2}", "{a: iso2, b: iso2}", 1),
+			`fields "a" and "b" both map to parameter "iso2"`},
+		{"body_field key on a GET target", strings.Replace(good,
+			"    query_map: {iso2_field: iso2}\n",
+			"    api_key: secret\n    api_key_inject: body_field\n", 1),
+			"body_field needs a request body"},
+	}
+	for _, tt := range cases {
+		t.Run(tt.name, func(t *testing.T) {
+			if _, err := Load(writeConfig(t, tt.yaml)); err == nil || !strings.Contains(err.Error(), tt.wantErr) {
+				t.Fatalf("want error containing %q, got %v", tt.wantErr, err)
+			}
+		})
+	}
+}
+
 // Validation collects every problem instead of stopping at the first.
 func TestValidateReportsEveryProblemAtOnce(t *testing.T) {
 	_, err := Load(writeConfig(t, `
@@ -431,7 +471,7 @@ func TestEnvironmentConfigLoads(t *testing.T) {
 	for _, v := range []string{
 		"TENTACRON_KEY_FRONTEND", "TENTACRON_KEY_BATCH",
 		"MEME_API_KEY", "BUEM_API_KEY", "PV1_API_KEY", "WIND_API_KEY",
-		"WEATHER_API_KEY", "IGNIS_API_KEY",
+		"WEATHER_API_KEY", "IGNIS_API_KEY", "CITY2TABULA_API_KEY",
 	} {
 		t.Setenv(v, "test-"+v)
 	}
@@ -442,12 +482,12 @@ func TestEnvironmentConfigLoads(t *testing.T) {
 	if cfg.Server.Addr != ":9999" {
 		t.Errorf("addr = %q, want the PORT interpolation", cfg.Server.Addr)
 	}
-	for _, name := range []string{"meme", "buem", "buem-building", "ignis-calculate"} {
+	for _, name := range []string{"meme-calliope", "meme-pypsa", "buem-building", "buem-buildings", "ignis-calculate"} {
 		if _, ok := cfg.Targets[name]; !ok {
 			t.Errorf("target %q missing from the environment config", name)
 		}
 	}
-	for _, name := range []string{"resolvent-pv1", "resolvent-wind", "resolvent-weather",
+	for _, name := range []string{"resolvent-pvgis", "resolvent-weather",
 		"resolvent-city2tabula", "resolvent-ignis", "resolvent-buem"} {
 		if _, ok := cfg.Resolvents[name]; !ok {
 			t.Errorf("resolvent %q missing from the environment config", name)
@@ -653,7 +693,7 @@ targets:
 // and resolvent with its routing knobs, sorted, and never a credential.
 func TestDescribeListsEverythingWithoutSecrets(t *testing.T) {
 	for _, v := range []string{"TENTACRON_KEY_FRONTEND", "TENTACRON_KEY_BATCH", "MEME_API_KEY", "BUEM_API_KEY",
-		"PV1_API_KEY", "WIND_API_KEY", "WEATHER_API_KEY", "IGNIS_API_KEY"} {
+		"PV1_API_KEY", "WIND_API_KEY", "WEATHER_API_KEY", "IGNIS_API_KEY", "CITY2TABULA_API_KEY"} {
 		t.Setenv(v, "secret-"+v)
 	}
 	cfg, err := Load("../../config.example.yaml")
@@ -661,7 +701,7 @@ func TestDescribeListsEverythingWithoutSecrets(t *testing.T) {
 		t.Fatal(err)
 	}
 	out := Describe(cfg)
-	for _, want := range []string{"5 target(s)", "7 resolvent type(s)", "  buem ", "poll", "proxy",
+	for _, want := range []string{"15 target(s)", "7 resolvent type(s)", "  buem ", "poll", "proxy",
 		"not retried on timeout", "via target buem-building", "response path buem.thermal_load_profile.timeseries",
 		"resolvents in model.timeseries", "key via body_field"} {
 		if !strings.Contains(out, want) {
