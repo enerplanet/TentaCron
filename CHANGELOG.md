@@ -8,6 +8,19 @@ under "Changed" with the keys or fields concerned.
 
 ## [Unreleased]
 
+### Added
+
+- GET proxy targets: a proxy target with `method: GET` maps the flat payload
+  onto the request URL and sends no body. `{field}` placeholders fill path
+  segments (path-escaped, consumed); every other top-level field becomes a
+  query parameter (query-escaped, sorted), renamed by the new target
+  `query_map` key. Validation rejects `query_map` on a non-GET or non-proxy
+  target, and `api_key_inject: body_field` on any GET target.
+  The reference configuration wires four ignis GET proxy targets alongside
+  the existing `ignis-calculate`: `ignis-variants-match`, `ignis-variants`,
+  `ignis-data` and `ignis-fields`, each with an `examples/` request executed
+  by the golden suite.
+
 ## [0.4.0-alpha] - 2026-09-06
 
 ### Added
