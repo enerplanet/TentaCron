@@ -44,6 +44,7 @@ services:
       - tentacron-net # ignis-http, city2tabula, buem-gateway-http, weather-serve
       - spatialhub-net # pylovo-api-dev
     command: make run
+    restart: unless-stopped
 
   # Production deployment: the published distroless image (built by the
   # release workflow from the root Dockerfile), read-only config, a named
