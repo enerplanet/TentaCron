@@ -8,6 +8,8 @@
 server:
   addr: ":${PORT}"
   metrics_addr: ":9090" # scraped inside the compose network; not published by default
+  max_body_bytes: 67108864 # 64 MiB: full-year MEME models of ~300 buildings carry every series inline.
+  # meme's own inbound cap (maxBodyBytes in meme internal/api/server.go) is 32 MiB, so it binds first.
   log_level: info
   cors:
     allowed_origins: [] # a local frontend against this compose: ["http://localhost:5173"]
