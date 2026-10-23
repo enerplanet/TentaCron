@@ -24,14 +24,14 @@ build: ## Build the environment image (Go toolchain + tooling)
 test: ## Build and run the Go test suite inside the container
 	$(COMPOSE) run --rm test
 
-validate: ## Validate the config the api service loads, with this env file
+validate: ## Validate the config the tentacron service loads, with this env file
 	$(COMPOSE) run --rm validate
 
 run: ## Run the API from the development image (sources bind-mounted)
-	$(COMPOSE) up api
+	$(COMPOSE) up tentacron
 
 run-release: ## Run the published release image (RELEASE_IMAGE in the env file)
-	$(COMPOSE) up api-release
+	$(COMPOSE) up tentacron-release
 
 shell: ## Interactive shell in the environment image
 	$(COMPOSE) run --rm shell

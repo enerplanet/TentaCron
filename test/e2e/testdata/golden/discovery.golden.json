@@ -19,6 +19,26 @@
           "timeseries_path": "."
         },
         {
+          "name": "buem-buildings",
+          "proxy": true,
+          "response_mode": "direct"
+        },
+        {
+          "name": "c2t-buildings",
+          "proxy": true,
+          "response_mode": "direct"
+        },
+        {
+          "name": "c2t-run-status",
+          "proxy": true,
+          "response_mode": "direct"
+        },
+        {
+          "name": "c2t-trigger-run",
+          "proxy": true,
+          "response_mode": "direct"
+        },
+        {
           "attach_resolvent": true,
           "name": "demo",
           "proxy": false,
@@ -31,11 +51,41 @@
           "response_mode": "direct"
         },
         {
+          "name": "ignis-data",
+          "proxy": true,
+          "response_mode": "direct"
+        },
+        {
+          "name": "ignis-fields",
+          "proxy": true,
+          "response_mode": "direct"
+        },
+        {
+          "name": "ignis-variants",
+          "proxy": true,
+          "response_mode": "direct"
+        },
+        {
+          "name": "ignis-variants-match",
+          "proxy": true,
+          "response_mode": "direct"
+        },
+        {
           "attach_resolvent": true,
           "name": "meme",
           "proxy": false,
           "response_mode": "poll",
           "timeseries_path": "model.timeseries"
+        },
+        {
+          "name": "pylovo-generate-grid",
+          "proxy": true,
+          "response_mode": "direct"
+        },
+        {
+          "name": "weather-point",
+          "proxy": true,
+          "response_mode": "direct"
         }
       ]
     },

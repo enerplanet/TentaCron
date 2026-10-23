@@ -1,0 +1,7 @@
+{
+  "api_key": "your-tentacron-api-key",
+  "target": "ignis-variants",
+  "payload": {
+    "iso2": "DE"
+  }
+}
