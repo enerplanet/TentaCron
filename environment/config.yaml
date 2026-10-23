@@ -224,6 +224,19 @@ targets:
     response:
       mode: direct
 
+  weather-providers:
+    # GET proxy target; see ../config.example.yaml for the annotated entry.
+    # Keyed like weather-point.
+    url: "http://weather-serve:8080/v1/weather/providers"
+    method: GET
+    api_key: "${WEATHER_API_KEY}"
+    api_key_inject: header
+    api_key_header: X-API-Key
+    timeout: 10s
+    proxy: true
+    response:
+      mode: direct
+
   c2t-trigger-run:
     # POST proxy; see ../config.example.yaml. Keyless here: city2tabula's
     # on-request server enforces no auth. max_attempts 1 + retry_on_timeout

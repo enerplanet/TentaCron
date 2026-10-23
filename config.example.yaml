@@ -246,6 +246,21 @@ targets:
     response:
       mode: direct
 
+  weather-providers:
+    # GET proxy target for enerplanet/weather's provider listing: the years
+    # each archive has processed, as {"providers": {name: {"years": [...]}}}.
+    # No payload fields. EnerPlanET limits its simulation calendar to these
+    # years.
+    url: "https://weather.example.com/v1/weather/providers"
+    method: GET
+    api_key: "${WEATHER_API_KEY}"
+    api_key_inject: header
+    api_key_header: X-API-Key
+    timeout: 10s
+    proxy: true
+    response:
+      mode: direct
+
   c2t-trigger-run:
     # POST proxy target for city2tabula's on-request server. The whole
     # payload ({country, xmin, ymin, xmax, ymax}) is forwarded as the JSON
