@@ -306,6 +306,20 @@ targets:
     response:
       mode: direct
 
+  c2t-surfaces:
+    # GET proxy target (City2TABULA 0.13.0 or later): country, the WGS84 bbox
+    # xmin/ymin/xmax/ymax and an optional cursor become query parameters. The
+    # caller follows next_cursor until it is null; a page stays near 4 MB.
+    url: "https://city2tabula.example.com/api/v1/surfaces"
+    method: GET
+    api_key: "${CITY2TABULA_API_KEY}"
+    api_key_inject: header
+    api_key_header: X-Api-Key
+    timeout: 30s
+    proxy: true
+    response:
+      mode: direct
+
   pylovo-generate-grid:
     # One proxy target per pylovo path and method, named
     # pylovo-<path-kebab>, with -get or -delete where a path serves two

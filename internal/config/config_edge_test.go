@@ -701,7 +701,7 @@ func TestDescribeListsEverythingWithoutSecrets(t *testing.T) {
 		t.Fatal(err)
 	}
 	out := Describe(cfg)
-	for _, want := range []string{"16 target(s)", "7 resolvent type(s)", "  buem ", "poll", "proxy",
+	for _, want := range []string{"17 target(s)", "7 resolvent type(s)", "  buem ", "poll", "proxy",
 		"not retried on timeout", "via target buem-building", "response path buem.thermal_load_profile.timeseries",
 		"resolvents in model.timeseries", "key via body_field"} {
 		if !strings.Contains(out, want) {

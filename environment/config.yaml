@@ -338,6 +338,18 @@ targets:
     response:
       mode: direct
 
+  c2t-surfaces:
+    # Bulk LoD2 surfaces in a WGS84 bbox, City2TABULA 0.13.0 or later.
+    # country, xmin/ymin/xmax/ymax and the optional cursor reach the query
+    # unchanged; the caller follows next_cursor until it is null. City2TABULA
+    # caps a page near 4.06 MB, under upstream.max_response_bytes.
+    url: "http://city2tabula:5000/api/v1/surfaces"
+    method: GET
+    timeout: 30s
+    proxy: true
+    response:
+      mode: direct
+
   # pylovo (synthetic low-voltage grids), one proxy target per path and
   # method. Keyless: the pylovo API enforces no auth. See
   # ../config.example.yaml for the annotated entry.
