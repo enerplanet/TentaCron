@@ -8,6 +8,35 @@ under "Changed" with the keys or fields concerned.
 
 ## [Unreleased]
 
+### Added
+
+- GET proxy targets: a proxy target with `method: GET` maps the flat payload
+  onto the request URL and sends no body. `{field}` placeholders fill path
+  segments (path-escaped, consumed); every other top-level field becomes a
+  query parameter (query-escaped, sorted), renamed by the new target
+  `query_map` key. Validation rejects `query_map` on a non-GET or non-proxy
+  target, and `api_key_inject: body_field` on any GET target.
+  The reference configuration wires four ignis GET proxy targets alongside
+  the existing `ignis-calculate`: `ignis-variants-match`, `ignis-variants`,
+  `ignis-data` and `ignis-fields`, each with an `examples/` request executed
+  by the golden suite.
+
+### Changed
+
+- `environment/docker-compose.yml` is Compose project `tentacron` (set by
+  `name:`; `COMPOSE_PROJECT_NAME` is gone from the env files). The release
+  service `tentacron-release` is now `api`, which also builds the root
+  `Dockerfile` with `--build`; the bind-mounted development service
+  `tentacron` is now `dev` under the `dev` profile, and `validate`, `test`
+  and `shell` are under `tools`. Containers are `tentacron-api-1` and
+  `tentacron-dev-1`, reachable on `tentacron-net` as `tentacron`. The
+  release data volume is now `tentacron_tentacron-data`; an existing
+  `tentacron-env_tentacron-data` is not picked up and must be copied across
+  to keep its jobs and results.
+- `environment/config.yaml` addresses the heat services by their
+  repository aliases: `meme`, `buem-gateway`, `pysam-pv`, `ignis`,
+  `weather` and `pylovo`.
+
 ## [0.4.0-alpha] - 2026-09-06
 
 ### Added
