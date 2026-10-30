@@ -33,6 +33,9 @@ under "Changed" with the keys or fields concerned.
   release data volume is now `tentacron_tentacron-data`; an existing
   `tentacron-env_tentacron-data` is not picked up and must be copied across
   to keep its jobs and results.
+- `environment/config.yaml` addresses the heat services by their
+  repository aliases: `meme`, `buem-gateway`, `pysam-pv`, `ignis`,
+  `weather` and `pylovo`.
 
 ## [0.4.0-alpha] - 2026-09-06
 
