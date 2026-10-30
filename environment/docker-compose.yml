@@ -1,19 +1,20 @@
-# Build-and-test environment for the tentacron service.
+# The tentacron service and its development environment.
 #
 # Per-environment settings (ports, config, image tag, keys) come from an env file:
-#   docker compose --env-file environment/.env.dev  -f environment/docker-compose.yml up api
-#   docker compose --env-file environment/.env.prod -f environment/docker-compose.yml up api
+#   docker compose --env-file environment/.env.dev -f environment/docker-compose.yml up -d --build api                   # release image, built from this checkout
+#   docker compose --env-file environment/.env.dev -f environment/docker-compose.yml up -d --pull always --no-build api  # published release (RELEASE_IMAGE)
+#   docker compose --env-file environment/.env.dev -f environment/docker-compose.yml --profile dev up dev               # sources bind-mounted
 # or via the Makefile:  make -C environment run ENV=dev   /   ENV=prod
-#
-# The repo root is bind-mounted into /src so edits are picked up without a
-# rebuild; only the Go toolchain layer is baked into the image.
-#
-# The project name comes from COMPOSE_PROJECT_NAME in the env files (portable
-# across compose v1 and v2, unlike the top-level `name:` key).
+
+# Pinned, because volume and network names are built from it, and it is the
+# unit `down --remove-orphans` acts on.
+name: tentacron
 
 services:
-  # Long-running API service.
-  tentacron:
+  # Development API: the Go toolchain image with the repo root bind-mounted
+  # into /src, so edits are picked up without a rebuild.
+  dev:
+    profiles: [dev]
     build:
       context: ..
       dockerfile: environment/Dockerfile
@@ -39,20 +40,25 @@ services:
       - go-mod:/root/go/pkg/mod
     ports:
       - "${HOST_PORT:-8080}:${PORT:-8080}"
-    networks:
-      - default
-      - tentacron-net # ignis-http, city2tabula, buem-gateway-http, weather-serve
-      - spatialhub-net # pylovo-api-dev
+    networks: &networks
+      default:
+      tentacron-net: # ignis, city2tabula, buem-gateway, weather, meme, pysam-pv
+        # Callers in other repositories address `tentacron`. The service name
+        # `api` is shared by other repositories on this network and resolves
+        # to any of them, so it is never an address.
+        aliases: [tentacron]
+      spatialhub-net: # pylovo
     command: make run
     restart: unless-stopped
 
-  # Production deployment: the published distroless image (built by the
-  # release workflow from the root Dockerfile), read-only config, a named
-  # volume for the SQLite store and result files, non-root. Select the tag
-  # with RELEASE_IMAGE in the env file.
-  #   make -C environment run-release ENV=prod
-  tentacron-release:
+  # Deployment: the distroless release image from the root Dockerfile,
+  # read-only config, a named volume for the SQLite store and result files,
+  # non-root. RELEASE_IMAGE in the env file selects the published tag.
+  api:
     image: ${RELEASE_IMAGE:-ghcr.io/enerplanet/tentacron:latest}
+    build:
+      context: ..
+      dockerfile: Dockerfile
     environment:
       - PORT=${PORT:-8080}
       - TENTACRON_KEY_FRONTEND=${TENTACRON_KEY_FRONTEND:?set in environment/.env.dev|prod}
@@ -68,10 +74,7 @@ services:
       - tentacron-data:/data
     ports:
       - "${HOST_PORT:-8080}:${PORT:-8080}"
-    networks:
-      - default
-      - tentacron-net # ignis-http, city2tabula, buem-gateway-http, weather-serve
-      - spatialhub-net # pylovo-api-dev
+    networks: *networks
     healthcheck:
       test: ["CMD", "/usr/local/bin/tentacron", "healthcheck", "-addr", "127.0.0.1:${PORT:-8080}"]
       interval: 30s
@@ -82,6 +85,7 @@ services:
   # One-shot: validate the config the api service would load, with the same
   # env file — the pre-deploy check.
   validate:
+    profiles: [tools]
     image: ${IMAGE_TAG:-tentacron-env:latest}
     build:
       context: ..
@@ -106,6 +110,7 @@ services:
 
   # One-shot: compile everything and run the Go test suite.
   test:
+    profiles: [tools]
     image: ${IMAGE_TAG:-tentacron-env:latest}
     build:
       context: ..
@@ -119,6 +124,7 @@ services:
 
   # Interactive shell with the Go toolchain and sqlite3 on PATH.
   shell:
+    profiles: [tools]
     image: ${IMAGE_TAG:-tentacron-env:latest}
     build:
       context: ..
