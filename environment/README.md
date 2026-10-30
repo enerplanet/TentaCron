@@ -56,7 +56,7 @@ directly (source the env file first).
 | `HOST_PORT` | 8080 | 80 | port published on your machine | compose |
 | `CONFIG` | `environment/config.yaml` | `environment/config.yaml` | config file the API loads | compose → root `make run` |
 | `IMAGE_TAG` | `tentacron-env:dev` | `tentacron-env:prod` | tag of the development image | compose |
-| `RELEASE_IMAGE` | `ghcr.io/enerplanet/tentacron:latest` | pin a version | published release image for `run-release` | compose |
+| `RELEASE_IMAGE` | `ghcr.io/enerplanet/tentacron:latest` | pin a version | release image the `api` service runs | compose |
 | `TENTACRON_KEY_*` | dev placeholders | **change-me** | client keys tentacron accepts | config |
 | `MEME_API_KEY`, `BUEM_API_KEY`, `PV1_API_KEY`, `WIND_API_KEY`, `WEATHER_API_KEY`, `IGNIS_API_KEY` | dev placeholders | **change-me** | credentials tentacron presents to the downstream services (meme, buem-gateway, the PV/wind profile services, weather, ignis) | config |
 
@@ -73,7 +73,7 @@ Or drive compose directly with `--env-file`:
 
 ```bash
 docker compose --env-file environment/.env.prod \
-  -f environment/docker-compose.yml up tentacron
+  -f environment/docker-compose.yml --profile dev up dev
 ```
 
 Copy either file to add more environments (e.g. `.env.staging`) and select it
@@ -83,19 +83,26 @@ with `ENV=staging`.
 
 Deployments use the image the release workflow publishes from the root
 [`Dockerfile`](../Dockerfile) — distroless, non-root, nothing but the
-binary — instead of the development image above. The `tentacron-release` compose
+binary, instead of the development image above. The `api` compose
 service wires it with this folder's config mounted read-only and a named
 volume at `/data` for the SQLite store and result files:
 
 ```bash
 make -C environment run-release ENV=prod   # RELEASE_IMAGE from .env.prod
+docker compose --env-file environment/.env.prod \
+  -f environment/docker-compose.yml up -d --build api   # same image, built from this checkout
 ```
+
+The Compose project is `tentacron`, so the container is `tentacron-api-1`.
+Other services on `tentacron-net` reach it by the alias `tentacron`.
+`dev`, `validate`, `test` and `shell` sit under the `dev` and `tools`
+profiles, so a plain `up` starts `api` only.
 
 A frontend served from your machine, say Vite on port 5173, calls the
 compose service across origins: list it under `server.cors.allowed_origins`
 in `config.yaml` (`["http://localhost:5173"]`) and restart or send
 `SIGHUP` to the container (`docker compose -f environment/docker-compose.yml
-kill -s HUP tentacron`). The [browser client example](../examples/browser/) is a
+kill -s HUP api`). The [browser client example](../examples/browser/) is a
 page to try it with.
 
 Pin `RELEASE_IMAGE` to a version tag (`ghcr.io/enerplanet/tentacron:0.4.0-alpha`)
@@ -121,7 +128,7 @@ form.
 - [`config.yaml`](config.yaml) serves Prometheus metrics on `:9090`
   (`server.metrics_addr`) inside the compose network only; publish that
   port deliberately if you scrape from the host.
-- The `tentacron` service writes its SQLite database and result files to
+- The `dev` service writes its SQLite database and result files to
   `/src/data` (the bind mount), which is gitignored. The development
   container runs as root, so `data/` contents it creates are root-owned on
   the host; the release image runs as `nonroot` and writes to its `/data`

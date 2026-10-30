@@ -3,7 +3,7 @@
 #
 #   make -C environment build   # build the image
 #   make -C environment test    # run the Go suite inside the container
-#   make -C environment run     # serve the API from the dev image
+#   make -C environment run     # serve the API from the dev image (sources bind-mounted)
 #   make -C environment run-release # serve the published release image
 #   make -C environment shell   # interactive shell in the image
 #
@@ -19,7 +19,7 @@ COMPOSE  := $(COMPOSE_BIN) --env-file $(ENV_FILE) -f docker-compose.yml
 .PHONY: build test validate run run-release shell help
 
 build: ## Build the environment image (Go toolchain + tooling)
-	$(COMPOSE) build
+	$(COMPOSE) --profile dev build dev
 
 test: ## Build and run the Go test suite inside the container
 	$(COMPOSE) run --rm test
@@ -28,10 +28,10 @@ validate: ## Validate the config the tentacron service loads, with this env file
 	$(COMPOSE) run --rm validate
 
 run: ## Run the API from the development image (sources bind-mounted)
-	$(COMPOSE) up tentacron
+	$(COMPOSE) --profile dev up dev
 
 run-release: ## Run the published release image (RELEASE_IMAGE in the env file)
-	$(COMPOSE) up tentacron-release
+	$(COMPOSE) up --pull always --no-build api
 
 shell: ## Interactive shell in the environment image
 	$(COMPOSE) run --rm shell

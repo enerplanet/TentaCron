@@ -61,7 +61,7 @@ targets:
     # traceability would be an unknown field and the job would 400. Each
     # resolvent feeding this target also needs a response_map emitting only
     # {source, values, unit} — see resolvent-buem.
-    url: "http://meme-env-api-1:8080/simulate?target=calliope"
+    url: "http://meme:8080/simulate?target=calliope"
     method: POST
     api_key: "${MEME_API_KEY}"
     api_key_inject: body_field
@@ -74,11 +74,11 @@ targets:
       mode: poll
       poll:
         id_json_path: "id"
-        url_template: "http://meme-env-api-1:8080/jobs/{id}/status"
+        url_template: "http://meme:8080/jobs/{id}/status"
         status_json_path: "state"
         done_values: [succeeded]
         failed_values: [failed]
-        result_url_template: "http://meme-env-api-1:8080/jobs/{id}"
+        result_url_template: "http://meme:8080/jobs/{id}"
         interval: 10s
         timeout: 30m
         result_timeout: 15m # the bundle download as a whole; the target's timeout bounds each read of it
@@ -88,7 +88,7 @@ targets:
   # Selected per request by the backend (internal/jobs/dispatch_meme.go); default
   # stays `meme-calliope`.
   meme-pypsa:
-    url: "http://meme-env-api-1:8080/simulate?target=pypsa"
+    url: "http://meme:8080/simulate?target=pypsa"
     method: POST
     api_key: "${MEME_API_KEY}"
     api_key_inject: body_field
@@ -101,18 +101,18 @@ targets:
       mode: poll
       poll:
         id_json_path: "id"
-        url_template: "http://meme-env-api-1:8080/jobs/{id}/status"
+        url_template: "http://meme:8080/jobs/{id}/status"
         status_json_path: "state"
         done_values: [succeeded]
         failed_values: [failed]
-        result_url_template: "http://meme-env-api-1:8080/jobs/{id}"
+        result_url_template: "http://meme:8080/jobs/{id}"
         interval: 10s
         timeout: 30m
         result_timeout: 15m
 
   buem-building:
     # Singular route; see ../config.example.yaml for the annotated entry.
-    # buem-gateway-http is buem-gateway's alias on tentacron-net.
+    # buem-gateway is the gateway's alias on tentacron-net.
     #
     # Direct mode, so the response is read whole under
     # upstream.max_response_bytes. One building-year of hourly series measures
@@ -120,7 +120,7 @@ targets:
     # simulation period and the resolution each multiply it. Over the cap the
     # job fails with target_error naming neither the size nor the period.
     # Extrapolated from one measurement.
-    url: "http://buem-gateway-http:8080/api/v1/buem/building"
+    url: "http://buem-gateway:8080/api/v1/buem/building"
     method: POST
     timeout: 300s
     retry_on_timeout: false
@@ -136,7 +136,7 @@ targets:
     # same ~666 KB per building-year: a caller setting keep_timeseries here
     # fails the whole batch past roughly fifteen buildings at one year each.
     # Extrapolated from one measurement.
-    url: "http://buem-gateway-http:8080/api/v1/buem/buildings"
+    url: "http://buem-gateway:8080/api/v1/buem/buildings"
     method: POST
     timeout: 570s # kept under the 10m outbound-client ceiling
     proxy: true
@@ -150,7 +150,7 @@ targets:
     # tentacron-net. A request carries one weather year (~0.5 MB) and up to 50
     # arrays; the response is at most ~4 MB, under upstream.max_response_bytes.
     # timeout 60s is not a measurement.
-    url: "http://pv-service:8080/v1/pv/simulate"
+    url: "http://pysam-pv:8080/v1/pv/simulate"
     method: POST
     timeout: 60s
     proxy: true
@@ -160,9 +160,9 @@ targets:
 
   ignis-calculate:
     # Proxy target; see ../config.example.yaml for the annotated (through-proxy)
-    # entry. This environment reaches ignis-http directly on tentacron-net,
+    # entry. This environment reaches ignis directly on tentacron-net,
     # with no reverse proxy in that path, so no credential is injected.
-    url: "http://ignis-http:8080/api/v1/calculate/{code}"
+    url: "http://ignis:8080/api/v1/calculate/{code}"
     method: POST
     timeout: 10s # ignis enforces a 5s per-request handler deadline
     proxy: true
@@ -171,7 +171,7 @@ targets:
 
   ignis-variants-match:
     # GET proxy target: iso2 fills the path, type/year become query parameters.
-    url: "http://ignis-http:8080/api/v1/variants/{iso2}/match"
+    url: "http://ignis:8080/api/v1/variants/{iso2}/match"
     method: GET
     timeout: 10s
     proxy: true
@@ -179,7 +179,7 @@ targets:
       mode: direct
 
   ignis-data:
-    url: "http://ignis-http:8080/api/v1/data/{code}"
+    url: "http://ignis:8080/api/v1/data/{code}"
     method: GET
     timeout: 10s
     proxy: true
@@ -188,7 +188,7 @@ targets:
 
   ignis-fields:
     # Empty payload, no path or query, no body: the field-metadata catalogue.
-    url: "http://ignis-http:8080/api/v1/fields"
+    url: "http://ignis:8080/api/v1/fields"
     method: GET
     timeout: 10s
     proxy: true
@@ -197,7 +197,7 @@ targets:
 
   ignis-variants:
     # iso2 fills the path; the whole country variant list.
-    url: "http://ignis-http:8080/api/v1/variants/{iso2}"
+    url: "http://ignis:8080/api/v1/variants/{iso2}"
     method: GET
     timeout: 10s
     proxy: true
@@ -214,7 +214,7 @@ targets:
     # format=json is a default a request field of the same name overrides.
     # Everything else (provider, lat, lon, exactly one of year or scenario,
     # variables or use_case) comes from the request.
-    url: "http://weather-serve:8080/v1/weather/point?format=json"
+    url: "http://weather:8080/v1/weather/point?format=json"
     method: GET
     api_key: "${WEATHER_API_KEY}"
     api_key_inject: header
@@ -227,7 +227,7 @@ targets:
   weather-providers:
     # GET proxy target; see ../config.example.yaml for the annotated entry.
     # Keyed like weather-point.
-    url: "http://weather-serve:8080/v1/weather/providers"
+    url: "http://weather:8080/v1/weather/providers"
     method: GET
     api_key: "${WEATHER_API_KEY}"
     api_key_inject: header
@@ -363,7 +363,7 @@ targets:
     # buildings, which keeps the footprint response under
     # upstream.max_response_bytes; an uncapped city polygon would exceed it
     # and fail the job with target_error.
-    url: "http://pylovo-api-dev:8086/generate-grid"
+    url: "http://pylovo:8086/generate-grid"
     method: POST
     timeout: 300s
     job_timeout: 10m
@@ -374,7 +374,7 @@ targets:
       mode: direct
 
   pylovo-estimate-energy:
-    url: "http://pylovo-api-dev:8086/estimate-energy"
+    url: "http://pylovo:8086/estimate-energy"
     method: POST
     timeout: 30s
     proxy: true
@@ -382,7 +382,7 @@ targets:
       mode: direct
 
   pylovo-estimate-energy-batch:
-    url: "http://pylovo-api-dev:8086/estimate-energy-batch"
+    url: "http://pylovo:8086/estimate-energy-batch"
     method: POST
     timeout: 120s
     proxy: true
@@ -390,7 +390,7 @@ targets:
       mode: direct
 
   pylovo-grid-statistics:
-    url: "http://pylovo-api-dev:8086/grid-statistics"
+    url: "http://pylovo:8086/grid-statistics"
     method: POST
     timeout: 60s
     proxy: true
@@ -398,7 +398,7 @@ targets:
       mode: direct
 
   pylovo-power-flow:
-    url: "http://pylovo-api-dev:8086/power-flow"
+    url: "http://pylovo:8086/power-flow"
     method: POST
     timeout: 120s
     proxy: true
@@ -406,7 +406,7 @@ targets:
       mode: direct
 
   pylovo-hosting-capacity:
-    url: "http://pylovo-api-dev:8086/hosting-capacity"
+    url: "http://pylovo:8086/hosting-capacity"
     method: POST
     timeout: 120s
     proxy: true
@@ -415,7 +415,7 @@ targets:
 
   pylovo-boundary:
     # POST: the boundary of a caller-supplied polygon.
-    url: "http://pylovo-api-dev:8086/boundary"
+    url: "http://pylovo:8086/boundary"
     method: POST
     timeout: 60s
     proxy: true
@@ -424,7 +424,7 @@ targets:
 
   pylovo-boundary-get:
     # GET: lat, lon and optional admin_level become query parameters.
-    url: "http://pylovo-api-dev:8086/boundary"
+    url: "http://pylovo:8086/boundary"
     method: GET
     timeout: 30s
     proxy: true
@@ -432,7 +432,7 @@ targets:
       mode: direct
 
   pylovo-boundary-regions:
-    url: "http://pylovo-api-dev:8086/boundary/regions"
+    url: "http://pylovo:8086/boundary/regions"
     method: GET
     timeout: 30s
     proxy: true
@@ -441,7 +441,7 @@ targets:
 
   pylovo-boundary-states:
     # country_code, version_id, geometry_mode and simplify_m to the query.
-    url: "http://pylovo-api-dev:8086/boundary/states"
+    url: "http://pylovo:8086/boundary/states"
     method: GET
     timeout: 60s # a state geometry, unsimplified, is large
     proxy: true
@@ -449,7 +449,7 @@ targets:
       mode: direct
 
   pylovo-boundary-available:
-    url: "http://pylovo-api-dev:8086/boundary/available"
+    url: "http://pylovo:8086/boundary/available"
     method: GET
     timeout: 30s
     proxy: true
@@ -458,7 +458,7 @@ targets:
 
   pylovo-add-custom-building:
     # Creates a row; one attempt, never re-submitted on a timeout.
-    url: "http://pylovo-api-dev:8086/add-custom-building"
+    url: "http://pylovo:8086/add-custom-building"
     method: POST
     timeout: 30s
     proxy: true
@@ -469,7 +469,7 @@ targets:
 
   pylovo-custom-buildings-get:
     # user_id fills the path segment and is stripped from the forwarded body.
-    url: "http://pylovo-api-dev:8086/custom-buildings/{user_id}"
+    url: "http://pylovo:8086/custom-buildings/{user_id}"
     method: GET
     timeout: 30s
     proxy: true
@@ -477,7 +477,7 @@ targets:
       mode: direct
 
   pylovo-add-transformer:
-    url: "http://pylovo-api-dev:8086/add-transformer"
+    url: "http://pylovo:8086/add-transformer"
     method: POST
     timeout: 30s
     proxy: true
@@ -487,7 +487,7 @@ targets:
       mode: direct
 
   pylovo-assign-building:
-    url: "http://pylovo-api-dev:8086/assign-building"
+    url: "http://pylovo:8086/assign-building"
     method: POST
     timeout: 30s
     proxy: true
@@ -497,7 +497,7 @@ targets:
       mode: direct
 
   pylovo-delete-transformer:
-    url: "http://pylovo-api-dev:8086/delete-transformer"
+    url: "http://pylovo:8086/delete-transformer"
     method: POST
     timeout: 30s
     proxy: true
@@ -507,7 +507,7 @@ targets:
       mode: direct
 
   pylovo-move-transformer:
-    url: "http://pylovo-api-dev:8086/move-transformer"
+    url: "http://pylovo:8086/move-transformer"
     method: POST
     timeout: 30s
     proxy: true
@@ -517,7 +517,7 @@ targets:
       mode: direct
 
   pylovo-finalize-transformers:
-    url: "http://pylovo-api-dev:8086/finalize-transformers"
+    url: "http://pylovo:8086/finalize-transformers"
     method: POST
     timeout: 60s
     proxy: true
@@ -528,7 +528,7 @@ targets:
 
   # Reference data: no parameters, no body.
   pylovo-transformer-sizes:
-    url: "http://pylovo-api-dev:8086/transformer-sizes"
+    url: "http://pylovo:8086/transformer-sizes"
     method: GET
     timeout: 10s
     proxy: true
@@ -536,7 +536,7 @@ targets:
       mode: direct
 
   pylovo-consumer-categories:
-    url: "http://pylovo-api-dev:8086/consumer-categories"
+    url: "http://pylovo:8086/consumer-categories"
     method: GET
     timeout: 10s
     proxy: true
@@ -544,7 +544,7 @@ targets:
       mode: direct
 
   pylovo-cable-types:
-    url: "http://pylovo-api-dev:8086/cable-types"
+    url: "http://pylovo:8086/cable-types"
     method: GET
     timeout: 10s
     proxy: true
@@ -552,7 +552,7 @@ targets:
       mode: direct
 
   pylovo-equipment-costs:
-    url: "http://pylovo-api-dev:8086/equipment-costs"
+    url: "http://pylovo:8086/equipment-costs"
     method: GET
     timeout: 10s
     proxy: true
@@ -560,7 +560,7 @@ targets:
       mode: direct
 
   pylovo-voltage-settings:
-    url: "http://pylovo-api-dev:8086/voltage-settings"
+    url: "http://pylovo:8086/voltage-settings"
     method: GET
     timeout: 10s
     proxy: true
@@ -594,7 +594,7 @@ resolvents:
       source: ".inputs.meteo_data.radiation_db"
 
   resolvent-weather:
-    url: "http://weather-serve:8080/v1/weather/point?format=json"
+    url: "http://weather:8080/v1/weather/point?format=json"
     method: GET
     api_key: "${WEATHER_API_KEY}"
     api_key_header: X-API-Key
@@ -609,7 +609,7 @@ resolvents:
     cache_ttl: 24h
 
   resolvent-ignis:
-    url: "http://ignis-http:8080/api/v1/data/{code}"
+    url: "http://ignis:8080/api/v1/data/{code}"
     method: GET
     timeout: 30s
     cache_ttl: 168h
