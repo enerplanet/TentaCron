@@ -350,6 +350,23 @@ targets:
     response:
       mode: direct
 
+  c2t-datasets:
+    # The 3D datasets on disk, by region. The optional footprint flag reaches
+    # the query unchanged, so no query_map. A cold footprint call reads every
+    # file header of a dataset (about 3.5 min for 3DBAG) before City2TABULA's
+    # per-file extent cache is warm, hence 15m, with job_timeout above it.
+    # max_attempts 1: the caller's next refresh is the retry, and the cache
+    # carries progress over; more attempts would let abandoned jobs stack up
+    # and hold every worker slot.
+    url: "http://city2tabula:5000/api/v1/datasets"
+    method: GET
+    timeout: 15m
+    job_timeout: 20m
+    proxy: true
+    max_attempts: 1
+    response:
+      mode: direct
+
   # pylovo (synthetic low-voltage grids), one proxy target per path and
   # method. Keyless: the pylovo API enforces no auth. See
   # ../config.example.yaml for the annotated entry.
