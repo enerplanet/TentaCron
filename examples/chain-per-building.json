@@ -1,0 +1,67 @@
+{
+  "api_key": "your-tentacron-api-key",
+  "target": "meme",
+  "payload": {
+    "model": {
+      "scenario": "chaining-demo-not-a-simulation-payload",
+      "timeseries": {
+        "weather": {
+          "type": "resolvent-weather",
+          "provider": "era5",
+          "lat": 48.831,
+          "lon": 12.957,
+          "year": 2018,
+          "use_case": "buem"
+        },
+        "building_b1": {
+          "type": "resolvent-city2tabula",
+          "country": "germany",
+          "osm_ids": ["123456"]
+        },
+        "typology_b1": {
+          "type": "resolvent-ignis",
+          "code": { "$from": "building_b1", "path": "tabula_variant_code" }
+        },
+        "heat_demand_b1": {
+          "type": "resolvent-buem",
+          "payload": {
+            "id": "b-1",
+            "start_date": "2018-01-01T00:00:00Z",
+            "buem": {
+              "building": {
+                "storeys": { "$from": "building_b1", "path": "number_of_storeys" },
+                "u_wall": { "$from": "typology_b1", "path": "tabula_data.u_wall" },
+                "u_roof": { "$from": "typology_b1", "path": "tabula_data.u_roof" }
+              },
+              "weather": { "$from": "weather" }
+            }
+          }
+        },
+        "building_b2": {
+          "type": "resolvent-city2tabula",
+          "country": "germany",
+          "osm_ids": ["654321"]
+        },
+        "typology_b2": {
+          "type": "resolvent-ignis",
+          "code": { "$from": "building_b2", "path": "tabula_variant_code" }
+        },
+        "heat_demand_b2": {
+          "type": "resolvent-buem",
+          "payload": {
+            "id": "b-2",
+            "start_date": "2018-01-01T00:00:00Z",
+            "buem": {
+              "building": {
+                "storeys": { "$from": "building_b2", "path": "number_of_storeys" },
+                "u_wall": { "$from": "typology_b2", "path": "tabula_data.u_wall" },
+                "u_roof": { "$from": "typology_b2", "path": "tabula_data.u_roof" }
+              },
+              "weather": { "$from": "weather" }
+            }
+          }
+        }
+      }
+    }
+  }
+}

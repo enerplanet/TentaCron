@@ -55,7 +55,7 @@ var edgeScenarios = []scenario{
 		name: "response-path-missing",
 		mod: func(cfg *config.Config) {
 			r := cfg.Resolvents["resolvent-city2tabula"]
-			r.ResponsePath = "0.tabula.missing"
+			r.ResponsePath = "buildings.0.tabula.missing"
 			cfg.Resolvents["resolvent-city2tabula"] = r
 		},
 		run: func(t *testing.T, h *harness) {

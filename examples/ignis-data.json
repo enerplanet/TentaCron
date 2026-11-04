@@ -1,0 +1,7 @@
+{
+  "api_key": "your-tentacron-api-key",
+  "target": "ignis-data",
+  "payload": {
+    "code": "DE.N.SFH.06.Gen.ReEx.001.001"
+  }
+}
