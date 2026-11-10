@@ -103,8 +103,12 @@ targets:
         id_json_path: "id"
         url_template: "http://meme:8080/jobs/{id}/status"
         status_json_path: "state"
-        done_values: [succeeded]
-        failed_values: [failed]
+        # A diverged PyPSA solve exits 3 with all tables still written: the
+        # bundle IS the diagnosis, so 'failed' must deliver it to the ingest.
+        # MEME's /jobs/{id}/result serves the zip for any Done() state. Keep
+        # meme-calliope below as a hard failure (no bundle worth ingesting).
+        done_values: [succeeded, failed]
+        failed_values: []
         result_url_template: "http://meme:8080/jobs/{id}"
         interval: 10s
         timeout: 40m
