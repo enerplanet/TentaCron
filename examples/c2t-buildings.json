@@ -1,0 +1,8 @@
+{
+  "api_key": "your-tentacron-api-key",
+  "target": "c2t-buildings",
+  "payload": {
+    "country": "germany",
+    "osm_ids": "42897001,42897002,42897003"
+  }
+}

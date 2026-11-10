@@ -1,6 +1,6 @@
 name: Release
 
-# Cuts a release from a signed v* tag: the tag must have a matching
+# Cuts a release from any v* tag, on any branch: the tag must have a matching
 # CHANGELOG section, the race suite must pass, then binaries (with
 # checksums) go to a GitHub release and the multi-arch image to GHCR.
 on:

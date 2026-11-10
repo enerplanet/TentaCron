@@ -1,0 +1,9 @@
+{
+  "api_key": "your-tentacron-api-key",
+  "target": "ignis-variants-match",
+  "payload": {
+    "iso2": "DE",
+    "type": "SFH",
+    "year": 1975
+  }
+}
